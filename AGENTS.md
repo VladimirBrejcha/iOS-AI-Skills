@@ -16,3 +16,10 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
 ## Conventions
 - Keep docs concise and ASCII-only.
 - Prefer small, focused changes and avoid reformatting unrelated files.
+
+## New Skills
+- `apple-hig-designer`: Design iOS apps following Apple’s HIG, including native components, accessibility validation, and the clarity/deference/depth principles. Open `apple-hig-designer/SKILL.md` for the workflow.
+- `ios-xcodegen`: Manage XcodeGen projects—regenerate `project.yml`, wire assets, configure tests, and resolve packaging issues without editing the generated `.xcodeproj`. Read `ios-xcodegen/SKILL.md` before touching builds.
+- `swift-concurrency`: Review or build Swift 6+ concurrency code (async/await, Tasks, actors, MainActor, Sendable types) and follow the auditing/refactoring workflows in `swift-concurrency/SKILL.md`.
+- `xcode-build`: Run native `xcodebuild`/`xcrun simctl` commands to build, launch, and test iOS/macOS apps; the skill enforces command-line patterns defined in `xcode-build/SKILL.md`.
+- `xcode-cloud`: Configure and debug Xcode Cloud workflows, especially around XcodeGen projects and custom `ci_scripts`. Use the templates and guidance stored in `xcode-cloud/SKILL.md`.
