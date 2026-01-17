@@ -12,10 +12,12 @@ A curated set of Codex skills for Apple platform development, mobile tooling, an
 | `cloudflare-d1` | `cloudflare-d1` | Build with Cloudflare's D1 serverless SQLite database: schema design, migrations, queries, and troubleshooting D1 errors from your Workers. |
 | `cloudflare-queues` | `cloudflare-queues` | Build async message queues with Cloudflare Queues, handling producers, consumers, retries, dead-letter queues, and throughput tuning. |
 | `cloudflare-worker-base` | `cloudflare-worker-base` | Set up Cloudflare Workers with Hono routing, the Vite plugin, and Static Assets while avoiding export syntax, routing, HMR, and asset rollout issues. |
+| `design-brief-generator` | `design-brief-generator` | Generate comprehensive design briefs for design projects, including requirements, scope, and planning guidance. |
 | `ios-xcodegen` | `ios-xcodegen` | XcodeGen workflows for generating projects from `project.yml`/`project.yaml`, wiring assets, configuring test hosts, managing SwiftPM resolution in CI, and fixing packaging issues with static libraries. |
 | `revenuecat` | `revenuecat` | Comprehensive assistance with RevenueCat in-app subscriptions and purchases across platforms. |
 | `silent-pushes-setup` | `silent-pushes-setup` | Setup, debug, or validate iOS silent/background push notifications with APNs entitlements, device token registration, backend sending, and widget refresh. |
 | `swift-concurrency` | `swift-concurrency` | Guide for building, auditing, and refactoring Swift concurrency (Swift 6+) code, covering async/await, Tasks, actors, MainActor, Sendable types, and migrations. |
+| `swiftui-animation` | `swiftui-animation` | Implement advanced SwiftUI animations, transitions, matched geometry effects, and Metal shader integration. |
 | `swiftui-liquid-glass` | `swiftui-liquid-glass` | Implement, review, or improve SwiftUI features using the iOS 26+ Liquid Glass API. |
 | `swiftui-performance-audit` | `swiftui-performance-audit` | Audit and improve SwiftUI runtime performance, diagnosing slow rendering, janky scrolling, and high CPU/memory usage while guiding tooling. |
 | `swiftui-view-refactor` | `swiftui-view-refactor` | Refactor SwiftUI view files for consistent structure, dependency injection, and safe observation of view models. |
