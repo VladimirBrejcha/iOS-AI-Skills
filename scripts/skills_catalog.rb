@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "digest"
+require "date"
 require "fileutils"
 require "find"
 require "json"
@@ -28,7 +29,7 @@ PUBLIC_UNSAFE_PATTERNS = {
   "mac temp path" => %r{/var/folders/},
   "file URL" => %r{[Ff][Ii][Ll][Ee]://},
   "HTTP credentials" => %r{https?://[^/\s]*@}i,
-  "non-HTTP URL password" => %r{(?:ssh|git|ftp|ftps|rsync)://[^/\s:@]+:[^/\s@]+@}i,
+  "non-HTTP URL password" => %r{\b(?!https?://)(?:[a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@}i,
   "scp-like URL password" => %r{\b[^/\s:@]+:[^/\s@]+@[^/\s:@]+:[^\s]+},
   "GitHub token" => %r{github_pat_|ghp_|gho_|ghu_|ghs_|ghr_},
   "OpenAI key" => %r{sk-[A-Za-z0-9_-]{20,}},
@@ -167,7 +168,7 @@ def scp_like_url_has_repository_path?(value)
   match = /\A(?:[^\/@\s]+@)?[^\/:\s]+:(?<path>.+)\z/.match(value.to_s)
   return false unless match
 
-  !match[:path].to_s.split("/").reject(&:empty?).empty?
+  remote_repository_path?(match[:path])
 end
 
 def windows_drive_letter_path?(value)
@@ -245,8 +246,25 @@ rescue URI::InvalidURIError
   suffix.include?("?") || suffix.include?("#")
 end
 
+def normalized_remote_path_segments(path)
+  path.to_s.split("/").reject(&:empty?).each_with_object([]) do |segment, memo|
+    case segment
+    when "."
+      next
+    when ".."
+      memo.pop unless memo.empty?
+    else
+      memo << segment
+    end
+  end
+end
+
+def remote_repository_path?(path)
+  !normalized_remote_path_segments(path).empty?
+end
+
 def remote_uri_has_repository_path?(uri)
-  !uri.path.to_s.split("/").reject(&:empty?).empty?
+  remote_repository_path?(uri.path)
 end
 
 def valid_http_remote_url?(value)
@@ -356,6 +374,14 @@ def string_array(value, reporter, label)
       reporter.error("#{label}[#{index}] must be a non-empty string without control characters")
     end
   end
+end
+
+def valid_iso_date?(value)
+  return false unless valid_string?(value)
+
+  Date.iso8601(value).iso8601 == value
+rescue ArgumentError
+  false
 end
 
 def string_mapping(value, reporter, label, allow_nil: false)
@@ -539,7 +565,17 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
     end
 
     expose_to = string_array(entry["expose_to"], reporter, "#{display_path(profile_path)} #{entry["skill_id"]} expose_to")
+    seen_expose_to_consumers = {}
     expose_to.each do |consumer|
+      unless safe_non_path_identifier?(consumer)
+        reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} expose_to entries must be safe non-path identifiers")
+        next
+      end
+      if seen_expose_to_consumers[consumer]
+        reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} expose_to must not list duplicate consumers")
+      else
+        seen_expose_to_consumers[consumer] = true
+      end
       reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} exposes to unknown consumer #{consumer}") unless consumer_roots.key?(consumer)
     end
     overrides = normalized_consumer_overrides(
@@ -551,8 +587,13 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
       reporter
     )
     override = overrides&.fetch("agents_user", nil)
-    state = entry["state"].to_s
-    next unless state == "active"
+    state = entry["state"]
+    if !state.nil? && !state.is_a?(String)
+      reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} state must be a string when provided")
+    elsif state.is_a?(String) && !state.empty? && !safe_non_path_identifier?(state)
+      reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} state must be a safe non-path identifier")
+    end
+    next unless state.to_s == "active"
     next unless expose_to.is_a?(Array) && expose_to.include?("agents_user")
     if seen_active_agents_user_skill_ids[entry["skill_id"]]
       reporter.error("#{display_path(profile_path)} duplicate active agents_user selection for skill_id #{entry["skill_id"]}")
@@ -792,7 +833,11 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   manager_source = registry_metadata["manager_source"]
   raw_skills = registry["skills"]
 
-  reporter.error("registry.id is required") unless valid_string?(registry_id)
+  if !valid_string?(registry_id)
+    reporter.error("registry.id is required")
+  elsif !safe_non_path_identifier?(registry_id)
+    reporter.error("registry.id must be a safe non-path identifier")
+  end
   reporter.error("registry.name is required") unless valid_string?(registry_name)
   reporter.error("registry.status is required") unless valid_string?(registry_status)
   unless raw_skills.is_a?(Array)
@@ -924,7 +969,11 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
         reporter.error("#{skill_id}: external-git source.pinned_tag must be an exact tag name")
       end
       reporter.error("#{skill_id}: external-git source.observed_commit must be a full git object id") unless valid_git_object_id?(observed_commit)
-      reporter.error("#{skill_id}: external-git source.observed_at is required") unless valid_string?(observed_at)
+      if !valid_string?(observed_at)
+        reporter.error("#{skill_id}: external-git source.observed_at is required")
+      elsif !valid_iso_date?(observed_at)
+        reporter.error("#{skill_id}: external-git source.observed_at must be an ISO date (YYYY-MM-DD)")
+      end
 
       %w[url path pinned_tag observed_commit].each do |field|
         require_lock_field(lock_entry, skill_id, field, reporter)
