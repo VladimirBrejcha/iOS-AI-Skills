@@ -98,7 +98,8 @@ end
 
 def safe_relative_path?(value)
   return false unless valid_string?(value)
-  return false if value.start_with?("/") || value.include?("\\")
+  return false if value.start_with?("/")
+  return false if windows_local_path?(value) || value.include?("\\")
 
   path = Pathname.new(value)
   return false if path.each_filename.any? { |part| part == ".." }
@@ -710,6 +711,9 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       if skill_file&.file? && !valid_string?(metadata["name"])
         reporter.error("#{skill_id}: registry-local SKILL.md front matter name is required")
       end
+      if skill_file&.file? && !valid_text_string?(metadata["description"])
+        reporter.error("#{skill_id}: registry-local SKILL.md front matter description is required")
+      end
       digest = require_lock_field(lock_entry, skill_id, "digest_sha256", reporter)
       reporter.error("#{skill_id}: lock digest_sha256 must be a 64-character SHA-256") unless digest.empty? || valid_sha256_hex?(digest)
       current_digest = directory_digest(skill_root.to_s, reporter) if skill_root&.directory?
@@ -779,8 +783,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
                              status == "active" &&
                              clients["codex"] == "supported" &&
                              installable_codex_skills[skill_id] &&
-                             safe_adapter_name?(exported_names.first) &&
-                             manager_skill_name == exported_names.first
+                             exported_names == [manager_skill_name]
     manager_source_required ||= installable_by_manager
     if installable_by_manager && safe_manager_source?(manager_source)
       install = {

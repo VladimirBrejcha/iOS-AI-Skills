@@ -318,6 +318,27 @@ ruby -rjson -e '
   raise "planned skill should not emit install command" if example.key?("install")
 ' "$planned_state_dir/skills.catalog.json"
 
+multi_export_dir="$tmp_dir/multi-export"
+write_ok_fixture "$multi_export_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["exported_names"] = ["example-skill", "alias-review"]
+  File.write(path, data.to_yaml)
+' "$multi_export_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["exported_names"] = ["example-skill", "alias-review"]
+  File.write(path, data.to_yaml)
+' "$multi_export_dir/skills.lock.yaml"
+run_catalog "$multi_export_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  raise "multi-export skill should not emit install command" if example.key?("install")
+' "$multi_export_dir/skills.catalog.json"
+
 not_exposed_dir="$tmp_dir/not-exposed"
 write_ok_fixture "$not_exposed_dir"
 ruby -ryaml -e '
@@ -377,6 +398,25 @@ ruby -e '
 write_registry_local_digest "$missing_name_dir"
 missing_name_output="$(expect_failure run_catalog "$missing_name_dir" --json)"
 assert_contains "$missing_name_output" "example-skill: registry-local SKILL.md front matter name is required"
+
+missing_local_description_dir="$tmp_dir/missing-local-description"
+write_ok_fixture "$missing_local_description_dir"
+ruby -e '
+  path = ARGV.fetch(0)
+  lines = File.readlines(path)
+  File.write(path, lines.reject { |line| line.start_with?("description: ") }.join)
+' "$missing_local_description_dir/example-skill/SKILL.md"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["catalog"] = {
+    "description" => "Registry override should not satisfy local front matter."
+  }
+  File.write(path, data.to_yaml)
+' "$missing_local_description_dir/skills.registry.yaml"
+write_registry_local_digest "$missing_local_description_dir"
+missing_local_description_output="$(expect_failure run_catalog "$missing_local_description_dir" --json)"
+assert_contains "$missing_local_description_output" "example-skill: registry-local SKILL.md front matter description is required"
 
 ruby -e '
   path = ARGV.fetch(0)
@@ -619,6 +659,28 @@ ruby -ryaml -e '
 ' "$duplicate_source_owner_dir/skills.lock.yaml"
 duplicate_source_owner_output="$(expect_failure run_catalog "$duplicate_source_owner_dir" --json)"
 assert_contains "$duplicate_source_owner_output" "manual-review-skill: registry-local source.path example-skill is already declared by example-skill"
+
+drive_letter_source_dir="$tmp_dir/drive-letter-source"
+write_ok_fixture "$drive_letter_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  skill = data.fetch("skills").find { |entry| entry.fetch("id") == "example-skill" }
+  skill.fetch("source")["path"] = "C:foo"
+  skill["catalog"] = {
+    "description" => "Catalog override should not make a drive-letter path valid."
+  }
+  File.write(path, data.to_yaml)
+' "$drive_letter_source_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  skill = data.fetch("skills").find { |entry| entry.fetch("id") == "example-skill" }
+  skill["path"] = "C:foo"
+  File.write(path, data.to_yaml)
+' "$drive_letter_source_dir/skills.lock.yaml"
+drive_letter_source_output="$(expect_failure run_catalog "$drive_letter_source_dir" --json)"
+assert_contains "$drive_letter_source_output" "example-skill: registry-local source.path must name a top-level skill directory"
 
 unsafe_skill_id_dir="$tmp_dir/unsafe-skill-id"
 write_ok_fixture "$unsafe_skill_id_dir"
