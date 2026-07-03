@@ -20,6 +20,27 @@ DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 DEFAULT_INSTALL_PROFILE = File.join("profiles", "machine", "example-local-skills.yaml").freeze
 SHARED_AGENTS_USER_ROOT = File.expand_path("~/.agents/skills").freeze
 RFC6598_SHARED_ADDRESS_RANGE = IPAddr.new("100.64.0.0/10").freeze
+SPECIAL_USE_IPV4_ADDRESS_RANGES = [
+  IPAddr.new("0.0.0.0/8"),
+  IPAddr.new("192.0.0.0/29"),
+  IPAddr.new("192.0.0.170/31"),
+  IPAddr.new("192.0.2.0/24"),
+  IPAddr.new("198.18.0.0/15"),
+  IPAddr.new("198.51.100.0/24"),
+  IPAddr.new("203.0.113.0/24"),
+  IPAddr.new("224.0.0.0/4"),
+  IPAddr.new("240.0.0.0/4")
+].freeze
+SPECIAL_USE_IPV6_ADDRESS_RANGES = [
+  IPAddr.new("::/128"),
+  IPAddr.new("::ffff:0:0/96"),
+  IPAddr.new("100::/64"),
+  IPAddr.new("2001::/23"),
+  IPAddr.new("2001:2::/48"),
+  IPAddr.new("2001:db8::/32"),
+  IPAddr.new("2001:10::/28"),
+  IPAddr.new("ff00::/8")
+].freeze
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
 
@@ -379,6 +400,11 @@ def normalized_legacy_ipv4_address(host)
   [24, 16, 8, 0].map { |shift| (address >> shift) & 0xFF }.join(".")
 end
 
+def special_use_ip_address?(address)
+  ranges = address.ipv4? ? SPECIAL_USE_IPV4_ADDRESS_RANGES : SPECIAL_USE_IPV6_ADDRESS_RANGES
+  ranges.any? { |range| range.include?(address) }
+end
+
 def private_host?(host)
   normalized = normalized_host_name(host)
   return true if normalized.empty?
@@ -386,9 +412,10 @@ def private_host?(host)
 
   address = IPAddr.new(normalized_legacy_ipv4_address(normalized) || normalized)
   return true if RFC6598_SHARED_ADDRESS_RANGE.include?(address)
+  return true if special_use_ip_address?(address)
   return true if address.loopback? || address.private? || address.link_local?
 
-  address.to_s == "0.0.0.0" || address.to_s == "::"
+  false
 rescue IPAddr::InvalidAddressError
   false
 end

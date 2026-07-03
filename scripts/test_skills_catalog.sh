@@ -1105,6 +1105,26 @@ ruby -ryaml -e '
 shared_address_manager_source_output="$(expect_failure run_catalog "$shared_address_manager_source_dir" --json)"
 assert_contains "$shared_address_manager_source_output" "registry.manager_source must be a public-safe skills source"
 
+special_use_case_index=1
+for special_use_manager_source in \
+  "https://0.1.2.3/fiveonecode/agent-skills" \
+  "https://198.18.0.1/fiveonecode/agent-skills" \
+  "https://192.0.2.1/fiveonecode/agent-skills" \
+  "https://[2001:db8::1]/fiveonecode/agent-skills"; do
+  special_use_manager_source_dir="$tmp_dir/special-use-manager-source-$special_use_case_index"
+  write_ok_fixture "$special_use_manager_source_dir"
+  ruby -ryaml -e '
+    path = ARGV.fetch(0)
+    source = ARGV.fetch(1)
+    data = YAML.safe_load(File.read(path), aliases: false)
+    data.fetch("registry")["manager_source"] = source
+    File.write(path, data.to_yaml)
+  ' "$special_use_manager_source_dir/skills.registry.yaml" "$special_use_manager_source"
+  special_use_manager_source_output="$(expect_failure run_catalog "$special_use_manager_source_dir" --json)"
+  assert_contains "$special_use_manager_source_output" "registry.manager_source must be a public-safe skills source"
+  special_use_case_index=$((special_use_case_index + 1))
+done
+
 cleartext_manager_source_dir="$tmp_dir/cleartext-manager-source"
 write_ok_fixture "$cleartext_manager_source_dir"
 ruby -ryaml -e '
