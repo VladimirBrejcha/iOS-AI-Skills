@@ -57,14 +57,20 @@ consumer_roots:
     adapter: symlink
 selected_skills:
   - skill_id: example-skill
+    expose_to:
+      - agents_user
     state: active
     consumer_overrides:
       agents_user:
         adapter: manager-copy
         status: proven-manager-copy
   - skill_id: manual-review-skill
+    expose_to:
+      - agents_user
     state: active
   - skill_id: external-skill
+    expose_to:
+      - agents_user
     state: active
     consumer_overrides:
       agents_user:
@@ -296,6 +302,43 @@ ruby -rjson -e '
   raise "external should not emit install command" if external.key?("install")
 ' "$ok_dir/skills.catalog.json"
 
+not_exposed_dir="$tmp_dir/not-exposed"
+write_ok_fixture "$not_exposed_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  selection = data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }
+  selection["expose_to"] = ["codex_legacy_user"]
+  File.write(path, data.to_yaml)
+' "$not_exposed_dir/profiles/machine/example-local-skills.yaml"
+run_catalog "$not_exposed_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  raise "non-exposed skill should not emit install command" if example.key?("install")
+' "$not_exposed_dir/skills.catalog.json"
+
+renamed_export_dir="$tmp_dir/renamed-export"
+write_ok_fixture "$renamed_export_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["exported_names"] = ["exported-example-skill"]
+  File.write(path, data.to_yaml)
+' "$renamed_export_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["exported_names"] = ["exported-example-skill"]
+  File.write(path, data.to_yaml)
+' "$renamed_export_dir/skills.lock.yaml"
+run_catalog "$renamed_export_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  raise "renamed export should stay manual review for install commands" if example.key?("install")
+' "$renamed_export_dir/skills.catalog.json"
+
 ruby -e '
   path = ARGV.fetch(0)
   text = File.read(path).sub("Example fixture skill.", "Changed fixture skill.")
@@ -405,6 +448,12 @@ ruby -ryaml -e '
   data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["exported_names"] = ["example skill;touch"]
   File.write(path, data.to_yaml)
 ' "$quoted_command_dir/skills.lock.yaml"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("name: example-skill", "name: example skill;touch")
+  File.write(path, text)
+' "$quoted_command_dir/example-skill/SKILL.md"
+write_registry_local_digest "$quoted_command_dir"
 quoted_command_output="$(run_catalog "$quoted_command_dir" --json)"
 assert_contains "$quoted_command_output" '"codex_global_command": "npx --yes skills@1.5.14 add fixture/skills --skill example\\ skill\\;touch --agent codex --global --yes"'
 
@@ -428,5 +477,35 @@ ruby -e '
 ' "$digest_drift_dir/example-skill/SKILL.md"
 digest_drift_output="$(expect_failure run_catalog "$digest_drift_dir" --check)"
 assert_contains "$digest_drift_output" "example-skill: lock digest_sha256 differs from registry-local source contents"
+
+duplicate_skill_id_dir="$tmp_dir/duplicate-skill-id"
+write_ok_fixture "$duplicate_skill_id_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  duplicate = Marshal.load(Marshal.dump(data.fetch("skills").find { |skill| skill.fetch("id") == "manual-review-skill" }))
+  duplicate["id"] = "example-skill"
+  data.fetch("skills") << duplicate
+  File.write(path, data.to_yaml)
+' "$duplicate_skill_id_dir/skills.registry.yaml"
+duplicate_skill_id_output="$(expect_failure run_catalog "$duplicate_skill_id_dir" --json)"
+assert_contains "$duplicate_skill_id_output" "duplicate skill id example-skill"
+
+duplicate_export_name_dir="$tmp_dir/duplicate-export-name"
+write_ok_fixture "$duplicate_export_name_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "manual-review-skill" }["exported_names"] = ["example-skill"]
+  File.write(path, data.to_yaml)
+' "$duplicate_export_name_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "manual-review-skill" }["exported_names"] = ["example-skill"]
+  File.write(path, data.to_yaml)
+' "$duplicate_export_name_dir/skills.lock.yaml"
+duplicate_export_name_output="$(expect_failure run_catalog "$duplicate_export_name_dir" --json)"
+assert_contains "$duplicate_export_name_output" "manual-review-skill: exported adapter name example-skill is duplicated"
 
 echo "skills_catalog test ok"

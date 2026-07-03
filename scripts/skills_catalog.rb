@@ -376,9 +376,11 @@ def approved_codex_global_install_ids(profile, profile_path, reporter)
       next
     end
 
+    expose_to = entry["expose_to"]
     override = entry.dig("consumer_overrides", "agents_user")
     state = entry["state"].to_s
     next if state.match?(/pending|blocked|disabled|manual/i)
+    next unless expose_to.is_a?(Array) && expose_to.include?("agents_user")
     next unless override.is_a?(Hash)
     next unless override["adapter"] == "manager-copy"
     next unless override["status"] == "proven-manager-copy"
@@ -563,6 +565,15 @@ def catalog_name(skill, metadata, exported_names)
   exported_names.first || skill["id"]
 end
 
+def manager_selected_skill_name(metadata)
+  return nil unless metadata.is_a?(Hash) && valid_string?(metadata["name"])
+
+  name = metadata["name"].strip
+  return nil unless safe_adapter_name?(name)
+
+  name
+end
+
 def external_git_url_public?(value)
   return false unless valid_string?(value)
   return false if value.start_with?("-")
@@ -606,6 +617,8 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
 
   lock_by_id = index_lock_entries(lock, reporter)
   catalog_skills = []
+  seen_skill_ids = {}
+  seen_exported_names = {}
 
   raw_skills.each_with_index do |skill, index|
     unless skill.is_a?(Hash)
@@ -618,6 +631,11 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       reporter.error("skills[#{index}].id is required")
       next
     end
+    if seen_skill_ids.key?(skill_id)
+      reporter.error("duplicate skill id #{skill_id}")
+      next
+    end
+    seen_skill_ids[skill_id] = true
 
     status = skill["status"]
     reporter.error("#{skill_id}: status is required") unless valid_string?(status)
@@ -626,6 +644,11 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     exported_names = string_array(skill["exported_names"], reporter, "#{skill_id}: exported_names")
     exported_names.each do |name|
       reporter.error("#{skill_id}: exported_names entries must be safe adapter names") unless safe_adapter_name?(name)
+      if safe_adapter_name?(name) && seen_exported_names.key?(name)
+        reporter.error("#{skill_id}: exported adapter name #{name} is duplicated")
+      else
+        seen_exported_names[name] = skill_id if safe_adapter_name?(name)
+      end
     end
     reporter.error("#{skill_id}: exported_names must not be empty") if exported_names.empty?
     clients = string_mapping(skill["clients"], reporter, "#{skill_id}: clients", allow_nil: true)
@@ -717,6 +740,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
 
     name = catalog_name(skill, metadata, exported_names)
     description = catalog_description(skill, metadata)
+    manager_skill_name = source_type == "registry-local" ? manager_selected_skill_name(metadata) : nil
     reporter.error("#{skill_id}: catalog description is required") unless valid_string?(description)
 
     install = nil
@@ -725,12 +749,13 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
        clients["codex"] == "supported" &&
        installable_codex_skills[skill_id] &&
        safe_manager_source?(manager_source) &&
-       safe_adapter_name?(exported_names.first)
+       safe_adapter_name?(exported_names.first) &&
+       manager_skill_name == exported_names.first
       install = {
         "manager_package" => DEFAULT_SKILLS_CLI_PACKAGE,
         "registry_source" => manager_source,
-        "skill" => exported_names.first,
-        "codex_global_command" => install_command(manager_source, exported_names.first)
+        "skill" => manager_skill_name,
+        "codex_global_command" => install_command(manager_source, manager_skill_name)
       }
     end
 
