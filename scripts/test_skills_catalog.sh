@@ -43,6 +43,47 @@ description: $description
 SKILL
 }
 
+write_registry_local_digest() {
+  local root="$1"
+  local digest
+
+  digest="$(ruby -rdigest -rfind -rpathname -e '
+    dir = ARGV.fetch(0)
+    digest = Digest::SHA256.new
+    files = []
+    Find.find(dir) do |entry|
+      name = File.basename(entry)
+      if File.directory?(entry) && [".git", "__pycache__", "__pypackages__"].include?(name)
+        Find.prune
+        next
+      end
+      next if File.directory?(entry)
+      next if name == "metadata.json"
+
+      files << entry
+    end
+    files.sort.each do |file|
+      relative = Pathname.new(file).relative_path_from(Pathname.new(dir)).to_s
+      digest.update(relative)
+      digest.update("\0")
+      digest.update(format("%03o", File.stat(file).mode & 0o111))
+      digest.update("\0")
+      digest.update(File.binread(file))
+      digest.update("\0")
+    end
+    puts digest.hexdigest
+  ' "$root/example-skill")"
+
+  ruby -ryaml -e '
+    path = ARGV.fetch(0)
+    digest = ARGV.fetch(1)
+    data = YAML.safe_load(File.read(path), aliases: false)
+    entry = data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+    entry["digest_sha256"] = digest
+    File.write(path, data.to_yaml)
+  ' "$root/skills.lock.yaml" "$digest"
+}
+
 write_ok_fixture() {
   local root="$1"
 
@@ -111,6 +152,8 @@ skills:
     exported_names:
       - external-skill
 YAML
+
+  write_registry_local_digest "$root"
 }
 
 run_catalog() {
@@ -123,6 +166,21 @@ run_catalog() {
     --json-output "$root/skills.catalog.json" \
     --markdown-output "$root/docs/skills-catalog.md" \
     "$@"
+}
+
+run_catalog_relative() {
+  local root="$1"
+  shift
+
+  (
+    cd "$root"
+    ruby "$repo_root/scripts/skills_catalog.rb" \
+      --registry "skills.registry.yaml" \
+      --lock "skills.lock.yaml" \
+      --json-output "skills.catalog.json" \
+      --markdown-output "docs/skills-catalog.md" \
+      "$@"
+  )
 }
 
 ok_dir="$tmp_dir/ok"
@@ -152,9 +210,9 @@ ruby -rjson -e '
 
 ruby -e '
   path = ARGV.fetch(0)
-  text = File.read(path).sub("description: Example fixture skill.", "description: Changed fixture skill.")
+  text = File.read(path).sub("Example fixture skill.", "Changed fixture skill.")
   File.write(path, text)
-' "$ok_dir/example-skill/SKILL.md"
+' "$ok_dir/skills.catalog.json"
 drift_output="$(expect_failure run_catalog "$ok_dir" --check)"
 assert_contains "$drift_output" "catalog drift"
 
@@ -195,12 +253,71 @@ assert_contains "$private_path_output" "external-skill: external-git source.url 
 
 unsafe_description_dir="$tmp_dir/unsafe-description"
 write_ok_fixture "$unsafe_description_dir"
-ruby -e '
+ruby -ryaml -e '
   path = ARGV.fetch(0)
-  text = File.read(path).sub("description: Example fixture skill.", "description: Uses /Users/alice/private.")
-  File.write(path, text)
-' "$unsafe_description_dir/example-skill/SKILL.md"
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses /Users/alice/private."
+  File.write(path, data.to_yaml)
+' "$unsafe_description_dir/skills.registry.yaml"
 unsafe_description_output="$(expect_failure run_catalog "$unsafe_description_dir" --json)"
 assert_contains "$unsafe_description_output" "generated catalog JSON contains macOS user path"
+
+relative_paths_dir="$tmp_dir/relative-paths"
+write_ok_fixture "$relative_paths_dir"
+run_catalog_relative "$relative_paths_dir" --write
+run_catalog_relative "$relative_paths_dir" --check
+relative_json_output="$(run_catalog_relative "$relative_paths_dir" --json)"
+assert_contains "$relative_json_output" '"source_files": ['
+assert_contains "$relative_json_output" '"skills.registry.yaml"'
+assert_contains "$relative_json_output" '"skills.lock.yaml"'
+
+unsafe_manager_source_dir="$tmp_dir/unsafe-manager-source"
+write_ok_fixture "$unsafe_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "~/private"
+  File.write(path, data.to_yaml)
+' "$unsafe_manager_source_dir/skills.registry.yaml"
+unsafe_manager_source_output="$(expect_failure run_catalog "$unsafe_manager_source_dir" --json)"
+assert_contains "$unsafe_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+quoted_command_dir="$tmp_dir/quoted-command"
+write_ok_fixture "$quoted_command_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["exported_names"] = ["example skill;touch"]
+  File.write(path, data.to_yaml)
+' "$quoted_command_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["exported_names"] = ["example skill;touch"]
+  File.write(path, data.to_yaml)
+' "$quoted_command_dir/skills.lock.yaml"
+quoted_command_output="$(run_catalog "$quoted_command_dir" --json)"
+assert_contains "$quoted_command_output" '"codex_global_command": "npx --yes skills@1.5.14 add fixture/skills --skill example\\ skill\\;touch --agent codex --global --yes"'
+
+local_external_url_dir="$tmp_dir/local-external-url"
+write_ok_fixture "$local_external_url_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["url"] = "private-skill"
+  File.write(path, data.to_yaml)
+' "$local_external_url_dir/skills.registry.yaml"
+local_external_url_output="$(expect_failure run_catalog "$local_external_url_dir" --json)"
+assert_contains "$local_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
+
+digest_drift_dir="$tmp_dir/digest-drift"
+write_ok_fixture "$digest_drift_dir"
+run_catalog "$digest_drift_dir" --write
+ruby -e '
+  path = ARGV.fetch(0)
+  File.write(path, File.read(path) + "\nMore body text.\n")
+' "$digest_drift_dir/example-skill/SKILL.md"
+digest_drift_output="$(expect_failure run_catalog "$digest_drift_dir" --check)"
+assert_contains "$digest_drift_output" "example-skill: lock digest_sha256 differs from registry-local source contents"
 
 echo "skills_catalog test ok"

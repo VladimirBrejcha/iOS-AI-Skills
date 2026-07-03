@@ -1,16 +1,22 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require "digest"
 require "fileutils"
+require "find"
 require "json"
 require "optparse"
 require "pathname"
+require "shellwords"
+require "uri"
 require "yaml"
 
 ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
 CATALOG_SCHEMA_VERSION = "0.1"
 GENERATOR = "scripts/skills_catalog.rb"
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
+INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
+INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
 
 PUBLIC_UNSAFE_PATTERNS = {
   "macOS user path" => %r{/Users/[A-Za-z0-9._-]+},
@@ -88,6 +94,188 @@ def safe_relative_path?(value)
   return false if path.each_filename.any? { |part| part == ".." }
 
   path.cleanpath.each_filename.none? { |part| part == ".." }
+rescue ArgumentError
+  false
+end
+
+def expand_config_path(path, base_dir:)
+  value = path.to_s
+  return File.expand_path(value.delete_prefix("~/"), Dir.home) if value.start_with?("~/")
+
+  File.expand_path(value, base_dir)
+end
+
+def path_within?(path, root)
+  candidate = Pathname.new(path).cleanpath.to_s
+  root_path = Pathname.new(root).cleanpath.to_s
+  candidate == root_path || candidate.start_with?("#{root_path}/")
+end
+
+def local_file_url?(value)
+  value.is_a?(String) && /\Afile:/i.match?(value)
+end
+
+def home_relative_url?(value)
+  value.is_a?(String) && value.start_with?("~")
+end
+
+def scheme_url?(value)
+  value.is_a?(String) && /\A[a-z][a-z0-9+.-]*:\/\//i.match?(value)
+end
+
+def scp_like_url?(value)
+  value.is_a?(String) && /\A(?:[^\/@\s]+@)?[^\/:\s]+:.+\z/.match?(value)
+end
+
+def credential_bearing_scp_url?(value)
+  match = /\A(?<userinfo>[^\/@\s]+)@[^\/:\s]+:.+\z/.match(value.to_s)
+  match && match[:userinfo].include?(":")
+end
+
+def query_or_fragment_bearing_scp_url?(value)
+  match = /\A(?:[^\/@\s]+@)?[^\/:\s]+:(?<path>.+)\z/.match(value.to_s)
+  match && (match[:path].include?("?") || match[:path].include?("#"))
+end
+
+def windows_drive_letter_path?(value)
+  value.is_a?(String) && /\A[a-z]:(?:[\\\/]|[^\\\/]|$)/i.match?(value)
+end
+
+def windows_unc_path?(value)
+  value.is_a?(String) && (value.start_with?("\\\\") || value.match?(%r{\A//[^/\\]}))
+end
+
+def windows_local_path?(value)
+  windows_drive_letter_path?(value) || windows_unc_path?(value)
+end
+
+def ext_remote_url?(value)
+  value.is_a?(String) && value.start_with?("ext::")
+end
+
+def url_scheme(value)
+  match = /\A([a-z][a-z0-9+.-]*):/i.match(value.to_s)
+  match && match[1]
+end
+
+def remote_helper_transport_url?(value)
+  raw_scheme = url_scheme(value)
+  return false if raw_scheme.nil? || ext_remote_url?(value)
+
+  return true if value.to_s.match?(/\A[a-z][a-z0-9+.-]*::/i)
+  return false unless scheme_url?(value)
+
+  scheme = raw_scheme.downcase
+  return true if raw_scheme != scheme
+
+  !%w[file git http https ssh ftp ftps rsync].include?(scheme)
+end
+
+def scheme_url_authority(value)
+  return nil unless scheme_url?(value)
+
+  value.sub(/\A[a-z][a-z0-9+.-]*:\/\//i, "").split(/[\/?#]/, 2).first
+end
+
+def http_url_authority(value)
+  return nil unless value.is_a?(String) && /\Ahttps?:\/\//i.match?(value)
+
+  scheme_url_authority(value)
+end
+
+def credential_bearing_scheme_url?(value)
+  uri = URI.parse(value)
+  userinfo = uri.respond_to?(:userinfo) ? uri.userinfo.to_s : ""
+  return false if userinfo.empty?
+
+  !(uri.scheme.to_s.casecmp("ssh").zero? && !userinfo.include?(":"))
+rescue URI::InvalidURIError
+  authority = scheme_url_authority(value)
+  return false if authority.nil? || authority.empty?
+
+  match = /\A(?<userinfo>[^@]+)@/.match(authority)
+  return false unless match
+
+  scheme = url_scheme(value).to_s.downcase
+  userinfo = match[:userinfo]
+
+  !(scheme == "ssh" && !userinfo.include?(":"))
+end
+
+def query_or_fragment_bearing_scheme_url?(value)
+  return false unless scheme_url?(value)
+
+  uri = URI.parse(value)
+  !uri.query.to_s.empty? || !uri.fragment.to_s.empty?
+rescue URI::InvalidURIError
+  suffix = value.to_s.sub(/\A[a-z][a-z0-9+.-]*:\/\/[^\/?#]*/i, "")
+  suffix.include?("?") || suffix.include?("#")
+end
+
+def valid_http_remote_url?(value)
+  return false unless value.is_a?(String) && /\Ahttps?:\/\//i.match?(value)
+
+  uri = URI.parse(value)
+  uri.is_a?(URI::HTTP) && !uri.host.to_s.empty?
+rescue URI::InvalidURIError
+  false
+end
+
+def valid_remote_scheme_url?(value)
+  return false unless scheme_url?(value)
+
+  uri = URI.parse(value)
+  !uri.scheme.to_s.empty? && !uri.host.to_s.empty?
+rescue URI::InvalidURIError
+  false
+end
+
+def split_manager_source_ref(value)
+  return [value, nil] unless value.is_a?(String)
+
+  fragment_index = value.index("#")
+  return [value, nil] if fragment_index.nil?
+
+  base = value[0...fragment_index]
+  fragment = value[(fragment_index + 1)..]
+  return [value, nil] if base.to_s.empty? || fragment.to_s.empty?
+
+  [base, fragment]
+end
+
+def public_manager_shorthand?(value)
+  base, fragment = split_manager_source_ref(value)
+  return false if value.include?("#") && fragment.nil?
+  return false unless safe_relative_path?(base)
+  return false if base.start_with?(".")
+  return false if base.include?(":")
+  return false if base.include?("?")
+  return false unless base.include?("/")
+  return false if fragment && (fragment.match?(/\s/) || contains_control_characters?(fragment))
+
+  true
+end
+
+def safe_manager_source?(value)
+  return false unless value.is_a?(String) && !value.empty?
+  return false if contains_control_characters?(value)
+  return false if value.match?(/\s/)
+  return false if value.start_with?("-")
+
+  source_base, = split_manager_source_ref(value)
+  return false if windows_local_path?(source_base) || Pathname.new(source_base).absolute?
+  return false if local_file_url?(source_base) || home_relative_url?(source_base)
+  return false if ext_remote_url?(source_base) || remote_helper_transport_url?(source_base)
+  return false if credential_bearing_scheme_url?(source_base) || credential_bearing_scp_url?(source_base)
+  return false if query_or_fragment_bearing_scheme_url?(source_base) || query_or_fragment_bearing_scp_url?(source_base)
+
+  if scheme_url?(source_base)
+    valid_http_remote_url?(source_base) || valid_remote_scheme_url?(source_base)
+  elsif scp_like_url?(source_base)
+    true
+  else
+    public_manager_shorthand?(value)
+  end
 rescue ArgumentError
   false
 end
@@ -187,6 +375,60 @@ def valid_git_object_id?(value)
   value.is_a?(String) && /\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/i.match?(value) && !value.match?(/\A0+\z/)
 end
 
+def installer_excluded_entry?(entry, directory:)
+  name = File.basename(entry.to_s)
+  return true if INSTALLER_EXCLUDED_FILES.include?(name)
+
+  directory && INSTALLER_EXCLUDED_DIRS.include?(name)
+end
+
+def directory_digest(dir, reporter)
+  digest = Digest::SHA256.new
+  files = []
+  invalid = false
+
+  Find.find(dir) do |entry|
+    if installer_excluded_entry?(entry, directory: File.directory?(entry))
+      Find.prune if File.directory?(entry)
+      next
+    end
+
+    if File.symlink?(entry)
+      reporter.error("#{display_path(entry)} must not be a symlink")
+      invalid = true
+      Find.prune if File.directory?(entry)
+      next
+    end
+
+    next if File.directory?(entry)
+
+    unless File.file?(entry)
+      reporter.error("#{display_path(entry)} must be a regular file")
+      invalid = true
+      next
+    end
+
+    files << entry
+  end
+
+  return nil if invalid
+
+  files.sort.each do |file|
+    relative = Pathname.new(file).relative_path_from(Pathname.new(dir)).to_s
+    digest.update(relative)
+    digest.update("\0")
+    digest.update(format("%03o", File.stat(file).mode & 0o111))
+    digest.update("\0")
+    digest.update(File.binread(file))
+    digest.update("\0")
+  end
+
+  digest.hexdigest
+rescue SystemCallError => error
+  reporter.error("#{display_path(dir)} could not be hashed cleanly: #{error.message}")
+  nil
+end
+
 def index_lock_entries(lock, reporter)
   raw = lock["skills"]
   unless raw.is_a?(Array)
@@ -227,13 +469,19 @@ def compare_lock_array(lock_entry, skill_id, field, expected, reporter)
 end
 
 def install_command(manager_source, skill_name)
-  [
-    "npx --yes #{DEFAULT_SKILLS_CLI_PACKAGE} add #{manager_source}",
-    "--skill #{skill_name}",
-    "--agent codex",
-    "--global",
-    "--yes"
-  ].join(" ")
+  Shellwords.join([
+                    "npx",
+                    "--yes",
+                    DEFAULT_SKILLS_CLI_PACKAGE,
+                    "add",
+                    manager_source,
+                    "--skill",
+                    skill_name,
+                    "--agent",
+                    "codex",
+                    "--global",
+                    "--yes"
+                  ])
 end
 
 def catalog_description(skill, metadata)
@@ -262,11 +510,19 @@ end
 
 def external_git_url_public?(value)
   return false unless valid_string?(value)
-  return false if value.match?(%r{\Afile:}i)
-  return false if value.match?(%r{https?://[^/\s]*@}i)
-  return false if value.start_with?("/") || value.start_with?("~")
+  return false if value.start_with?("-")
+  return false if windows_local_path?(value) || Pathname.new(value).absolute?
+  return false if local_file_url?(value) || home_relative_url?(value)
+  return false unless scheme_url?(value) || scp_like_url?(value)
+  return false if ext_remote_url?(value) || remote_helper_transport_url?(value)
+  return false if credential_bearing_scheme_url?(value) || credential_bearing_scp_url?(value)
+  return false if query_or_fragment_bearing_scheme_url?(value) || query_or_fragment_bearing_scp_url?(value)
+  return false if http_url_authority(value) && !valid_http_remote_url?(value)
+  return false if scheme_url?(value) && http_url_authority(value).nil? && !valid_remote_scheme_url?(value)
 
   true
+rescue ArgumentError
+  false
 end
 
 def build_catalog(registry, lock, registry_path, lock_path, reporter)
@@ -281,7 +537,11 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   reporter.error("registry.id is required") unless valid_string?(registry_id)
   reporter.error("registry.name is required") unless valid_string?(registry_name)
   reporter.error("registry.status is required") unless valid_string?(registry_status)
-  reporter.error("registry.manager_source is required for public install commands") unless valid_string?(manager_source)
+  if !valid_string?(manager_source)
+    reporter.error("registry.manager_source is required for public install commands")
+  elsif !safe_manager_source?(manager_source)
+    reporter.error("registry.manager_source must be a public-safe skills source")
+  end
   unless raw_skills.is_a?(Array)
     reporter.error("skills.registry.yaml skills must be an array")
     raw_skills = []
@@ -331,14 +591,20 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     case source_type
     when "registry-local"
       source_path = source["path"]
-      unless top_level_skill_path?(source_path)
+      source_valid = top_level_skill_path?(source_path)
+      unless source_valid
         reporter.error("#{skill_id}: registry-local source.path must name a top-level skill directory")
       end
 
-      skill_file = registry_root.join(source_path.to_s, "SKILL.md")
-      metadata = frontmatter(skill_file.to_s, reporter)
+      skill_root = source_valid ? registry_root.join(source_path) : nil
+      skill_file = skill_root&.join("SKILL.md")
+      metadata = skill_file ? frontmatter(skill_file.to_s, reporter) : {}
       digest = require_lock_field(lock_entry, skill_id, "digest_sha256", reporter)
       reporter.error("#{skill_id}: lock digest_sha256 must be a 64-character SHA-256") unless digest.empty? || valid_sha256_hex?(digest)
+      current_digest = directory_digest(skill_root.to_s, reporter) if skill_root&.directory?
+      if valid_sha256_hex?(digest) && current_digest && digest != current_digest
+        reporter.error("#{skill_id}: lock digest_sha256 differs from registry-local source contents")
+      end
       compare_lock_field(lock_entry, skill_id, "path", source_path, reporter)
       source_catalog = {
         "type" => "registry-local",
@@ -391,7 +657,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     reporter.error("#{skill_id}: catalog description is required") unless valid_string?(description)
 
     install = nil
-    if status == "active" && clients["codex"] == "supported" && valid_string?(manager_source) && safe_adapter_name?(exported_names.first)
+    if status == "active" && clients["codex"] == "supported" && safe_manager_source?(manager_source) && safe_adapter_name?(exported_names.first)
       install = {
         "manager_package" => DEFAULT_SKILLS_CLI_PACKAGE,
         "registry_source" => manager_source,
@@ -556,6 +822,12 @@ parser = OptionParser.new do |opts|
 end
 
 parser.parse!
+
+base_dir = Dir.pwd
+options[:registry] = expand_config_path(options[:registry], base_dir: base_dir)
+options[:lock] = expand_config_path(options[:lock], base_dir: base_dir)
+options[:json_output] = expand_config_path(options[:json_output], base_dir: base_dir)
+options[:markdown_output] = expand_config_path(options[:markdown_output], base_dir: base_dir)
 
 reporter = Reporter.new
 registry = load_yaml_file(options[:registry], reporter)
