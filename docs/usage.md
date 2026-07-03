@@ -69,8 +69,9 @@ ruby -ryaml -e '
     .select do |skill|
       selection = selected[skill.fetch("id")]
       override = selection&.dig("consumer_overrides", "agents_user")
+      state = selection&.fetch("state", "").to_s
       selection.is_a?(Hash) &&
-        selection["state"] == "active" &&
+        !state.match?(/pending|blocked|disabled|manual/i) &&
         override.is_a?(Hash) &&
         override["adapter"] == "manager-copy" &&
         override["status"] == "proven-manager-copy"
@@ -104,7 +105,7 @@ ruby -rjson -e '
 
 The same data is available as readable Markdown in
 [`docs/skills-catalog.md`](skills-catalog.md). Both files are generated from
-registry, lock, and `SKILL.md` metadata.
+registry, lock, the checked-in example profile, and `SKILL.md` metadata.
 
 List installed global skills:
 

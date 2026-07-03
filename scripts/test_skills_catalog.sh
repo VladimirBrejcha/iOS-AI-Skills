@@ -43,11 +43,42 @@ description: $description
 SKILL
 }
 
+write_example_profile() {
+  local root="$1"
+
+  mkdir -p "$root/profiles/machine"
+  cat >"$root/profiles/machine/example-local-skills.yaml" <<'YAML'
+schema_version: 0.1
+profile:
+  id: example-local-agent-skills
+consumer_roots:
+  agents_user:
+    path: ~/.agents/skills
+    adapter: symlink
+selected_skills:
+  - skill_id: example-skill
+    state: active
+    consumer_overrides:
+      agents_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+  - skill_id: manual-review-skill
+    state: active
+  - skill_id: external-skill
+    state: active
+    consumer_overrides:
+      agents_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+YAML
+}
+
 write_registry_local_digest() {
   local root="$1"
-  local digest
+  local example_digest
+  local manual_digest
 
-  digest="$(ruby -rdigest -rfind -rpathname -e '
+  example_digest="$(ruby -rdigest -rfind -rpathname -e '
     dir = ARGV.fetch(0)
     digest = Digest::SHA256.new
     files = []
@@ -74,14 +105,44 @@ write_registry_local_digest() {
     puts digest.hexdigest
   ' "$root/example-skill")"
 
+  manual_digest="$(ruby -rdigest -rfind -rpathname -e '
+    dir = ARGV.fetch(0)
+    digest = Digest::SHA256.new
+    files = []
+    Find.find(dir) do |entry|
+      name = File.basename(entry)
+      if File.directory?(entry) && [".git", "__pycache__", "__pypackages__"].include?(name)
+        Find.prune
+        next
+      end
+      next if File.directory?(entry)
+      next if name == "metadata.json"
+
+      files << entry
+    end
+    files.sort.each do |file|
+      relative = Pathname.new(file).relative_path_from(Pathname.new(dir)).to_s
+      digest.update(relative)
+      digest.update("\0")
+      digest.update(format("%03o", File.stat(file).mode & 0o111))
+      digest.update("\0")
+      digest.update(File.binread(file))
+      digest.update("\0")
+    end
+    puts digest.hexdigest
+  ' "$root/manual-review-skill")"
+
   ruby -ryaml -e '
     path = ARGV.fetch(0)
-    digest = ARGV.fetch(1)
+    example_digest = ARGV.fetch(1)
+    manual_digest = ARGV.fetch(2)
     data = YAML.safe_load(File.read(path), aliases: false)
-    entry = data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
-    entry["digest_sha256"] = digest
+    example = data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+    example["digest_sha256"] = example_digest
+    manual = data.fetch("skills").find { |skill| skill.fetch("id") == "manual-review-skill" }
+    manual["digest_sha256"] = manual_digest
     File.write(path, data.to_yaml)
-  ' "$root/skills.lock.yaml" "$digest"
+  ' "$root/skills.lock.yaml" "$example_digest" "$manual_digest"
 }
 
 write_ok_fixture() {
@@ -89,6 +150,8 @@ write_ok_fixture() {
 
   mkdir -p "$root/docs"
   write_skill "$root/example-skill" "example-skill" "Example fixture skill."
+  write_skill "$root/manual-review-skill" "manual-review-skill" "Manual review fixture skill."
+  write_example_profile "$root"
 
   cat >"$root/skills.registry.yaml" <<'YAML'
 schema_version: 0.1
@@ -112,8 +175,22 @@ skills:
       - machine
       - repo
     update_policy: internal-reviewed
+  - id: manual-review-skill
+    status: active
+    source:
+      type: registry-local
+      path: manual-review-skill
+    exported_names:
+      - manual-review-skill
+    clients:
+      codex: supported
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: internal-reviewed
   - id: external-skill
-    status: needs-import-review
+    status: active
     source:
       type: external-git
       url: https://github.com/example/agent-skill.git
@@ -124,7 +201,7 @@ skills:
     exported_names:
       - external-skill
     clients:
-      codex: planned
+      codex: supported
       claude: planned
     scopes:
       - machine
@@ -143,6 +220,12 @@ skills:
     digest_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     exported_names:
       - example-skill
+  - id: manual-review-skill
+    source_type: registry-local
+    path: manual-review-skill
+    digest_sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    exported_names:
+      - manual-review-skill
   - id: external-skill
     source_type: external-git
     url: https://github.com/example/agent-skill.git
@@ -192,18 +275,23 @@ json_output="$(run_catalog "$ok_dir" --json)"
 assert_contains "$json_output" '"id": "example-skill"'
 assert_contains "$json_output" '"description": "Example fixture skill."'
 assert_contains "$json_output" '"codex_global_command": "npx --yes skills@1.5.14 add fixture/skills --skill example-skill --agent codex --global --yes"'
+assert_contains "$json_output" '"id": "manual-review-skill"'
 assert_contains "$json_output" '"id": "external-skill"'
 assert_contains "$json_output" '"pinned_tag": "1.2.3"'
+assert_contains "$json_output" '"profiles/machine/example-local-skills.yaml"'
 
 markdown_output="$(run_catalog "$ok_dir" --markdown)"
 assert_contains "$markdown_output" "# Skills Catalog"
 assert_contains "$markdown_output" "## Registry-Covered Skills"
 assert_contains "$markdown_output" "## Installable Active Skills"
+assert_contains "$markdown_output" "for the current reviewed example profile."
 
 ruby -rjson -e '
   parsed = JSON.parse(File.read(ARGV.fetch(0)))
   raise "wrong schema" unless parsed.fetch("schema_version") == "0.1"
-  raise "wrong skill count" unless parsed.fetch("skills").length == 2
+  raise "wrong skill count" unless parsed.fetch("skills").length == 3
+  manual = parsed.fetch("skills").find { |skill| skill.fetch("id") == "manual-review-skill" }
+  raise "manual-review skill should not emit install command" if manual.key?("install")
   external = parsed.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }
   raise "external should not emit install command" if external.key?("install")
 ' "$ok_dir/skills.catalog.json"
@@ -239,6 +327,26 @@ ruby -ryaml -e '
 unpinned_output="$(expect_failure run_catalog "$unpinned_dir" --json)"
 assert_contains "$unpinned_output" "external-skill: external-git source.pinned_tag is required"
 
+invalid_tag_dir="$tmp_dir/invalid-tag"
+write_ok_fixture "$invalid_tag_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  source = data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")
+  source["pinned_tag"] = "refs/heads/main"
+  File.write(path, data.to_yaml)
+' "$invalid_tag_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  entry = data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }
+  entry["pinned_tag"] = "refs/heads/main"
+  File.write(path, data.to_yaml)
+' "$invalid_tag_dir/skills.lock.yaml"
+invalid_tag_output="$(expect_failure run_catalog "$invalid_tag_dir" --json)"
+assert_contains "$invalid_tag_output" "external-skill: external-git source.pinned_tag must be an exact tag name"
+assert_contains "$invalid_tag_output" "external-skill: lock pinned_tag must be an exact tag name"
+
 private_path_dir="$tmp_dir/private-path"
 write_ok_fixture "$private_path_dir"
 ruby -ryaml -e '
@@ -270,6 +378,7 @@ relative_json_output="$(run_catalog_relative "$relative_paths_dir" --json)"
 assert_contains "$relative_json_output" '"source_files": ['
 assert_contains "$relative_json_output" '"skills.registry.yaml"'
 assert_contains "$relative_json_output" '"skills.lock.yaml"'
+assert_contains "$relative_json_output" '"profiles/machine/example-local-skills.yaml"'
 
 unsafe_manager_source_dir="$tmp_dir/unsafe-manager-source"
 write_ok_fixture "$unsafe_manager_source_dir"

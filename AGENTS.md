@@ -10,7 +10,8 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
   reusable skills.
 - `skills.lock.yaml` is the reviewed lock/version metadata for reusable skills.
 - `skills.catalog.json` and `docs/skills-catalog.md` are generated public
-  catalog views derived from registry, lock, and `SKILL.md` metadata.
+  catalog views derived from registry, lock, the checked-in example profile,
+  and `SKILL.md` metadata.
 - `docs/registry-contract.md` is the public contract for source ownership,
   lock/version metadata, generated adapter views, public-safety requirements,
   and completion criteria.
@@ -33,8 +34,9 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
 - Use `skills.registry.yaml` as the source of truth for ownership, upstream
   source, update policy, and intended consumer exposure.
 - Use `skills.lock.yaml` as the reviewed resolved-version input for sync plans.
-- Do not edit generated catalog artifacts by hand. Update registry, lock, or
-  skill front matter, then run `scripts/skills_catalog.rb --write`.
+- Do not edit generated catalog artifacts by hand. Update registry, lock, the
+  checked-in example profile, or skill front matter, then run
+  `scripts/skills_catalog.rb --write`.
 - Reusable skills must have one source owner, lock/version metadata, and
   generated adapter views for Codex, Claude Code, and repo-local consumers.
 - Keep edits scoped to the requested skill(s); avoid cross-skill changes unless asked.

@@ -15,6 +15,7 @@ ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
 CATALOG_SCHEMA_VERSION = "0.1"
 GENERATOR = "scripts/skills_catalog.rb"
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
+DEFAULT_INSTALL_PROFILE = File.join("profiles", "machine", "example-local-skills.yaml").freeze
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
 
@@ -341,6 +342,51 @@ def mapping(value, reporter, label, allow_nil: false)
   {}
 end
 
+def load_install_profile(registry_root, reporter)
+  profile_path = registry_root.join(DEFAULT_INSTALL_PROFILE)
+  return [{}, nil] unless profile_path.file?
+
+  profile = load_yaml_file(profile_path.to_s, reporter)
+  return [{}, profile_path] unless profile.is_a?(Hash)
+
+  [profile, profile_path]
+end
+
+def approved_codex_global_install_ids(profile, profile_path, reporter)
+  return {} unless profile.is_a?(Hash)
+
+  consumer_roots = profile["consumer_roots"]
+  unless consumer_roots.is_a?(Hash)
+    reporter.error("#{display_path(profile_path)} consumer_roots must be a mapping")
+    return {}
+  end
+
+  agents_root = consumer_roots["agents_user"]
+  return {} unless agents_root.is_a?(Hash) && agents_root["path"] == "~/.agents/skills"
+
+  selected_skills = profile["selected_skills"]
+  unless selected_skills.is_a?(Array)
+    reporter.error("#{display_path(profile_path)} selected_skills must be an array")
+    return {}
+  end
+
+  selected_skills.each_with_object({}) do |entry, memo|
+    unless entry.is_a?(Hash) && valid_string?(entry["skill_id"])
+      reporter.error("#{display_path(profile_path)} selected_skills entries must include non-empty skill_id")
+      next
+    end
+
+    override = entry.dig("consumer_overrides", "agents_user")
+    state = entry["state"].to_s
+    next if state.match?(/pending|blocked|disabled|manual/i)
+    next unless override.is_a?(Hash)
+    next unless override["adapter"] == "manager-copy"
+    next unless override["status"] == "proven-manager-copy"
+
+    memo[entry["skill_id"]] = true
+  end
+end
+
 def frontmatter(path, reporter)
   lines = File.readlines(path, chomp: true)
   unless lines.first == "---"
@@ -373,6 +419,15 @@ end
 
 def valid_git_object_id?(value)
   value.is_a?(String) && /\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/i.match?(value) && !value.match?(/\A0+\z/)
+end
+
+def valid_git_tag_name?(value)
+  return false unless value.is_a?(String) && !value.empty?
+  return false if value.start_with?("refs/")
+
+  system("git", "check-ref-format", "refs/tags/#{value}", out: File::NULL, err: File::NULL)
+rescue SystemCallError, ArgumentError
+  false
 end
 
 def installer_excluded_entry?(entry, directory:)
@@ -527,6 +582,8 @@ end
 
 def build_catalog(registry, lock, registry_path, lock_path, reporter)
   registry_root = Pathname.new(File.dirname(File.expand_path(registry_path))).cleanpath
+  install_profile, install_profile_path = load_install_profile(registry_root, reporter)
+  installable_codex_skills = approved_codex_global_install_ids(install_profile, install_profile_path, reporter)
   registry_metadata = mapping(registry["registry"], reporter, "registry metadata")
   registry_id = registry_metadata["id"]
   registry_name = registry_metadata["name"]
@@ -625,12 +682,18 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       reporter.error("#{skill_id}: external-git source.url must be a public, credential-free URL") unless external_git_url_public?(url)
       reporter.error("#{skill_id}: external-git source.path must be a safe relative path") unless safe_relative_path?(path)
       reporter.error("#{skill_id}: external-git source.pinned_tag is required") unless valid_string?(pinned_tag)
+      if valid_string?(pinned_tag) && !valid_git_tag_name?(pinned_tag)
+        reporter.error("#{skill_id}: external-git source.pinned_tag must be an exact tag name")
+      end
       reporter.error("#{skill_id}: external-git source.observed_commit must be a full git object id") unless valid_git_object_id?(observed_commit)
       reporter.error("#{skill_id}: external-git source.observed_at is required") unless valid_string?(observed_at)
 
       %w[url path pinned_tag observed_commit].each do |field|
         require_lock_field(lock_entry, skill_id, field, reporter)
         compare_lock_field(lock_entry, skill_id, field, source[field], reporter)
+      end
+      if valid_string?(lock_entry["pinned_tag"]) && !valid_git_tag_name?(lock_entry["pinned_tag"])
+        reporter.error("#{skill_id}: lock pinned_tag must be an exact tag name")
       end
 
       source_catalog = {
@@ -657,7 +720,12 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     reporter.error("#{skill_id}: catalog description is required") unless valid_string?(description)
 
     install = nil
-    if status == "active" && clients["codex"] == "supported" && safe_manager_source?(manager_source) && safe_adapter_name?(exported_names.first)
+    if source_type == "registry-local" &&
+       status == "active" &&
+       clients["codex"] == "supported" &&
+       installable_codex_skills[skill_id] &&
+       safe_manager_source?(manager_source) &&
+       safe_adapter_name?(exported_names.first)
       install = {
         "manager_package" => DEFAULT_SKILLS_CLI_PACKAGE,
         "registry_source" => manager_source,
@@ -700,8 +768,9 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       "manager_source" => manager_source,
       "source_files" => [
         Pathname.new(registry_path).relative_path_from(registry_root).to_s,
-        Pathname.new(lock_path).relative_path_from(registry_root).to_s
-      ]
+        Pathname.new(lock_path).relative_path_from(registry_root).to_s,
+        install_profile_path && install_profile_path.relative_path_from(registry_root).to_s
+      ].compact
     },
     "skills" => catalog_skills
   }
@@ -730,7 +799,8 @@ def markdown_document(catalog)
   lines << "# Skills Catalog"
   lines << ""
   lines << "This file is generated. Edit `skills.registry.yaml`, `skills.lock.yaml`,"
-  lines << "or registered `SKILL.md` front matter, then run"
+  lines << "`profiles/machine/example-local-skills.yaml`, or registered `SKILL.md`"
+  lines << "front matter, then run"
   lines << "`scripts/skills_catalog.rb --write`."
   lines << ""
   lines << "- Registry: #{registry.fetch("name")} (#{code_span(registry.fetch("id"))})"
@@ -770,7 +840,8 @@ def markdown_document(catalog)
   if active_installable.empty?
     lines << "No active Codex-supported skills currently emit public install commands."
   else
-    lines << "The commands below use the pinned upstream skills manager package."
+    lines << "The commands below use the pinned upstream skills manager package"
+    lines << "for the current reviewed example profile."
     lines << ""
     lines << "```bash"
     active_installable.each do |skill|

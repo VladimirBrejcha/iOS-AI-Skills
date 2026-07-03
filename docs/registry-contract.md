@@ -42,8 +42,8 @@ In scope:
 - public reusable skill source folders in this repository
 - `skills.registry.yaml` source ownership and update policy
 - `skills.lock.yaml` reviewed resolved pins and digests
-- generated public catalog artifacts derived from registry, lock, and
-  `SKILL.md` front matter
+- generated public catalog artifacts derived from registry, lock, the checked-in
+  example profile, and `SKILL.md` front matter
 - machine and repo profile examples that describe intended exposure
 - doctor checks for source, lock, profile, upstream, manager, and adapter drift
 - sync-plan output that generates reviewable adapter actions and pinned manager

@@ -1,7 +1,8 @@
 # Skills Catalog
 
 This file is generated. Edit `skills.registry.yaml`, `skills.lock.yaml`,
-or registered `SKILL.md` front matter, then run
+`profiles/machine/example-local-skills.yaml`, or registered `SKILL.md`
+front matter, then run
 `scripts/skills_catalog.rb --write`.
 
 - Registry: Agent Skills (`agent-skills`)
@@ -20,10 +21,10 @@ or registered `SKILL.md` front matter, then run
 
 ## Installable Active Skills
 
-The commands below use the pinned upstream skills manager package.
+The commands below use the pinned upstream skills manager package
+for the current reviewed example profile.
 
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill code-review --agent codex --global --yes
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes
-npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes
 ```
