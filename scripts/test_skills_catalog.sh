@@ -374,6 +374,17 @@ ruby -rjson -e '
   raise "non-exposed skill should not emit install command" if example.key?("install")
 ' "$not_exposed_dir/skills.catalog.json"
 
+trailing_slash_agents_root_dir="$tmp_dir/trailing-slash-agents-root"
+write_ok_fixture "$trailing_slash_agents_root_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("consumer_roots").fetch("agents_user")["path"] = "~/.agents/skills/"
+  File.write(path, data.to_yaml)
+' "$trailing_slash_agents_root_dir/profiles/machine/example-local-skills.yaml"
+trailing_slash_agents_root_output="$(run_catalog "$trailing_slash_agents_root_dir" --json)"
+assert_contains "$trailing_slash_agents_root_output" '"codex_global_command": "npx --yes skills@1.5.14 add fixture/skills --skill example-skill --agent codex --global --yes"'
+
 duplicate_active_agents_user_dir="$tmp_dir/duplicate-active-agents-user"
 write_ok_fixture "$duplicate_active_agents_user_dir"
 ruby -ryaml -e '
@@ -385,6 +396,19 @@ ruby -ryaml -e '
 ' "$duplicate_active_agents_user_dir/profiles/machine/example-local-skills.yaml"
 duplicate_active_agents_user_output="$(expect_failure run_catalog "$duplicate_active_agents_user_dir" --json)"
 assert_contains "$duplicate_active_agents_user_output" "profiles/machine/example-local-skills.yaml duplicate active agents_user selection for skill_id example-skill"
+
+unsupported_agents_override_key_dir="$tmp_dir/unsupported-agents-override-key"
+write_ok_fixture "$unsupported_agents_override_key_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  override = data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }
+    .fetch("consumer_overrides").fetch("agents_user")
+  override["path"] = "private-copy"
+  File.write(path, data.to_yaml)
+' "$unsupported_agents_override_key_dir/profiles/machine/example-local-skills.yaml"
+unsupported_agents_override_key_output="$(expect_failure run_catalog "$unsupported_agents_override_key_dir" --json)"
+assert_contains "$unsupported_agents_override_key_output" "profiles/machine/example-local-skills.yaml example-skill consumer_overrides.agents_user supports only adapter and status"
 
 missing_profile_dir="$tmp_dir/missing-profile"
 write_ok_fixture "$missing_profile_dir"
@@ -647,6 +671,34 @@ ruby -ryaml -e '
 ' "$host_only_external_url_dir/skills.lock.yaml"
 host_only_external_url_output="$(expect_failure run_catalog "$host_only_external_url_dir" --json)"
 assert_contains "$host_only_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
+
+host_only_scheme_external_url_dir="$tmp_dir/host-only-scheme-external-url"
+write_ok_fixture "$host_only_scheme_external_url_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["url"] = "ssh://github.com"
+  File.write(path, data.to_yaml)
+' "$host_only_scheme_external_url_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }["url"] = "ssh://github.com"
+  File.write(path, data.to_yaml)
+' "$host_only_scheme_external_url_dir/skills.lock.yaml"
+host_only_scheme_external_url_output="$(expect_failure run_catalog "$host_only_scheme_external_url_dir" --json)"
+assert_contains "$host_only_scheme_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
+
+host_only_scheme_manager_source_dir="$tmp_dir/host-only-scheme-manager-source"
+write_ok_fixture "$host_only_scheme_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "git://github.com"
+  File.write(path, data.to_yaml)
+' "$host_only_scheme_manager_source_dir/skills.registry.yaml"
+host_only_scheme_manager_source_output="$(expect_failure run_catalog "$host_only_scheme_manager_source_dir" --json)"
+assert_contains "$host_only_scheme_manager_source_output" "registry.manager_source must be a public-safe skills source"
 
 digest_drift_dir="$tmp_dir/digest-drift"
 write_ok_fixture "$digest_drift_dir"

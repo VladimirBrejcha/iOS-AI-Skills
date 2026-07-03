@@ -16,6 +16,7 @@ CATALOG_SCHEMA_VERSION = "0.1"
 GENERATOR = "scripts/skills_catalog.rb"
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 DEFAULT_INSTALL_PROFILE = File.join("profiles", "machine", "example-local-skills.yaml").freeze
+SHARED_AGENTS_USER_ROOT = File.expand_path("~/.agents/skills").freeze
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
 
@@ -223,12 +224,15 @@ rescue URI::InvalidURIError
   suffix.include?("?") || suffix.include?("#")
 end
 
+def remote_uri_has_repository_path?(uri)
+  !uri.path.to_s.split("/").reject(&:empty?).empty?
+end
+
 def valid_http_remote_url?(value)
   return false unless value.is_a?(String) && /\Ahttps?:\/\//i.match?(value)
 
   uri = URI.parse(value)
-  path_segments = uri.path.to_s.split("/").reject(&:empty?)
-  uri.is_a?(URI::HTTP) && !uri.host.to_s.empty? && !path_segments.empty?
+  uri.is_a?(URI::HTTP) && !uri.host.to_s.empty? && remote_uri_has_repository_path?(uri)
 rescue URI::InvalidURIError
   false
 end
@@ -237,7 +241,7 @@ def valid_remote_scheme_url?(value)
   return false unless scheme_url?(value)
 
   uri = URI.parse(value)
-  !uri.scheme.to_s.empty? && !uri.host.to_s.empty?
+  !uri.scheme.to_s.empty? && !uri.host.to_s.empty? && remote_uri_has_repository_path?(uri)
 rescue URI::InvalidURIError
   false
 end
@@ -367,6 +371,59 @@ def load_install_profile(registry_root, reporter)
   [profile, profile_path]
 end
 
+def matches_shared_agents_user_root?(value, base_dir:)
+  return false unless valid_string?(value)
+
+  expand_config_path(value, base_dir: base_dir) == SHARED_AGENTS_USER_ROOT
+rescue ArgumentError
+  false
+end
+
+def normalized_agents_user_override(raw_overrides, profile_path, skill_id, reporter)
+  return nil if raw_overrides.nil?
+
+  unless raw_overrides.is_a?(Hash)
+    reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides must be a mapping")
+    return nil
+  end
+
+  raw_override = raw_overrides["agents_user"]
+  return nil if raw_override.nil?
+  unless raw_override.is_a?(Hash)
+    reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user must be a mapping")
+    return nil
+  end
+
+  unsupported_keys = raw_override.keys - %w[adapter status]
+  unless unsupported_keys.empty?
+    reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user supports only adapter and status")
+    return nil
+  end
+
+  normalized = {}
+  %w[adapter status].each do |key|
+    next unless raw_override.key?(key)
+
+    value = raw_override[key]
+    unless value.is_a?(String) && !value.empty?
+      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user.#{key} must be a non-empty string")
+      return nil
+    end
+    if contains_control_characters?(value)
+      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user.#{key} must not contain control characters")
+      return nil
+    end
+    unless safe_non_path_identifier?(value)
+      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user.#{key} must be a safe non-path identifier")
+      return nil
+    end
+
+    normalized[key] = value
+  end
+
+  normalized
+end
+
 def approved_codex_global_install_ids(profile, profile_path, reporter)
   return {} unless profile.is_a?(Hash)
   return {} if profile_path.nil?
@@ -378,7 +435,8 @@ def approved_codex_global_install_ids(profile, profile_path, reporter)
   end
 
   agents_root = consumer_roots["agents_user"]
-  return {} unless agents_root.is_a?(Hash) && agents_root["path"] == "~/.agents/skills"
+  return {} unless agents_root.is_a?(Hash) &&
+    matches_shared_agents_user_root?(agents_root["path"], base_dir: File.dirname(profile_path))
 
   selected_skills = profile["selected_skills"]
   unless selected_skills.is_a?(Array)
@@ -395,7 +453,7 @@ def approved_codex_global_install_ids(profile, profile_path, reporter)
     end
 
     expose_to = entry["expose_to"]
-    override = entry.dig("consumer_overrides", "agents_user")
+    override = normalized_agents_user_override(entry["consumer_overrides"], profile_path, entry["skill_id"], reporter)
     state = entry["state"].to_s
     next unless state == "active"
     next unless expose_to.is_a?(Array) && expose_to.include?("agents_user")
