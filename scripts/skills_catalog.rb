@@ -316,7 +316,7 @@ def remote_uri_has_repository_path?(uri)
 end
 
 def normalized_host_name(host)
-  host.to_s.delete_prefix("[").delete_suffix("]").downcase
+  percent_decoded(host).delete_prefix("[").delete_suffix("]").sub(/\.+\z/, "").downcase
 end
 
 def parse_ipv4_legacy_component(value)
@@ -465,13 +465,14 @@ def safe_manager_source?(value)
   return false if contains_control_characters?(value)
   return false if value.match?(/\s/)
   return false if value.start_with?("-")
+  return false if scheme_url?(value) && query_or_fragment_bearing_scheme_url?(value)
+  return false if scp_like_url?(value) && query_or_fragment_bearing_scp_url?(value)
 
   source_base, = split_manager_source_ref(value)
   return false if windows_local_path?(source_base) || Pathname.new(source_base).absolute?
   return false if local_file_url?(source_base) || home_relative_url?(source_base)
   return false if ext_remote_url?(source_base) || remote_helper_transport_url?(source_base)
   return false if credential_bearing_scheme_url?(source_base) || credential_bearing_scp_url?(source_base)
-  return false if query_or_fragment_bearing_scheme_url?(source_base) || query_or_fragment_bearing_scp_url?(source_base)
 
   if scheme_url?(source_base)
     return false unless secure_manager_source_scheme?(source_base)
@@ -1389,10 +1390,21 @@ rescue URI::InvalidURIError
   host_port.split(":", 2).first
 end
 
+def host_from_private_scp_candidate(value)
+  match = /\A(?:(?<userinfo>[^\/@\s]+)@)?(?<host>\[[^\]]+\]|[^\/:\s]+):(?<path>[^\s]+)\z/.match(value.to_s)
+  return nil unless match
+  return nil if match[:path].to_s.empty? || match[:path].include?("@")
+
+  host = match[:host]
+  host if private_host?(host)
+end
+
 def contains_private_url?(text)
   text.to_s.scan(%r{\b[a-z][a-z0-9+.-]*://[^\s<>"'`|]+}i).any? do |candidate|
     host = host_from_scheme_url(trim_url_candidate(candidate))
     host && private_host?(host)
+  end || text.to_s.scan(%r{(?:\b[^\/@\s]+@)?(?:\[[^\]]+\]|[^\/:\s]+):[^\s<>"'`|]+}).any? do |candidate|
+    !host_from_private_scp_candidate(trim_url_candidate(candidate)).nil?
   end
 end
 

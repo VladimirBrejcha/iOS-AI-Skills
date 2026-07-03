@@ -816,6 +816,30 @@ ruby -ryaml -e '
 private_url_description_output="$(expect_failure run_catalog "$private_url_description_dir" --json)"
 assert_contains "$private_url_description_output" "generated catalog JSON contains private or loopback URL"
 
+scp_private_url_description_dir="$tmp_dir/scp-private-url-description"
+write_ok_fixture "$scp_private_url_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  description = "Uses git@localhost:private/repo before import."
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = description
+  File.write(path, data.to_yaml)
+' "$scp_private_url_description_dir/skills.registry.yaml"
+scp_private_url_description_output="$(expect_failure run_catalog "$scp_private_url_description_dir" --json)"
+assert_contains "$scp_private_url_description_output" "generated catalog JSON contains private or loopback URL"
+
+scp_private_ip_url_description_dir="$tmp_dir/scp-private-ip-url-description"
+write_ok_fixture "$scp_private_ip_url_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  description = "Uses git@10.0.0.1:private/repo before import."
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = description
+  File.write(path, data.to_yaml)
+' "$scp_private_ip_url_description_dir/skills.registry.yaml"
+scp_private_ip_url_description_output="$(expect_failure run_catalog "$scp_private_ip_url_description_dir" --json)"
+assert_contains "$scp_private_ip_url_description_output" "generated catalog JSON contains private or loopback URL"
+
 bearer_token_description_dir="$tmp_dir/bearer-token-description"
 write_ok_fixture "$bearer_token_description_dir"
 ruby -ryaml -e '
@@ -1095,6 +1119,39 @@ for encoded_host in 2130706433 0177.0.0.1 127.1; do
   encoded_manager_source_output="$(expect_failure run_catalog "$encoded_manager_source_dir" --json)"
   assert_contains "$encoded_manager_source_output" "registry.manager_source must be a public-safe skills source"
 done
+
+percent_encoded_manager_source_dir="$tmp_dir/percent-encoded-manager-source"
+write_ok_fixture "$percent_encoded_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "https://%31%32%37.0.0.1/fiveonecode/agent-skills"
+  File.write(path, data.to_yaml)
+' "$percent_encoded_manager_source_dir/skills.registry.yaml"
+percent_encoded_manager_source_output="$(expect_failure run_catalog "$percent_encoded_manager_source_dir" --json)"
+assert_contains "$percent_encoded_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+trailing_dot_manager_source_dir="$tmp_dir/trailing-dot-manager-source"
+write_ok_fixture "$trailing_dot_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "https://localhost./fiveonecode/agent-skills"
+  File.write(path, data.to_yaml)
+' "$trailing_dot_manager_source_dir/skills.registry.yaml"
+trailing_dot_manager_source_output="$(expect_failure run_catalog "$trailing_dot_manager_source_dir" --json)"
+assert_contains "$trailing_dot_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+fragment_manager_source_dir="$tmp_dir/fragment-manager-source"
+write_ok_fixture "$fragment_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "https://github.com/fiveonecode/agent-skills#main"
+  File.write(path, data.to_yaml)
+' "$fragment_manager_source_dir/skills.registry.yaml"
+fragment_manager_source_output="$(expect_failure run_catalog "$fragment_manager_source_dir" --json)"
+assert_contains "$fragment_manager_source_output" "registry.manager_source must be a public-safe skills source"
 
 non_string_manager_source_dir="$tmp_dir/non-string-manager-source"
 write_ok_fixture "$non_string_manager_source_dir"
