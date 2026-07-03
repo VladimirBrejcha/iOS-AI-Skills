@@ -402,6 +402,27 @@ ruby -ryaml -e '
 duplicate_active_agents_user_output="$(expect_failure run_catalog "$duplicate_active_agents_user_dir" --json)"
 assert_contains "$duplicate_active_agents_user_output" "profiles/machine/example-local-skills.yaml duplicate active agents_user selection for skill_id example-skill"
 
+missing_selected_skill_dir="$tmp_dir/missing-selected-skill"
+write_ok_fixture "$missing_selected_skill_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("selected_skills") << {
+    "skill_id" => "missing-skill",
+    "expose_to" => ["agents_user"],
+    "state" => "active",
+    "consumer_overrides" => {
+      "agents_user" => {
+        "adapter" => "manager-copy",
+        "status" => "proven-manager-copy"
+      }
+    }
+  }
+  File.write(path, data.to_yaml)
+' "$missing_selected_skill_dir/profiles/machine/example-local-skills.yaml"
+missing_selected_skill_output="$(expect_failure run_catalog "$missing_selected_skill_dir" --json)"
+assert_contains "$missing_selected_skill_output" "profiles/machine/example-local-skills.yaml selected skill missing-skill is not in registry"
+
 unsupported_agents_override_key_dir="$tmp_dir/unsupported-agents-override-key"
 write_ok_fixture "$unsupported_agents_override_key_dir"
 ruby -ryaml -e '
@@ -437,6 +458,18 @@ ruby -ryaml -e '
 ' "$invalid_agents_root_adapter_dir/profiles/machine/example-local-skills.yaml"
 invalid_agents_root_adapter_output="$(expect_failure run_catalog "$invalid_agents_root_adapter_dir" --json)"
 assert_contains "$invalid_agents_root_adapter_output" "profiles/machine/example-local-skills.yaml consumer_roots.agents_user adapter must be a safe non-path identifier"
+
+bad_client_status_dir="$tmp_dir/bad-client-status"
+write_ok_fixture "$bad_client_status_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+    .fetch("clients")["claude"] = "bad/status"
+  File.write(path, data.to_yaml)
+' "$bad_client_status_dir/skills.registry.yaml"
+bad_client_status_output="$(expect_failure run_catalog "$bad_client_status_dir" --json)"
+assert_contains "$bad_client_status_output" "example-skill: clients values must be safe non-path identifiers"
 
 missing_profile_dir="$tmp_dir/missing-profile"
 write_ok_fixture "$missing_profile_dir"
@@ -585,6 +618,28 @@ ruby -ryaml -e '
 ' "$non_http_credential_description_dir/skills.registry.yaml"
 non_http_credential_description_output="$(expect_failure run_catalog "$non_http_credential_description_dir" --json)"
 assert_contains "$non_http_credential_description_output" "generated catalog JSON contains non-HTTP URL password"
+
+scp_credential_description_dir="$tmp_dir/scp-credential-description"
+write_ok_fixture "$scp_credential_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses user:pass@example.com:repo."
+  File.write(path, data.to_yaml)
+' "$scp_credential_description_dir/skills.registry.yaml"
+scp_credential_description_output="$(expect_failure run_catalog "$scp_credential_description_dir" --json)"
+assert_contains "$scp_credential_description_output" "generated catalog JSON contains scp-like URL password"
+
+uppercase_file_url_description_dir="$tmp_dir/uppercase-file-url-description"
+write_ok_fixture "$uppercase_file_url_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses FILE://server/share."
+  File.write(path, data.to_yaml)
+' "$uppercase_file_url_description_dir/skills.registry.yaml"
+uppercase_file_url_description_output="$(expect_failure run_catalog "$uppercase_file_url_description_dir" --json)"
+assert_contains "$uppercase_file_url_description_output" "generated catalog JSON contains file URL"
 
 relative_paths_dir="$tmp_dir/relative-paths"
 write_ok_fixture "$relative_paths_dir"

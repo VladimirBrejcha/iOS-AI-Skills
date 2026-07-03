@@ -26,9 +26,10 @@ PUBLIC_UNSAFE_PATTERNS = {
   "root home path" => %r{/root(?:/|\b)},
   "Windows user path" => %r{[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s]+},
   "mac temp path" => %r{/var/folders/},
-  "file URL" => %r{file://},
+  "file URL" => %r{[Ff][Ii][Ll][Ee]://},
   "HTTP credentials" => %r{https?://[^/\s]*@}i,
   "non-HTTP URL password" => %r{(?:ssh|git|ftp|ftps|rsync)://[^/\s:@]+:[^/\s@]+@}i,
+  "scp-like URL password" => %r{\b[^/\s:@]+:[^/\s@]+@[^/\s:@]+:[^\s]+},
   "GitHub token" => %r{github_pat_|ghp_|gho_|ghu_|ghs_|ghr_},
   "OpenAI key" => %r{sk-[A-Za-z0-9_-]{20,}},
   "AWS access key" => %r{\b(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}\b},
@@ -508,7 +509,7 @@ def normalized_consumer_overrides(raw_overrides, profile_path, skill_id, expose_
   end
 end
 
-def approved_codex_global_install_ids(profile, profile_path, reporter)
+def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids, reporter)
   return {} unless profile.is_a?(Hash)
   return {} if profile_path.nil?
 
@@ -530,6 +531,10 @@ def approved_codex_global_install_ids(profile, profile_path, reporter)
   installable_skills = selected_skills.each_with_object({}) do |entry, memo|
     unless entry.is_a?(Hash) && valid_string?(entry["skill_id"])
       reporter.error("#{display_path(profile_path)} selected_skills entries must include non-empty skill_id")
+      next
+    end
+    unless registry_skill_ids.key?(entry["skill_id"])
+      reporter.error("#{display_path(profile_path)} selected skill #{entry["skill_id"]} is not in registry")
       next
     end
 
@@ -780,8 +785,6 @@ end
 
 def build_catalog(registry, lock, registry_path, lock_path, reporter)
   registry_root = Pathname.new(File.dirname(File.expand_path(registry_path))).cleanpath
-  install_profile, install_profile_path = load_install_profile(registry_root, reporter)
-  installable_codex_skills = approved_codex_global_install_ids(install_profile, install_profile_path, reporter)
   registry_metadata = mapping(registry["registry"], reporter, "registry metadata")
   registry_id = registry_metadata["id"]
   registry_name = registry_metadata["name"]
@@ -796,6 +799,18 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     reporter.error("skills.registry.yaml skills must be an array")
     raw_skills = []
   end
+  registry_skill_ids = raw_skills.each_with_object({}) do |entry, memo|
+    next unless entry.is_a?(Hash) && safe_non_path_identifier?(entry["id"])
+
+    memo[entry["id"]] = true
+  end
+  install_profile, install_profile_path = load_install_profile(registry_root, reporter)
+  installable_codex_skills = approved_codex_global_install_ids(
+    install_profile,
+    install_profile_path,
+    registry_skill_ids,
+    reporter
+  )
 
   lock_by_id = index_lock_entries(lock, reporter)
   catalog_skills = []
@@ -840,6 +855,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     end
     reporter.error("#{skill_id}: exported_names must not be empty") if exported_names.empty?
     clients = string_mapping(skill["clients"], reporter, "#{skill_id}: clients", allow_nil: true)
+    reporter.error("#{skill_id}: clients values must be safe non-path identifiers") unless clients.values.all? { |value| safe_non_path_identifier?(value) }
     scopes = string_array(skill["scopes"], reporter, "#{skill_id}: scopes")
     update_policy = skill["update_policy"]
     reporter.error("#{skill_id}: update_policy is required") unless valid_string?(update_policy)
@@ -974,10 +990,10 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     catalog_skills << entry
   end
 
-  registry_skill_ids = raw_skills.each_with_object([]) do |entry, memo|
+  registry_skill_id_list = raw_skills.each_with_object([]) do |entry, memo|
     memo << entry["id"] if entry.is_a?(Hash) && safe_non_path_identifier?(entry["id"])
   end
-  stale_locks = lock_by_id.keys - registry_skill_ids
+  stale_locks = lock_by_id.keys - registry_skill_id_list
   stale_locks.sort.each do |skill_id|
     reporter.error("skills.lock.yaml stale lock entry #{skill_id} is not present in skills.registry.yaml")
   end
