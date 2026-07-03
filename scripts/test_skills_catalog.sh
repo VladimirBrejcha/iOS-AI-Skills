@@ -955,6 +955,17 @@ ruby -ryaml -e '
 encoded_credential_external_url_output="$(expect_failure run_catalog "$encoded_credential_external_url_dir" --json)"
 assert_contains "$encoded_credential_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
 
+encoded_scp_password_description_dir="$tmp_dir/encoded-scp-password-description"
+write_ok_fixture "$encoded_scp_password_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Mirror user%3Apass@example.com:repo before install."
+  File.write(path, data.to_yaml)
+' "$encoded_scp_password_description_dir/skills.registry.yaml"
+encoded_scp_password_description_output="$(expect_failure run_catalog "$encoded_scp_password_description_dir" --json)"
+assert_contains "$encoded_scp_password_description_output" "generated catalog JSON contains scp-like URL password"
+
 host_only_external_url_dir="$tmp_dir/host-only-external-url"
 write_ok_fixture "$host_only_external_url_dir"
 ruby -ryaml -e '
@@ -988,6 +999,40 @@ ruby -ryaml -e '
 ' "$host_only_scheme_external_url_dir/skills.lock.yaml"
 host_only_scheme_external_url_output="$(expect_failure run_catalog "$host_only_scheme_external_url_dir" --json)"
 assert_contains "$host_only_scheme_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
+
+valid_scp_external_url_dir="$tmp_dir/valid-scp-external-url"
+write_ok_fixture "$valid_scp_external_url_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["url"] = "git@example.com:org/repo.git"
+  File.write(path, data.to_yaml)
+' "$valid_scp_external_url_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }["url"] = "git@example.com:org/repo.git"
+  File.write(path, data.to_yaml)
+' "$valid_scp_external_url_dir/skills.lock.yaml"
+run_catalog "$valid_scp_external_url_dir" --write
+run_catalog "$valid_scp_external_url_dir" --check
+
+mailto_external_url_dir="$tmp_dir/mailto-external-url"
+write_ok_fixture "$mailto_external_url_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["url"] = "mailto:user@example.com"
+  File.write(path, data.to_yaml)
+' "$mailto_external_url_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }["url"] = "mailto:user@example.com"
+  File.write(path, data.to_yaml)
+' "$mailto_external_url_dir/skills.lock.yaml"
+mailto_external_url_output="$(expect_failure run_catalog "$mailto_external_url_dir" --json)"
+assert_contains "$mailto_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
 
 dot_only_external_url_dir="$tmp_dir/dot-only-external-url"
 write_ok_fixture "$dot_only_external_url_dir"
@@ -1033,6 +1078,28 @@ ruby -ryaml -e '
 ' "$host_only_scheme_manager_source_dir/skills.registry.yaml"
 host_only_scheme_manager_source_output="$(expect_failure run_catalog "$host_only_scheme_manager_source_dir" --json)"
 assert_contains "$host_only_scheme_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+mailto_manager_source_dir="$tmp_dir/mailto-manager-source"
+write_ok_fixture "$mailto_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "mailto:user@example.com"
+  File.write(path, data.to_yaml)
+' "$mailto_manager_source_dir/skills.registry.yaml"
+mailto_manager_source_output="$(expect_failure run_catalog "$mailto_manager_source_dir" --json)"
+assert_contains "$mailto_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+owner_only_manager_source_dir="$tmp_dir/owner-only-manager-source"
+write_ok_fixture "$owner_only_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "fiveonecode/"
+  File.write(path, data.to_yaml)
+' "$owner_only_manager_source_dir/skills.registry.yaml"
+owner_only_manager_source_output="$(expect_failure run_catalog "$owner_only_manager_source_dir" --json)"
+assert_contains "$owner_only_manager_source_output" "registry.manager_source must be a public-safe skills source"
 
 host_root_scp_external_url_dir="$tmp_dir/host-root-scp-external-url"
 write_ok_fixture "$host_root_scp_external_url_dir"

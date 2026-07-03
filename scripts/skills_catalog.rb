@@ -30,7 +30,7 @@ PUBLIC_UNSAFE_PATTERNS = {
   "file URL" => %r{[Ff][Ii][Ll][Ee]:(?:/+|[A-Za-z]:)},
   "HTTP credentials" => %r{https?://[^/\s]*@}i,
   "non-HTTP URL password" => %r{\b(?!https?://)(?:[a-z][a-z0-9+.-]*://)[^/\s:@]+(?::|%3a)[^/\s@]+@}i,
-  "scp-like URL password" => %r{\b[^/\s:@]+:[^/\s@]+@[^/\s:@]+:[^\s]+},
+  "scp-like URL password" => %r{\b[^/\s:@]+(?::|%3[aA])[^/\s@]+@[^/\s:@]+:[^\s]+},
   "GitHub token" => %r{github_pat_|ghp_|gho_|ghu_|ghs_|ghr_},
   "OpenAI key" => %r{sk-[A-Za-z0-9_-]{20,}},
   "AWS access key" => %r{\b(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}\b},
@@ -154,23 +154,32 @@ def scheme_url?(value)
   value.is_a?(String) && /\A[a-z][a-z0-9+.-]*:\/\//i.match?(value)
 end
 
+def scp_like_url_match(value)
+  match = /\A(?:(?<userinfo>[^\/@\s]+)@)?(?<host>[^\/:\s]+):(?<path>.+)\z/.match(value.to_s)
+  return nil unless match
+  return nil unless match[:host].include?(".")
+
+  match
+end
+
 def scp_like_url?(value)
-  value.is_a?(String) && /\A(?:[^\/@\s]+@)?[^\/:\s]+:.+\z/.match?(value)
+  !scp_like_url_match(value).nil?
 end
 
 def credential_bearing_scp_url?(value)
-  match = /\A(?<userinfo>[^\/@\s]+)@[^\/:\s]+:.+\z/.match(value.to_s)
-  match && percent_decoded(match[:userinfo]).include?(":")
+  match = scp_like_url_match(value)
+  !match[:userinfo].to_s.empty? && percent_decoded(match[:userinfo]).include?(":") if match
 end
 
 def query_or_fragment_bearing_scp_url?(value)
-  match = /\A(?:[^\/@\s]+@)?[^\/:\s]+:(?<path>.+)\z/.match(value.to_s)
+  match = scp_like_url_match(value)
   match && (match[:path].include?("?") || match[:path].include?("#"))
 end
 
 def scp_like_url_has_repository_path?(value)
-  match = /\A(?:[^\/@\s]+@)?[^\/:\s]+:(?<path>.+)\z/.match(value.to_s)
+  match = scp_like_url_match(value)
   return false unless match
+  return false if match[:path].include?("@")
 
   remote_repository_path?(match[:path])
 end
@@ -318,6 +327,7 @@ def public_manager_shorthand?(value)
   return false if base.include?(":")
   return false if base.include?("?")
   return false unless base.include?("/")
+  return false unless normalized_remote_path_segments(base).length >= 2
   return false if Pathname.new(base).each_filename.any? { |part| part == "." }
   return false if fragment && (fragment.match?(/\s/) || contains_control_characters?(fragment))
 
