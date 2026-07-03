@@ -26,5 +26,4 @@ for the current reviewed example profile.
 
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill code-review --agent codex --global --yes
-npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes
 ```

@@ -68,10 +68,13 @@ ruby -ryaml -e '
     end
     .select do |skill|
       selection = selected[skill.fetch("id")]
+      expose_to = selection&.fetch("expose_to", nil)
       override = selection&.dig("consumer_overrides", "agents_user")
       state = selection&.fetch("state", "").to_s
       selection.is_a?(Hash) &&
-        !state.match?(/pending|blocked|disabled|manual/i) &&
+        state == "active" &&
+        expose_to.is_a?(Array) &&
+        expose_to.include?("agents_user") &&
         override.is_a?(Hash) &&
         override["adapter"] == "manager-copy" &&
         override["status"] == "proven-manager-copy"
@@ -83,9 +86,9 @@ ruby -ryaml -e '
 
 This filtered list matches the documented `--agent codex --global` install
 flow for the current reviewed `agents_user` baseline. Registry-covered entries
-that still rely on planned/manual-review profile state or do not have a
-checked-in top-level skill folder stay out of this list until a follow-up
-coverage/profile PR promotes them.
+that still rely on planned/manual-review profile state, are not exposed to
+`agents_user`, or do not have a checked-in top-level skill folder stay out of
+this list until a follow-up coverage/profile PR promotes them.
 
 Do not use `npx --yes skills@1.5.14 add fiveonecode/agent-skills --list` as a
 registry coverage list. It enumerates every top-level skill folder in the

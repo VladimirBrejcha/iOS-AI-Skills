@@ -302,6 +302,22 @@ ruby -rjson -e '
   raise "external should not emit install command" if external.key?("install")
 ' "$ok_dir/skills.catalog.json"
 
+planned_state_dir="$tmp_dir/planned-state"
+write_ok_fixture "$planned_state_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  selection = data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }
+  selection["state"] = "planned"
+  File.write(path, data.to_yaml)
+' "$planned_state_dir/profiles/machine/example-local-skills.yaml"
+run_catalog "$planned_state_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  raise "planned skill should not emit install command" if example.key?("install")
+' "$planned_state_dir/skills.catalog.json"
+
 not_exposed_dir="$tmp_dir/not-exposed"
 write_ok_fixture "$not_exposed_dir"
 ruby -ryaml -e '
@@ -507,5 +523,25 @@ ruby -ryaml -e '
 ' "$duplicate_export_name_dir/skills.lock.yaml"
 duplicate_export_name_output="$(expect_failure run_catalog "$duplicate_export_name_dir" --json)"
 assert_contains "$duplicate_export_name_output" "manual-review-skill: exported adapter name example-skill is duplicated"
+
+duplicate_source_owner_dir="$tmp_dir/duplicate-source-owner"
+write_ok_fixture "$duplicate_source_owner_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "manual-review-skill" }.fetch("source")["path"] = "example-skill"
+  File.write(path, data.to_yaml)
+' "$duplicate_source_owner_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  example = data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  manual = data.fetch("skills").find { |skill| skill.fetch("id") == "manual-review-skill" }
+  manual["path"] = example.fetch("path")
+  manual["digest_sha256"] = example.fetch("digest_sha256")
+  File.write(path, data.to_yaml)
+' "$duplicate_source_owner_dir/skills.lock.yaml"
+duplicate_source_owner_output="$(expect_failure run_catalog "$duplicate_source_owner_dir" --json)"
+assert_contains "$duplicate_source_owner_output" "manual-review-skill: registry-local source.path example-skill is already declared by example-skill"
 
 echo "skills_catalog test ok"

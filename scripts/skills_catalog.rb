@@ -379,7 +379,7 @@ def approved_codex_global_install_ids(profile, profile_path, reporter)
     expose_to = entry["expose_to"]
     override = entry.dig("consumer_overrides", "agents_user")
     state = entry["state"].to_s
-    next if state.match?(/pending|blocked|disabled|manual/i)
+    next unless state == "active"
     next unless expose_to.is_a?(Array) && expose_to.include?("agents_user")
     next unless override.is_a?(Hash)
     next unless override["adapter"] == "manager-copy"
@@ -619,6 +619,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   catalog_skills = []
   seen_skill_ids = {}
   seen_exported_names = {}
+  seen_registry_local_source_paths = {}
 
   raw_skills.each_with_index do |skill, index|
     unless skill.is_a?(Hash)
@@ -675,6 +676,11 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       unless source_valid
         reporter.error("#{skill_id}: registry-local source.path must name a top-level skill directory")
       end
+      if source_valid && seen_registry_local_source_paths.key?(source_path)
+        reporter.error("#{skill_id}: registry-local source.path #{source_path} is already declared by #{seen_registry_local_source_paths[source_path]}")
+        next
+      end
+      seen_registry_local_source_paths[source_path] = skill_id if source_valid
 
       skill_root = source_valid ? registry_root.join(source_path) : nil
       skill_file = skill_root&.join("SKILL.md")
