@@ -537,6 +537,17 @@ ruby -ryaml -e '
 invalid_profile_id_output="$(expect_failure run_catalog "$invalid_profile_id_dir" --json)"
 assert_contains "$invalid_profile_id_output" "profiles/machine/example-local-skills.yaml profile.id must be a safe non-path identifier"
 
+invalid_profile_status_dir="$tmp_dir/invalid-profile-status"
+write_ok_fixture "$invalid_profile_status_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data["status"] = ["bad"]
+  File.write(path, data.to_yaml)
+' "$invalid_profile_status_dir/profiles/machine/example-local-skills.yaml"
+invalid_profile_status_output="$(expect_failure run_catalog "$invalid_profile_status_dir" --json)"
+assert_contains "$invalid_profile_status_output" "profiles/machine/example-local-skills.yaml status must be a string when provided"
+
 invalid_consumer_root_windows_dir="$tmp_dir/invalid-consumer-root-windows"
 write_ok_fixture "$invalid_consumer_root_windows_dir"
 ruby -ryaml -e '
@@ -743,7 +754,7 @@ ruby -ryaml -e '
   File.write(path, data.to_yaml)
 ' "$lowercase_windows_path_description_dir/skills.registry.yaml"
 lowercase_windows_path_description_output="$(expect_failure run_catalog "$lowercase_windows_path_description_dir" --json)"
-assert_contains "$lowercase_windows_path_description_output" "generated catalog JSON contains Windows user path"
+assert_contains "$lowercase_windows_path_description_output" "generated catalog JSON contains Windows local path"
 
 drive_relative_windows_path_description_dir="$tmp_dir/drive-relative-windows-path-description"
 write_ok_fixture "$drive_relative_windows_path_description_dir"
@@ -754,7 +765,29 @@ ruby -ryaml -e '
   File.write(path, data.to_yaml)
 ' "$drive_relative_windows_path_description_dir/skills.registry.yaml"
 drive_relative_windows_path_description_output="$(expect_failure run_catalog "$drive_relative_windows_path_description_dir" --json)"
-assert_contains "$drive_relative_windows_path_description_output" "generated catalog JSON contains Windows user path"
+assert_contains "$drive_relative_windows_path_description_output" "generated catalog JSON contains Windows local path"
+
+windows_drive_path_description_dir="$tmp_dir/windows-drive-path-description"
+write_ok_fixture "$windows_drive_path_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses D:\\\\secret\\\\repo."
+  File.write(path, data.to_yaml)
+' "$windows_drive_path_description_dir/skills.registry.yaml"
+windows_drive_path_description_output="$(expect_failure run_catalog "$windows_drive_path_description_dir" --json)"
+assert_contains "$windows_drive_path_description_output" "generated catalog JSON contains Windows local path"
+
+windows_unc_path_description_dir="$tmp_dir/windows-unc-path-description"
+write_ok_fixture "$windows_unc_path_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses \\\\server\\share\\private."
+  File.write(path, data.to_yaml)
+' "$windows_unc_path_description_dir/skills.registry.yaml"
+windows_unc_path_description_output="$(expect_failure run_catalog "$windows_unc_path_description_dir" --json)"
+assert_contains "$windows_unc_path_description_output" "generated catalog JSON contains Windows local path"
 
 non_http_credential_description_dir="$tmp_dir/non-http-credential-description"
 write_ok_fixture "$non_http_credential_description_dir"
@@ -887,6 +920,18 @@ ruby -ryaml -e '
 ' "$unsafe_manager_source_dir/skills.registry.yaml"
 unsafe_manager_source_output="$(expect_failure run_catalog "$unsafe_manager_source_dir" --json)"
 assert_contains "$unsafe_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+non_string_manager_source_dir="$tmp_dir/non-string-manager-source"
+write_ok_fixture "$non_string_manager_source_dir"
+rm -rf "$non_string_manager_source_dir/profiles"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = ["bad"]
+  File.write(path, data.to_yaml)
+' "$non_string_manager_source_dir/skills.registry.yaml"
+non_string_manager_source_output="$(expect_failure run_catalog "$non_string_manager_source_dir" --json)"
+assert_contains "$non_string_manager_source_output" "registry.manager_source must be a string"
 
 dot_only_manager_source_dir="$tmp_dir/dot-only-manager-source"
 write_ok_fixture "$dot_only_manager_source_dir"

@@ -25,7 +25,7 @@ PUBLIC_UNSAFE_PATTERNS = {
   "macOS user path" => %r{/Users/[A-Za-z0-9._-]+}i,
   "Linux user path" => %r{/home/[A-Za-z0-9._-]+},
   "root home path" => %r{/root(?:/|\b)},
-  "Windows user path" => %r{[A-Za-z]:[\\/]*Users[\\/]+[^\\/\s]+}i,
+  "Windows local path" => %r{(?:\b[A-Za-z]:(?:[\\/]|[^\\/\s])|(?<!:)//[^/\\\s]+[\\/]|\\\\[^\\/\s]+[\\/])},
   "mac temp path" => %r{/var/folders/},
   "file URL" => %r{\bfile:}i,
   "HTTP credentials" => %r{https?://[^/\s]*@}i,
@@ -567,6 +567,10 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
   return {} if profile_path.nil?
 
   starting_error_count = reporter.errors.length
+  profile_status = profile["status"]
+  if !profile_status.nil? && !profile_status.is_a?(String)
+    reporter.error("#{display_path(profile_path)} status must be a string when provided")
+  end
   profile_metadata = mapping(profile["profile"], reporter, "#{display_path(profile_path)} profile", allow_nil: true)
   profile_id = profile_metadata["id"]
   reporter.error("#{display_path(profile_path)} profile.id is required") unless valid_string?(profile_id)
@@ -1100,7 +1104,9 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     reporter.error("skills.lock.yaml stale lock entry #{skill_id} is not present in skills.registry.yaml")
   end
 
-  if valid_string?(manager_source)
+  if !manager_source.nil? && !manager_source.is_a?(String)
+    reporter.error("registry.manager_source must be a string")
+  elsif manager_source.is_a?(String) && !manager_source.empty?
     reporter.error("registry.manager_source must be a public-safe skills source") unless safe_manager_source?(manager_source)
   elsif manager_source_required
     reporter.error("registry.manager_source is required for public install commands")
