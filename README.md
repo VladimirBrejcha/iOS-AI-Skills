@@ -95,6 +95,9 @@ Do not edit those artifacts directly. Change `skills.registry.yaml`,
 `skills.lock.yaml`, or the relevant `SKILL.md` front matter, then run:
 
 ```bash
+tmp_lock="$(mktemp "${TMPDIR:-/tmp}/skills.lock.yaml.XXXXXX")"
+scripts/skills_doctor.rb --print-lock >"$tmp_lock" &&
+  mv "$tmp_lock" skills.lock.yaml
 scripts/skills_catalog.rb --write
 scripts/skills_catalog.rb --check
 ```

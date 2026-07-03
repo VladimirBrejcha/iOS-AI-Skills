@@ -27,7 +27,7 @@ PUBLIC_UNSAFE_PATTERNS = {
   "root home path" => %r{/root(?:/|\b)},
   "Windows user path" => %r{[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s]+},
   "mac temp path" => %r{/var/folders/},
-  "file URL" => %r{[Ff][Ii][Ll][Ee]://},
+  "file URL" => %r{[Ff][Ii][Ll][Ee]:(?:/+|[A-Za-z]:)},
   "HTTP credentials" => %r{https?://[^/\s]*@}i,
   "non-HTTP URL password" => %r{\b(?!https?://)(?:[a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@}i,
   "scp-like URL password" => %r{\b[^/\s:@]+:[^/\s@]+@[^/\s:@]+:[^\s]+},
@@ -183,6 +183,14 @@ def windows_local_path?(value)
   windows_drive_letter_path?(value) || windows_unc_path?(value)
 end
 
+def windows_path_fragment?(value)
+  return false unless value.is_a?(String) && !value.empty?
+
+  return true if windows_local_path?(value) || value.include?("\\")
+
+  value.split("/").any? { |segment| windows_local_path?(segment) }
+end
+
 def ext_remote_url?(value)
   value.is_a?(String) && value.start_with?("ext::")
 end
@@ -306,6 +314,7 @@ def public_manager_shorthand?(value)
   return false if base.include?(":")
   return false if base.include?("?")
   return false unless base.include?("/")
+  return false if Pathname.new(base).each_filename.any? { |part| part == "." }
   return false if fragment && (fragment.match?(/\s/) || contains_control_characters?(fragment))
 
   true
@@ -447,6 +456,10 @@ def normalized_consumer_roots(raw_consumer_roots, profile_path, reporter)
     end
 
     path = raw_config["path"]
+    if windows_path_fragment?(path)
+      reporter.error("#{display_path(profile_path)} consumer_roots.#{consumer} path must not be a local Windows path")
+      next
+    end
     unless valid_path_string?(path)
       reporter.error("#{display_path(profile_path)} consumer_roots.#{consumer} path must be a non-empty valid path")
       next
@@ -540,6 +553,12 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
   return {} if profile_path.nil?
 
   starting_error_count = reporter.errors.length
+  profile_metadata = mapping(profile["profile"], reporter, "#{display_path(profile_path)} profile", allow_nil: true)
+  profile_id = profile_metadata["id"]
+  reporter.error("#{display_path(profile_path)} profile.id is required") unless valid_string?(profile_id)
+  if valid_string?(profile_id) && !safe_non_path_identifier?(profile_id)
+    reporter.error("#{display_path(profile_path)} profile.id must be a safe non-path identifier")
+  end
   consumer_roots = normalized_consumer_roots(profile["consumer_roots"], profile_path, reporter)
 
   agents_root = consumer_roots["agents_user"]
@@ -553,6 +572,7 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
   end
 
   seen_active_agents_user_skill_ids = {}
+  seen_selected_skill_consumers = {}
 
   installable_skills = selected_skills.each_with_object({}) do |entry, memo|
     unless entry.is_a?(Hash) && valid_string?(entry["skill_id"])
@@ -593,6 +613,17 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
       reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} state must be a string when provided")
     elsif state.is_a?(String) && !state.empty? && !safe_non_path_identifier?(state)
       reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} state must be a safe non-path identifier")
+    end
+    expose_to.each do |consumer|
+      next unless safe_non_path_identifier?(consumer) && consumer_roots.key?(consumer)
+      next if consumer == "agents_user" && state.to_s == "active"
+
+      key = [entry["skill_id"], consumer]
+      if seen_selected_skill_consumers[key]
+        reporter.error("#{display_path(profile_path)} duplicate selected target for skill_id #{entry["skill_id"]} and consumer #{consumer}")
+      else
+        seen_selected_skill_consumers[key] = true
+      end
     end
     next unless state.to_s == "active"
     next unless expose_to.is_a?(Array) && expose_to.include?("agents_user")

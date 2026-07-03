@@ -496,6 +496,54 @@ ruby -ryaml -e '
 invalid_agents_root_adapter_output="$(expect_failure run_catalog "$invalid_agents_root_adapter_dir" --json)"
 assert_contains "$invalid_agents_root_adapter_output" "profiles/machine/example-local-skills.yaml consumer_roots.agents_user adapter must be a safe non-path identifier"
 
+invalid_profile_id_dir="$tmp_dir/invalid-profile-id"
+write_ok_fixture "$invalid_profile_id_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("profile")["id"] = "bad/id"
+  File.write(path, data.to_yaml)
+' "$invalid_profile_id_dir/profiles/machine/example-local-skills.yaml"
+invalid_profile_id_output="$(expect_failure run_catalog "$invalid_profile_id_dir" --json)"
+assert_contains "$invalid_profile_id_output" "profiles/machine/example-local-skills.yaml profile.id must be a safe non-path identifier"
+
+invalid_consumer_root_windows_dir="$tmp_dir/invalid-consumer-root-windows"
+write_ok_fixture "$invalid_consumer_root_windows_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("consumer_roots")["codex_legacy_user"] = {
+    "path" => "scratch/C:foo",
+    "adapter" => "symlink"
+  }
+  data.fetch("consumer_roots")["claude_user"] = {
+    "path" => "scratch\\\\copy",
+    "adapter" => "symlink"
+  }
+  File.write(path, data.to_yaml)
+' "$invalid_consumer_root_windows_dir/profiles/machine/example-local-skills.yaml"
+invalid_consumer_root_windows_output="$(expect_failure run_catalog "$invalid_consumer_root_windows_dir" --json)"
+assert_contains "$invalid_consumer_root_windows_output" "profiles/machine/example-local-skills.yaml consumer_roots.codex_legacy_user path must not be a local Windows path"
+assert_contains "$invalid_consumer_root_windows_output" "profiles/machine/example-local-skills.yaml consumer_roots.claude_user path must not be a local Windows path"
+
+duplicate_non_agents_target_dir="$tmp_dir/duplicate-non-agents-target"
+write_ok_fixture "$duplicate_non_agents_target_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("consumer_roots")["claude_user"] = {
+    "path" => "~/.claude/skills",
+    "adapter" => "symlink"
+  }
+  selection = data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "manual-review-skill" }
+  selection["expose_to"] = ["claude_user"]
+  duplicate = Marshal.load(Marshal.dump(selection))
+  data.fetch("selected_skills") << duplicate
+  File.write(path, data.to_yaml)
+' "$duplicate_non_agents_target_dir/profiles/machine/example-local-skills.yaml"
+duplicate_non_agents_target_output="$(expect_failure run_catalog "$duplicate_non_agents_target_dir" --json)"
+assert_contains "$duplicate_non_agents_target_output" "profiles/machine/example-local-skills.yaml duplicate selected target for skill_id manual-review-skill and consumer claude_user"
+
 bad_client_status_dir="$tmp_dir/bad-client-status"
 write_ok_fixture "$bad_client_status_dir"
 ruby -ryaml -e '
@@ -689,6 +737,17 @@ ruby -ryaml -e '
 uppercase_file_url_description_output="$(expect_failure run_catalog "$uppercase_file_url_description_dir" --json)"
 assert_contains "$uppercase_file_url_description_output" "generated catalog JSON contains file URL"
 
+single_slash_file_url_description_dir="$tmp_dir/single-slash-file-url-description"
+write_ok_fixture "$single_slash_file_url_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses file:/private/repo."
+  File.write(path, data.to_yaml)
+' "$single_slash_file_url_description_dir/skills.registry.yaml"
+single_slash_file_url_description_output="$(expect_failure run_catalog "$single_slash_file_url_description_dir" --json)"
+assert_contains "$single_slash_file_url_description_output" "generated catalog JSON contains file URL"
+
 relative_paths_dir="$tmp_dir/relative-paths"
 write_ok_fixture "$relative_paths_dir"
 run_catalog_relative "$relative_paths_dir" --write
@@ -754,6 +813,17 @@ ruby -ryaml -e '
 ' "$dot_only_manager_source_dir/skills.registry.yaml"
 dot_only_manager_source_output="$(expect_failure run_catalog "$dot_only_manager_source_dir" --json)"
 assert_contains "$dot_only_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+dot_segment_manager_source_dir="$tmp_dir/dot-segment-manager-source"
+write_ok_fixture "$dot_segment_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "fiveonecode/."
+  File.write(path, data.to_yaml)
+' "$dot_segment_manager_source_dir/skills.registry.yaml"
+dot_segment_manager_source_output="$(expect_failure run_catalog "$dot_segment_manager_source_dir" --json)"
+assert_contains "$dot_segment_manager_source_output" "registry.manager_source must be a public-safe skills source"
 
 uppercase_commit_dir="$tmp_dir/uppercase-commit"
 write_ok_fixture "$uppercase_commit_dir"
