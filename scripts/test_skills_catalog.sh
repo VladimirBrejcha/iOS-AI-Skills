@@ -363,8 +363,13 @@ write_ok_fixture "$not_exposed_dir"
 ruby -ryaml -e '
   path = ARGV.fetch(0)
   data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("consumer_roots")["codex_legacy_user"] = {
+    "path" => "~/.codex/skills",
+    "adapter" => "symlink"
+  }
   selection = data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }
   selection["expose_to"] = ["codex_legacy_user"]
+  selection.delete("consumer_overrides")
   File.write(path, data.to_yaml)
 ' "$not_exposed_dir/profiles/machine/example-local-skills.yaml"
 run_catalog "$not_exposed_dir" --write
@@ -409,6 +414,29 @@ ruby -ryaml -e '
 ' "$unsupported_agents_override_key_dir/profiles/machine/example-local-skills.yaml"
 unsupported_agents_override_key_output="$(expect_failure run_catalog "$unsupported_agents_override_key_dir" --json)"
 assert_contains "$unsupported_agents_override_key_output" "profiles/machine/example-local-skills.yaml example-skill consumer_overrides.agents_user supports only adapter and status"
+
+unsupported_non_agents_override_dir="$tmp_dir/unsupported-non-agents-override"
+write_ok_fixture "$unsupported_non_agents_override_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }
+    .fetch("consumer_overrides")["claude_user"] = { "adapter" => "manager-copy" }
+  File.write(path, data.to_yaml)
+' "$unsupported_non_agents_override_dir/profiles/machine/example-local-skills.yaml"
+unsupported_non_agents_override_output="$(expect_failure run_catalog "$unsupported_non_agents_override_dir" --json)"
+assert_contains "$unsupported_non_agents_override_output" "profiles/machine/example-local-skills.yaml example-skill consumer_overrides.claude_user must target an exposed consumer"
+
+invalid_agents_root_adapter_dir="$tmp_dir/invalid-agents-root-adapter"
+write_ok_fixture "$invalid_agents_root_adapter_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("consumer_roots").fetch("agents_user")["adapter"] = "bad/adapter"
+  File.write(path, data.to_yaml)
+' "$invalid_agents_root_adapter_dir/profiles/machine/example-local-skills.yaml"
+invalid_agents_root_adapter_output="$(expect_failure run_catalog "$invalid_agents_root_adapter_dir" --json)"
+assert_contains "$invalid_agents_root_adapter_output" "profiles/machine/example-local-skills.yaml consumer_roots.agents_user adapter must be a safe non-path identifier"
 
 missing_profile_dir="$tmp_dir/missing-profile"
 write_ok_fixture "$missing_profile_dir"
@@ -546,6 +574,17 @@ ruby -ryaml -e '
 ' "$unsafe_description_dir/skills.registry.yaml"
 unsafe_description_output="$(expect_failure run_catalog "$unsafe_description_dir" --json)"
 assert_contains "$unsafe_description_output" "generated catalog JSON contains macOS user path"
+
+non_http_credential_description_dir="$tmp_dir/non-http-credential-description"
+write_ok_fixture "$non_http_credential_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses ssh://user:pass@example.com/repo."
+  File.write(path, data.to_yaml)
+' "$non_http_credential_description_dir/skills.registry.yaml"
+non_http_credential_description_output="$(expect_failure run_catalog "$non_http_credential_description_dir" --json)"
+assert_contains "$non_http_credential_description_output" "generated catalog JSON contains non-HTTP URL password"
 
 relative_paths_dir="$tmp_dir/relative-paths"
 write_ok_fixture "$relative_paths_dir"
@@ -699,6 +738,34 @@ ruby -ryaml -e '
 ' "$host_only_scheme_manager_source_dir/skills.registry.yaml"
 host_only_scheme_manager_source_output="$(expect_failure run_catalog "$host_only_scheme_manager_source_dir" --json)"
 assert_contains "$host_only_scheme_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+host_root_scp_external_url_dir="$tmp_dir/host-root-scp-external-url"
+write_ok_fixture "$host_root_scp_external_url_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["url"] = "git@github.com:/"
+  File.write(path, data.to_yaml)
+' "$host_root_scp_external_url_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }["url"] = "git@github.com:/"
+  File.write(path, data.to_yaml)
+' "$host_root_scp_external_url_dir/skills.lock.yaml"
+host_root_scp_external_url_output="$(expect_failure run_catalog "$host_root_scp_external_url_dir" --json)"
+assert_contains "$host_root_scp_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
+
+host_root_scp_manager_source_dir="$tmp_dir/host-root-scp-manager-source"
+write_ok_fixture "$host_root_scp_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "git@github.com:/"
+  File.write(path, data.to_yaml)
+' "$host_root_scp_manager_source_dir/skills.registry.yaml"
+host_root_scp_manager_source_output="$(expect_failure run_catalog "$host_root_scp_manager_source_dir" --json)"
+assert_contains "$host_root_scp_manager_source_output" "registry.manager_source must be a public-safe skills source"
 
 digest_drift_dir="$tmp_dir/digest-drift"
 write_ok_fixture "$digest_drift_dir"

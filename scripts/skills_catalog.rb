@@ -28,6 +28,7 @@ PUBLIC_UNSAFE_PATTERNS = {
   "mac temp path" => %r{/var/folders/},
   "file URL" => %r{file://},
   "HTTP credentials" => %r{https?://[^/\s]*@}i,
+  "non-HTTP URL password" => %r{(?:ssh|git|ftp|ftps|rsync)://[^/\s:@]+:[^/\s@]+@}i,
   "GitHub token" => %r{github_pat_|ghp_|gho_|ghu_|ghs_|ghr_},
   "OpenAI key" => %r{sk-[A-Za-z0-9_-]{20,}},
   "AWS access key" => %r{\b(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}\b},
@@ -97,6 +98,18 @@ def normalize_text(value)
   value.to_s.strip.split(/\s+/).join(" ")
 end
 
+def valid_path_string?(value)
+  return false unless value.is_a?(String) && !value.empty?
+  return false if contains_control_characters?(value)
+  return false if windows_local_path?(value)
+  return false if value.start_with?("~") && value != "~" && !value.start_with?("~/")
+
+  Pathname.new(value)
+  true
+rescue ArgumentError
+  false
+end
+
 def safe_relative_path?(value)
   return false unless valid_string?(value)
   return false if value.start_with?("/")
@@ -147,6 +160,13 @@ end
 def query_or_fragment_bearing_scp_url?(value)
   match = /\A(?:[^\/@\s]+@)?[^\/:\s]+:(?<path>.+)\z/.match(value.to_s)
   match && (match[:path].include?("?") || match[:path].include?("#"))
+end
+
+def scp_like_url_has_repository_path?(value)
+  match = /\A(?:[^\/@\s]+@)?[^\/:\s]+:(?<path>.+)\z/.match(value.to_s)
+  return false unless match
+
+  !match[:path].to_s.split("/").reject(&:empty?).empty?
 end
 
 def windows_drive_letter_path?(value)
@@ -288,7 +308,7 @@ def safe_manager_source?(value)
   if scheme_url?(source_base)
     valid_http_remote_url?(source_base) || valid_remote_scheme_url?(source_base)
   elsif scp_like_url?(source_base)
-    true
+    scp_like_url_has_repository_path?(source_base)
   else
     public_manager_shorthand?(value)
   end
@@ -379,7 +399,57 @@ rescue ArgumentError
   false
 end
 
-def normalized_agents_user_override(raw_overrides, profile_path, skill_id, reporter)
+def normalized_consumer_roots(raw_consumer_roots, profile_path, reporter)
+  unless raw_consumer_roots.is_a?(Hash)
+    reporter.error("#{display_path(profile_path)} consumer_roots must be a mapping")
+    return {}
+  end
+
+  raw_consumer_roots.each_with_object({}) do |(consumer, raw_config), memo|
+    unless valid_string?(consumer)
+      reporter.error("#{display_path(profile_path)} consumer_roots keys must be non-empty strings")
+      next
+    end
+    unless safe_non_path_identifier?(consumer)
+      reporter.error("#{display_path(profile_path)} consumer_roots keys must be safe non-path identifiers")
+      next
+    end
+    unless raw_config.is_a?(Hash)
+      reporter.error("#{display_path(profile_path)} consumer_roots.#{consumer} must be a mapping")
+      next
+    end
+
+    path = raw_config["path"]
+    unless valid_path_string?(path)
+      reporter.error("#{display_path(profile_path)} consumer_roots.#{consumer} path must be a non-empty valid path")
+      next
+    end
+
+    raw_adapter = raw_config["adapter"]
+    adapter =
+      if raw_adapter.nil? || (raw_adapter.is_a?(String) && raw_adapter.empty?)
+        "symlink"
+      else
+        raw_adapter
+      end
+    unless adapter.is_a?(String)
+      reporter.error("#{display_path(profile_path)} consumer_roots.#{consumer} adapter must be a string when provided")
+      next
+    end
+    if contains_control_characters?(adapter)
+      reporter.error("#{display_path(profile_path)} consumer_roots.#{consumer} adapter must not contain control characters")
+      next
+    end
+    unless adapter.empty? || safe_non_path_identifier?(adapter)
+      reporter.error("#{display_path(profile_path)} consumer_roots.#{consumer} adapter must be a safe non-path identifier")
+      next
+    end
+
+    memo[consumer] = raw_config.merge("adapter" => adapter)
+  end
+end
+
+def normalized_consumer_overrides(raw_overrides, profile_path, skill_id, expose_to, normalized_roots, reporter)
   return nil if raw_overrides.nil?
 
   unless raw_overrides.is_a?(Hash)
@@ -387,52 +457,63 @@ def normalized_agents_user_override(raw_overrides, profile_path, skill_id, repor
     return nil
   end
 
-  raw_override = raw_overrides["agents_user"]
-  return nil if raw_override.nil?
-  unless raw_override.is_a?(Hash)
-    reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user must be a mapping")
-    return nil
-  end
-
-  unsupported_keys = raw_override.keys - %w[adapter status]
-  unless unsupported_keys.empty?
-    reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user supports only adapter and status")
-    return nil
-  end
-
-  normalized = {}
-  %w[adapter status].each do |key|
-    next unless raw_override.key?(key)
-
-    value = raw_override[key]
-    unless value.is_a?(String) && !value.empty?
-      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user.#{key} must be a non-empty string")
-      return nil
+  raw_overrides.each_with_object({}) do |(consumer, raw_override), memo|
+    unless valid_string?(consumer)
+      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides keys must be non-empty strings")
+      next
     end
-    if contains_control_characters?(value)
-      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user.#{key} must not contain control characters")
-      return nil
+    unless safe_non_path_identifier?(consumer)
+      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides keys must be safe non-path identifiers")
+      next
     end
-    unless safe_non_path_identifier?(value)
-      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.agents_user.#{key} must be a safe non-path identifier")
-      return nil
+    unless expose_to.include?(consumer)
+      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.#{consumer} must target an exposed consumer")
+    end
+    unless normalized_roots.key?(consumer)
+      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.#{consumer} targets unknown consumer #{consumer}")
+    end
+    unless raw_override.is_a?(Hash)
+      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.#{consumer} must be a mapping")
+      next
     end
 
-    normalized[key] = value
-  end
+    unsupported_keys = raw_override.keys - %w[adapter status]
+    unless unsupported_keys.empty?
+      reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.#{consumer} supports only adapter and status")
+      next
+    end
 
-  normalized
+    normalized = {}
+    %w[adapter status].each do |key|
+      next unless raw_override.key?(key)
+
+      value = raw_override[key]
+      unless value.is_a?(String) && !value.empty?
+        reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.#{consumer}.#{key} must be a non-empty string")
+        next
+      end
+      if contains_control_characters?(value)
+        reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.#{consumer}.#{key} must not contain control characters")
+        next
+      end
+      unless safe_non_path_identifier?(value)
+        reporter.error("#{display_path(profile_path)} #{skill_id} consumer_overrides.#{consumer}.#{key} must be a safe non-path identifier")
+        next
+      end
+
+      normalized[key] = value
+    end
+
+    memo[consumer] = normalized unless normalized.empty?
+  end
 end
 
 def approved_codex_global_install_ids(profile, profile_path, reporter)
   return {} unless profile.is_a?(Hash)
   return {} if profile_path.nil?
 
-  consumer_roots = profile["consumer_roots"]
-  unless consumer_roots.is_a?(Hash)
-    reporter.error("#{display_path(profile_path)} consumer_roots must be a mapping")
-    return {}
-  end
+  starting_error_count = reporter.errors.length
+  consumer_roots = normalized_consumer_roots(profile["consumer_roots"], profile_path, reporter)
 
   agents_root = consumer_roots["agents_user"]
   return {} unless agents_root.is_a?(Hash) &&
@@ -446,14 +527,25 @@ def approved_codex_global_install_ids(profile, profile_path, reporter)
 
   seen_active_agents_user_skill_ids = {}
 
-  selected_skills.each_with_object({}) do |entry, memo|
+  installable_skills = selected_skills.each_with_object({}) do |entry, memo|
     unless entry.is_a?(Hash) && valid_string?(entry["skill_id"])
       reporter.error("#{display_path(profile_path)} selected_skills entries must include non-empty skill_id")
       next
     end
 
-    expose_to = entry["expose_to"]
-    override = normalized_agents_user_override(entry["consumer_overrides"], profile_path, entry["skill_id"], reporter)
+    expose_to = string_array(entry["expose_to"], reporter, "#{display_path(profile_path)} #{entry["skill_id"]} expose_to")
+    expose_to.each do |consumer|
+      reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} exposes to unknown consumer #{consumer}") unless consumer_roots.key?(consumer)
+    end
+    overrides = normalized_consumer_overrides(
+      entry["consumer_overrides"],
+      profile_path,
+      entry["skill_id"],
+      expose_to,
+      consumer_roots,
+      reporter
+    )
+    override = overrides&.fetch("agents_user", nil)
     state = entry["state"].to_s
     next unless state == "active"
     next unless expose_to.is_a?(Array) && expose_to.include?("agents_user")
@@ -469,6 +561,10 @@ def approved_codex_global_install_ids(profile, profile_path, reporter)
 
     memo[entry["skill_id"]] = true
   end
+
+  return {} if reporter.errors.length > starting_error_count
+
+  installable_skills
 end
 
 def frontmatter(path, reporter)
@@ -675,6 +771,7 @@ def external_git_url_public?(value)
   return false if query_or_fragment_bearing_scheme_url?(value) || query_or_fragment_bearing_scp_url?(value)
   return false if http_url_authority(value) && !valid_http_remote_url?(value)
   return false if scheme_url?(value) && http_url_authority(value).nil? && !valid_remote_scheme_url?(value)
+  return false if scp_like_url?(value) && !scp_like_url_has_repository_path?(value)
 
   true
 rescue ArgumentError
