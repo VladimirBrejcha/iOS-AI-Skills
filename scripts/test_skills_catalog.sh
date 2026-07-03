@@ -670,14 +670,8 @@ assert_contains "$bad_client_status_output" "example-skill: clients values must 
 missing_profile_dir="$tmp_dir/missing-profile"
 write_ok_fixture "$missing_profile_dir"
 rm -rf "$missing_profile_dir/profiles"
-run_catalog "$missing_profile_dir" --write
-ruby -rjson -e '
-  parsed = JSON.parse(File.read(ARGV.fetch(0)))
-  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
-  raise "missing profile should suppress install command" if example.key?("install")
-  source_files = parsed.fetch("registry").fetch("source_files")
-  raise "missing profile should not emit example profile source file" if source_files.any? { |path| path.include?("example-local-skills.yaml") }
-' "$missing_profile_dir/skills.catalog.json"
+missing_profile_output="$(expect_failure run_catalog "$missing_profile_dir" --json)"
+assert_contains "$missing_profile_output" "profiles/machine/example-local-skills.yaml does not exist"
 
 renamed_export_dir="$tmp_dir/renamed-export"
 write_ok_fixture "$renamed_export_dir"
@@ -1057,7 +1051,12 @@ assert_contains "$non_mapping_lock_output" "top-level YAML document must be a ma
 
 missing_manager_source_dir="$tmp_dir/missing-manager-source"
 write_ok_fixture "$missing_manager_source_dir"
-rm -rf "$missing_manager_source_dir/profiles"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }["state"] = "planned"
+  File.write(path, data.to_yaml)
+' "$missing_manager_source_dir/profiles/machine/example-local-skills.yaml"
 ruby -ryaml -e '
   path = ARGV.fetch(0)
   data = YAML.safe_load(File.read(path), aliases: false)
@@ -1094,6 +1093,17 @@ ruby -ryaml -e '
 ' "$private_host_manager_source_dir/skills.registry.yaml"
 private_host_manager_source_output="$(expect_failure run_catalog "$private_host_manager_source_dir" --json)"
 assert_contains "$private_host_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+shared_address_manager_source_dir="$tmp_dir/shared-address-manager-source"
+write_ok_fixture "$shared_address_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "https://100.64.0.1/fiveonecode/agent-skills"
+  File.write(path, data.to_yaml)
+' "$shared_address_manager_source_dir/skills.registry.yaml"
+shared_address_manager_source_output="$(expect_failure run_catalog "$shared_address_manager_source_dir" --json)"
+assert_contains "$shared_address_manager_source_output" "registry.manager_source must be a public-safe skills source"
 
 cleartext_manager_source_dir="$tmp_dir/cleartext-manager-source"
 write_ok_fixture "$cleartext_manager_source_dir"
@@ -1155,7 +1165,6 @@ assert_contains "$fragment_manager_source_output" "registry.manager_source must 
 
 non_string_manager_source_dir="$tmp_dir/non-string-manager-source"
 write_ok_fixture "$non_string_manager_source_dir"
-rm -rf "$non_string_manager_source_dir/profiles"
 ruby -ryaml -e '
   path = ARGV.fetch(0)
   data = YAML.safe_load(File.read(path), aliases: false)

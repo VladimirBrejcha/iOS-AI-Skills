@@ -19,6 +19,7 @@ GENERATOR = "scripts/skills_catalog.rb"
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 DEFAULT_INSTALL_PROFILE = File.join("profiles", "machine", "example-local-skills.yaml").freeze
 SHARED_AGENTS_USER_ROOT = File.expand_path("~/.agents/skills").freeze
+RFC6598_SHARED_ADDRESS_RANGE = IPAddr.new("100.64.0.0/10").freeze
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
 
@@ -384,6 +385,7 @@ def private_host?(host)
   return true if normalized == "localhost" || normalized.end_with?(".localhost", ".local")
 
   address = IPAddr.new(normalized_legacy_ipv4_address(normalized) || normalized)
+  return true if RFC6598_SHARED_ADDRESS_RANGE.include?(address)
   return true if address.loopback? || address.private? || address.link_local?
 
   address.to_s == "0.0.0.0" || address.to_s == "::"
@@ -562,7 +564,10 @@ end
 
 def load_install_profile(registry_root, reporter)
   profile_path = registry_root.join(DEFAULT_INSTALL_PROFILE)
-  return [{}, nil] unless profile_path.file?
+  unless profile_path.file?
+    reporter.error("#{display_path(profile_path)} does not exist")
+    return [{}, nil]
+  end
 
   profile = load_yaml_file(profile_path.to_s, reporter)
   return [{}, profile_path] unless profile.is_a?(Hash)
