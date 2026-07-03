@@ -22,12 +22,12 @@ INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
 
 PUBLIC_UNSAFE_PATTERNS = {
-  "macOS user path" => %r{/Users/[A-Za-z0-9._-]+},
+  "macOS user path" => %r{/Users/[A-Za-z0-9._-]+}i,
   "Linux user path" => %r{/home/[A-Za-z0-9._-]+},
   "root home path" => %r{/root(?:/|\b)},
-  "Windows user path" => %r{[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s]+}i,
+  "Windows user path" => %r{[A-Za-z]:[\\/]*Users[\\/]+[^\\/\s]+}i,
   "mac temp path" => %r{/var/folders/},
-  "file URL" => %r{[Ff][Ii][Ll][Ee]:(?:/+|[A-Za-z]:)},
+  "file URL" => %r{\bfile:}i,
   "HTTP credentials" => %r{https?://[^/\s]*@}i,
   "non-HTTP URL password" => %r{\b(?!https?://)(?:[a-z][a-z0-9+.-]*://)[^/\s:@]+(?::|%3a)[^/\s@]+@}i,
   "scp-like URL password" => %r{\b[^/\s:@]+(?::|%3[aA])[^/\s@]+@[^/\s:@]+:[^\s]+},
@@ -630,13 +630,19 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
     end
     expose_to.each do |consumer|
       next unless safe_non_path_identifier?(consumer) && consumer_roots.key?(consumer)
-      next if consumer == "agents_user" && state.to_s == "active"
 
       key = [entry["skill_id"], consumer]
-      if seen_selected_skill_consumers[key]
-        reporter.error("#{display_path(profile_path)} duplicate selected target for skill_id #{entry["skill_id"]} and consumer #{consumer}")
+      existing_state = seen_selected_skill_consumers[key]
+      duplicate_active_agents_user = existing_state &&
+        consumer == "agents_user" &&
+        state.to_s == "active" &&
+        existing_state == "active"
+      if existing_state
+        reporter.error("#{display_path(profile_path)} duplicate selected target for skill_id #{entry["skill_id"]} and consumer #{consumer}") unless duplicate_active_agents_user
+      elsif consumer == "agents_user" && state.to_s == "active"
+        seen_selected_skill_consumers[key] = "active"
       else
-        seen_selected_skill_consumers[key] = true
+        seen_selected_skill_consumers[key] = "inactive"
       end
     end
     next unless state.to_s == "active"

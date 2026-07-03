@@ -418,6 +418,21 @@ ruby -ryaml -e '
 duplicate_active_agents_user_output="$(expect_failure run_catalog "$duplicate_active_agents_user_dir" --json)"
 assert_contains "$duplicate_active_agents_user_output" "profiles/machine/example-local-skills.yaml duplicate active agents_user selection for skill_id example-skill"
 
+duplicate_active_and_planned_agents_user_dir="$tmp_dir/duplicate-active-and-planned-agents-user"
+write_ok_fixture "$duplicate_active_and_planned_agents_user_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("selected_skills") << {
+    "skill_id" => "example-skill",
+    "expose_to" => ["agents_user"],
+    "state" => "planned"
+  }
+  File.write(path, data.to_yaml)
+' "$duplicate_active_and_planned_agents_user_dir/profiles/machine/example-local-skills.yaml"
+duplicate_active_and_planned_agents_user_output="$(expect_failure run_catalog "$duplicate_active_and_planned_agents_user_dir" --json)"
+assert_contains "$duplicate_active_and_planned_agents_user_output" "profiles/machine/example-local-skills.yaml duplicate selected target for skill_id example-skill and consumer agents_user"
+
 duplicate_expose_to_dir="$tmp_dir/duplicate-expose-to"
 write_ok_fixture "$duplicate_expose_to_dir"
 ruby -ryaml -e '
@@ -708,6 +723,17 @@ ruby -ryaml -e '
 unsafe_description_output="$(expect_failure run_catalog "$unsafe_description_dir" --json)"
 assert_contains "$unsafe_description_output" "generated catalog JSON contains macOS user path"
 
+lowercase_macos_path_description_dir="$tmp_dir/lowercase-macos-path-description"
+write_ok_fixture "$lowercase_macos_path_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses /users/alice/private."
+  File.write(path, data.to_yaml)
+' "$lowercase_macos_path_description_dir/skills.registry.yaml"
+lowercase_macos_path_description_output="$(expect_failure run_catalog "$lowercase_macos_path_description_dir" --json)"
+assert_contains "$lowercase_macos_path_description_output" "generated catalog JSON contains macOS user path"
+
 lowercase_windows_path_description_dir="$tmp_dir/lowercase-windows-path-description"
 write_ok_fixture "$lowercase_windows_path_description_dir"
 ruby -ryaml -e '
@@ -718,6 +744,17 @@ ruby -ryaml -e '
 ' "$lowercase_windows_path_description_dir/skills.registry.yaml"
 lowercase_windows_path_description_output="$(expect_failure run_catalog "$lowercase_windows_path_description_dir" --json)"
 assert_contains "$lowercase_windows_path_description_output" "generated catalog JSON contains Windows user path"
+
+drive_relative_windows_path_description_dir="$tmp_dir/drive-relative-windows-path-description"
+write_ok_fixture "$drive_relative_windows_path_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses C:Users\\\\alice\\\\private."
+  File.write(path, data.to_yaml)
+' "$drive_relative_windows_path_description_dir/skills.registry.yaml"
+drive_relative_windows_path_description_output="$(expect_failure run_catalog "$drive_relative_windows_path_description_dir" --json)"
+assert_contains "$drive_relative_windows_path_description_output" "generated catalog JSON contains Windows user path"
 
 non_http_credential_description_dir="$tmp_dir/non-http-credential-description"
 write_ok_fixture "$non_http_credential_description_dir"
@@ -784,6 +821,17 @@ ruby -ryaml -e '
 ' "$single_slash_file_url_description_dir/skills.registry.yaml"
 single_slash_file_url_description_output="$(expect_failure run_catalog "$single_slash_file_url_description_dir" --json)"
 assert_contains "$single_slash_file_url_description_output" "generated catalog JSON contains file URL"
+
+relative_file_url_description_dir="$tmp_dir/relative-file-url-description"
+write_ok_fixture "$relative_file_url_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses file:private/repo."
+  File.write(path, data.to_yaml)
+' "$relative_file_url_description_dir/skills.registry.yaml"
+relative_file_url_description_output="$(expect_failure run_catalog "$relative_file_url_description_dir" --json)"
+assert_contains "$relative_file_url_description_output" "generated catalog JSON contains file URL"
 
 relative_paths_dir="$tmp_dir/relative-paths"
 write_ok_fixture "$relative_paths_dir"
