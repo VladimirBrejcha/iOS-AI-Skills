@@ -5,6 +5,7 @@ require "digest"
 require "date"
 require "fileutils"
 require "find"
+require "ipaddr"
 require "json"
 require "optparse"
 require "pathname"
@@ -25,6 +26,7 @@ PUBLIC_UNSAFE_PATTERNS = {
   "macOS user path" => %r{/Users/[A-Za-z0-9._-]+}i,
   "Linux user path" => %r{/home/[A-Za-z0-9._-]+},
   "root home path" => %r{/root(?:/|\b)},
+  "POSIX local path" => %r{(?<![A-Za-z0-9.+:\/-])/(?!/)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+(?:/)?},
   "home-relative local path" => %r{(?<![A-Za-z0-9._-])~[A-Za-z0-9._-]*[\\/]},
   "Windows local path" => %r{(?:\b[A-Za-z]:(?:[\\/]|[^\\/\s])|(?<!:)//[^/\\\s]+[\\/]|\\\\[^\\/\s]+[\\/])},
   "mac temp path" => %r{/var/folders/},
@@ -207,6 +209,8 @@ def scp_like_url_has_repository_path?(value)
   match = scp_like_url_match(value)
   return false unless match
   return false if match[:path].include?("@")
+  return false if private_host?(match[:host])
+  return false if github_host?(match[:host]) && !github_repository_path?(match[:path])
 
   remote_repository_path?(match[:path])
 end
@@ -294,32 +298,59 @@ rescue URI::InvalidURIError
   suffix.include?("?") || suffix.include?("#")
 end
 
-def normalized_remote_path_segments(path)
-  percent_decoded(path).split("/").reject(&:empty?).each_with_object([]) do |segment, memo|
-    case segment
-    when "."
-      next
-    when ".."
-      memo.pop unless memo.empty?
-    else
-      memo << segment
-    end
-  end
+def remote_path_segments(path)
+  percent_decoded(path).split("/").reject(&:empty?)
+end
+
+def remote_path_has_dot_segments?(path)
+  remote_path_segments(path).any? { |segment| ["..", "."].include?(segment) }
 end
 
 def remote_repository_path?(path)
-  !normalized_remote_path_segments(path).empty?
+  segments = remote_path_segments(path)
+  !segments.empty? && !remote_path_has_dot_segments?(path)
 end
 
 def remote_uri_has_repository_path?(uri)
   remote_repository_path?(uri.path)
 end
 
+def normalized_host_name(host)
+  host.to_s.delete_prefix("[").delete_suffix("]").downcase
+end
+
+def private_host?(host)
+  normalized = normalized_host_name(host)
+  return true if normalized.empty?
+  return true if normalized == "localhost" || normalized.end_with?(".localhost", ".local")
+
+  address = IPAddr.new(normalized)
+  return true if address.loopback? || address.private? || address.link_local?
+
+  address.to_s == "0.0.0.0" || address.to_s == "::"
+rescue IPAddr::InvalidAddressError
+  false
+end
+
+def github_host?(host)
+  %w[github.com www.github.com].include?(normalized_host_name(host))
+end
+
+def github_repository_path?(path)
+  segments = remote_path_segments(path)
+  segments.length == 2 && !remote_path_has_dot_segments?(path)
+end
+
 def valid_http_remote_url?(value)
   return false unless value.is_a?(String) && /\Ahttps?:\/\//i.match?(value)
 
   uri = URI.parse(value)
-  uri.is_a?(URI::HTTP) && !uri.host.to_s.empty? && remote_uri_has_repository_path?(uri)
+  return false unless uri.is_a?(URI::HTTP) && !uri.host.to_s.empty?
+  return false if private_host?(uri.host)
+  return false unless remote_uri_has_repository_path?(uri)
+  return false if github_host?(uri.host) && !github_repository_path?(uri.path)
+
+  true
 rescue URI::InvalidURIError
   false
 end
@@ -328,7 +359,12 @@ def valid_remote_scheme_url?(value)
   return false unless scheme_url?(value)
 
   uri = URI.parse(value)
-  !uri.scheme.to_s.empty? && !uri.host.to_s.empty? && remote_uri_has_repository_path?(uri)
+  return false if uri.scheme.to_s.empty? || uri.host.to_s.empty?
+  return false if private_host?(uri.host)
+  return false unless remote_uri_has_repository_path?(uri)
+  return false if github_host?(uri.host) && !github_repository_path?(uri.path)
+
+  true
 rescue URI::InvalidURIError
   false
 end
@@ -354,8 +390,8 @@ def public_manager_shorthand?(value)
   return false if base.include?(":")
   return false if base.include?("?")
   return false unless base.include?("/")
-  return false unless normalized_remote_path_segments(base).length >= 2
-  return false if Pathname.new(base).each_filename.any? { |part| part == "." }
+  return false if remote_path_has_dot_segments?(base)
+  return false unless remote_path_segments(base).length == 2
   return false if fragment && (fragment.match?(/\s/) || contains_control_characters?(fragment))
 
   true
