@@ -302,6 +302,25 @@ ruby -rjson -e '
   raise "external should not emit install command" if external.key?("install")
 ' "$ok_dir/skills.catalog.json"
 
+local_catalog_override_dir="$tmp_dir/local-catalog-override"
+write_ok_fixture "$local_catalog_override_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["catalog"] = {
+    "name" => "stale-example-skill",
+    "description" => "Stale registry-local override."
+  }
+  File.write(path, data.to_yaml)
+' "$local_catalog_override_dir/skills.registry.yaml"
+run_catalog "$local_catalog_override_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  raise "registry-local catalog name override should be ignored" unless example.fetch("name") == "example-skill"
+  raise "registry-local catalog description override should be ignored" unless example.fetch("description") == "Example fixture skill."
+' "$local_catalog_override_dir/skills.catalog.json"
+
 planned_state_dir="$tmp_dir/planned-state"
 write_ok_fixture "$planned_state_dir"
 ruby -ryaml -e '
@@ -354,6 +373,18 @@ ruby -rjson -e '
   example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
   raise "non-exposed skill should not emit install command" if example.key?("install")
 ' "$not_exposed_dir/skills.catalog.json"
+
+duplicate_active_agents_user_dir="$tmp_dir/duplicate-active-agents-user"
+write_ok_fixture "$duplicate_active_agents_user_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  duplicate = Marshal.load(Marshal.dump(data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }))
+  data.fetch("selected_skills") << duplicate
+  File.write(path, data.to_yaml)
+' "$duplicate_active_agents_user_dir/profiles/machine/example-local-skills.yaml"
+duplicate_active_agents_user_output="$(expect_failure run_catalog "$duplicate_active_agents_user_dir" --json)"
+assert_contains "$duplicate_active_agents_user_output" "profiles/machine/example-local-skills.yaml duplicate active agents_user selection for skill_id example-skill"
 
 missing_profile_dir="$tmp_dir/missing-profile"
 write_ok_fixture "$missing_profile_dir"
@@ -599,6 +630,23 @@ ruby -ryaml -e '
 ' "$local_external_url_dir/skills.registry.yaml"
 local_external_url_output="$(expect_failure run_catalog "$local_external_url_dir" --json)"
 assert_contains "$local_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
+
+host_only_external_url_dir="$tmp_dir/host-only-external-url"
+write_ok_fixture "$host_only_external_url_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["url"] = "https://github.com"
+  File.write(path, data.to_yaml)
+' "$host_only_external_url_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }["url"] = "https://github.com"
+  File.write(path, data.to_yaml)
+' "$host_only_external_url_dir/skills.lock.yaml"
+host_only_external_url_output="$(expect_failure run_catalog "$host_only_external_url_dir" --json)"
+assert_contains "$host_only_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
 
 digest_drift_dir="$tmp_dir/digest-drift"
 write_ok_fixture "$digest_drift_dir"

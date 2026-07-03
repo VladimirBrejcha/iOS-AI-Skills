@@ -207,6 +207,10 @@ npx --yes skills@1.5.14 --help
 cd path/to/agent-skills
 git switch -c codex/edit-skill-name
 # Edit skill-name/SKILL.md and any references/scripts/assets.
+# Commit or clean reviewed source/registry edits before refreshing the lock.
+tmp_lock="$(mktemp "${TMPDIR:-/tmp}/skills.lock.yaml.XXXXXX")"
+scripts/skills_doctor.rb --print-lock >"$tmp_lock" &&
+  mv "$tmp_lock" skills.lock.yaml
 scripts/skills_catalog.rb --write
 scripts/skills_doctor.rb
 scripts/skills_catalog.rb --check

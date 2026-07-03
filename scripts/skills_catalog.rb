@@ -227,7 +227,8 @@ def valid_http_remote_url?(value)
   return false unless value.is_a?(String) && /\Ahttps?:\/\//i.match?(value)
 
   uri = URI.parse(value)
-  uri.is_a?(URI::HTTP) && !uri.host.to_s.empty?
+  path_segments = uri.path.to_s.split("/").reject(&:empty?)
+  uri.is_a?(URI::HTTP) && !uri.host.to_s.empty? && !path_segments.empty?
 rescue URI::InvalidURIError
   false
 end
@@ -385,6 +386,8 @@ def approved_codex_global_install_ids(profile, profile_path, reporter)
     return {}
   end
 
+  seen_active_agents_user_skill_ids = {}
+
   selected_skills.each_with_object({}) do |entry, memo|
     unless entry.is_a?(Hash) && valid_string?(entry["skill_id"])
       reporter.error("#{display_path(profile_path)} selected_skills entries must include non-empty skill_id")
@@ -396,6 +399,12 @@ def approved_codex_global_install_ids(profile, profile_path, reporter)
     state = entry["state"].to_s
     next unless state == "active"
     next unless expose_to.is_a?(Array) && expose_to.include?("agents_user")
+    if seen_active_agents_user_skill_ids[entry["skill_id"]]
+      reporter.error("#{display_path(profile_path)} duplicate active agents_user selection for skill_id #{entry["skill_id"]}")
+      next
+    end
+
+    seen_active_agents_user_skill_ids[entry["skill_id"]] = true
     next unless override.is_a?(Hash)
     next unless override["adapter"] == "manager-copy"
     next unless override["status"] == "proven-manager-copy"
@@ -564,9 +573,9 @@ def install_command(manager_source, skill_name)
                   ])
 end
 
-def catalog_description(skill, metadata)
+def catalog_description(skill, metadata, source_type)
   catalog = skill["catalog"]
-  if catalog.is_a?(Hash) && valid_text_string?(catalog["description"])
+  if source_type == "external-git" && catalog.is_a?(Hash) && valid_text_string?(catalog["description"])
     return normalize_text(catalog["description"])
   end
 
@@ -576,9 +585,9 @@ def catalog_description(skill, metadata)
   ""
 end
 
-def catalog_name(skill, metadata, exported_names)
+def catalog_name(skill, metadata, exported_names, source_type)
   catalog = skill["catalog"]
-  if catalog.is_a?(Hash) && valid_string?(catalog["name"])
+  if source_type == "external-git" && catalog.is_a?(Hash) && valid_string?(catalog["name"])
     return catalog["name"].strip
   end
 
@@ -773,8 +782,8 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       reporter.error("#{skill_id}: source.type must be registry-local or external-git")
     end
 
-    name = catalog_name(skill, metadata, exported_names)
-    description = catalog_description(skill, metadata)
+    name = catalog_name(skill, metadata, exported_names, source_type)
+    description = catalog_description(skill, metadata, source_type)
     manager_skill_name = source_type == "registry-local" ? manager_selected_skill_name(metadata) : nil
     reporter.error("#{skill_id}: catalog description is required") unless valid_string?(description)
 
