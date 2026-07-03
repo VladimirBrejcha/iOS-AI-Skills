@@ -25,6 +25,7 @@ PUBLIC_UNSAFE_PATTERNS = {
   "macOS user path" => %r{/Users/[A-Za-z0-9._-]+}i,
   "Linux user path" => %r{/home/[A-Za-z0-9._-]+},
   "root home path" => %r{/root(?:/|\b)},
+  "home-relative local path" => %r{(?<![A-Za-z0-9._-])~/},
   "Windows local path" => %r{(?:\b[A-Za-z]:(?:[\\/]|[^\\/\s])|(?<!:)//[^/\\\s]+[\\/]|\\\\[^\\/\s]+[\\/])},
   "mac temp path" => %r{/var/folders/},
   "file URL" => %r{\bfile:}i,
@@ -134,6 +135,12 @@ def expand_config_path(path, base_dir:)
   return File.expand_path(value.delete_prefix("~/"), Dir.home) if value.start_with?("~/")
 
   File.expand_path(value, base_dir)
+end
+
+def normalized_expanded_path(path, base_dir:)
+  Pathname.new(expand_config_path(path, base_dir: base_dir)).cleanpath.to_s
+rescue ArgumentError
+  expand_config_path(path, base_dir: base_dir)
 end
 
 def path_within?(path, root)
@@ -567,6 +574,7 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
   return {} if profile_path.nil?
 
   starting_error_count = reporter.errors.length
+  profile_base_dir = File.dirname(profile_path)
   profile_status = profile["status"]
   if !profile_status.nil? && !profile_status.is_a?(String)
     reporter.error("#{display_path(profile_path)} status must be a string when provided")
@@ -578,10 +586,13 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
     reporter.error("#{display_path(profile_path)} profile.id must be a safe non-path identifier")
   end
   consumer_roots = normalized_consumer_roots(profile["consumer_roots"], profile_path, reporter)
+  consumer_root_keys = consumer_roots.each_with_object({}) do |(consumer, config), memo|
+    memo[consumer] = normalized_expanded_path(config["path"], base_dir: profile_base_dir) if valid_string?(config["path"])
+  end
 
   agents_root = consumer_roots["agents_user"]
   return {} unless agents_root.is_a?(Hash) &&
-    matches_shared_agents_user_root?(agents_root["path"], base_dir: File.dirname(profile_path))
+    matches_shared_agents_user_root?(agents_root["path"], base_dir: profile_base_dir)
 
   selected_skills = profile["selected_skills"]
   unless selected_skills.is_a?(Array)
@@ -590,7 +601,7 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
   end
 
   seen_active_agents_user_skill_ids = {}
-  seen_selected_skill_consumers = {}
+  seen_selected_skill_targets = {}
 
   installable_skills = selected_skills.each_with_object({}) do |entry, memo|
     unless entry.is_a?(Hash) && valid_string?(entry["skill_id"])
@@ -635,18 +646,26 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
     expose_to.each do |consumer|
       next unless safe_non_path_identifier?(consumer) && consumer_roots.key?(consumer)
 
-      key = [entry["skill_id"], consumer]
-      existing_state = seen_selected_skill_consumers[key]
-      duplicate_active_agents_user = existing_state &&
+      key = [entry["skill_id"], consumer_root_keys[consumer]]
+      existing_target = seen_selected_skill_targets[key]
+      duplicate_active_agents_user = existing_target &&
         consumer == "agents_user" &&
         state.to_s == "active" &&
-        existing_state == "active"
-      if existing_state
-        reporter.error("#{display_path(profile_path)} duplicate selected target for skill_id #{entry["skill_id"]} and consumer #{consumer}") unless duplicate_active_agents_user
-      elsif consumer == "agents_user" && state.to_s == "active"
-        seen_selected_skill_consumers[key] = "active"
+        existing_target[:consumer] == "agents_user" &&
+        existing_target[:state] == "active"
+      if existing_target
+        unless duplicate_active_agents_user
+          if existing_target[:consumer] == consumer
+            reporter.error("#{display_path(profile_path)} duplicate selected target for skill_id #{entry["skill_id"]} and consumer #{consumer}")
+          else
+            reporter.error(
+              "#{display_path(profile_path)} duplicate selected target for skill_id #{entry["skill_id"]} " \
+              "because consumers #{existing_target[:consumer]} and #{consumer} share the same expanded root"
+            )
+          end
+        end
       else
-        seen_selected_skill_consumers[key] = "inactive"
+        seen_selected_skill_targets[key] = { consumer: consumer, state: state.to_s }
       end
     end
     next unless state.to_s == "active"

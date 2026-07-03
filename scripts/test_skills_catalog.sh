@@ -585,6 +585,22 @@ ruby -ryaml -e '
 duplicate_non_agents_target_output="$(expect_failure run_catalog "$duplicate_non_agents_target_dir" --json)"
 assert_contains "$duplicate_non_agents_target_output" "profiles/machine/example-local-skills.yaml duplicate selected target for skill_id manual-review-skill and consumer claude_user"
 
+same_root_alias_target_dir="$tmp_dir/same-root-alias-target"
+write_ok_fixture "$same_root_alias_target_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("consumer_roots")["codex_legacy_user"] = {
+    "path" => "~/.agents/skills/",
+    "adapter" => "symlink"
+  }
+  selection = data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }
+  selection["expose_to"] = ["agents_user", "codex_legacy_user"]
+  File.write(path, data.to_yaml)
+' "$same_root_alias_target_dir/profiles/machine/example-local-skills.yaml"
+same_root_alias_target_output="$(expect_failure run_catalog "$same_root_alias_target_dir" --json)"
+assert_contains "$same_root_alias_target_output" "profiles/machine/example-local-skills.yaml duplicate selected target for skill_id example-skill because consumers agents_user and codex_legacy_user share the same expanded root"
+
 bad_client_status_dir="$tmp_dir/bad-client-status"
 write_ok_fixture "$bad_client_status_dir"
 ruby -ryaml -e '
@@ -733,6 +749,17 @@ ruby -ryaml -e '
 ' "$unsafe_description_dir/skills.registry.yaml"
 unsafe_description_output="$(expect_failure run_catalog "$unsafe_description_dir" --json)"
 assert_contains "$unsafe_description_output" "generated catalog JSON contains macOS user path"
+
+home_relative_description_dir="$tmp_dir/home-relative-description"
+write_ok_fixture "$home_relative_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses ~/private-skill."
+  File.write(path, data.to_yaml)
+' "$home_relative_description_dir/skills.registry.yaml"
+home_relative_description_output="$(expect_failure run_catalog "$home_relative_description_dir" --json)"
+assert_contains "$home_relative_description_output" "generated catalog JSON contains home-relative local path"
 
 lowercase_macos_path_description_dir="$tmp_dir/lowercase-macos-path-description"
 write_ok_fixture "$lowercase_macos_path_description_dir"
