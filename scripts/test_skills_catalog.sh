@@ -290,6 +290,7 @@ markdown_output="$(run_catalog "$ok_dir" --markdown)"
 assert_contains "$markdown_output" "# Skills Catalog"
 assert_contains "$markdown_output" "## Registry-Covered Skills"
 assert_contains "$markdown_output" "## Installable Active Skills"
+assert_contains "$markdown_output" "refresh \`skills.lock.yaml\` if source contents changed"
 assert_contains "$markdown_output" "for the current reviewed example profile."
 
 ruby -rjson -e '
@@ -413,6 +414,18 @@ ruby -ryaml -e '
 ' "$duplicate_expose_to_dir/profiles/machine/example-local-skills.yaml"
 duplicate_expose_to_output="$(expect_failure run_catalog "$duplicate_expose_to_dir" --json)"
 assert_contains "$duplicate_expose_to_output" "profiles/machine/example-local-skills.yaml example-skill expose_to must not list duplicate consumers"
+
+empty_expose_to_dir="$tmp_dir/empty-expose-to"
+write_ok_fixture "$empty_expose_to_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  selection = data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }
+  selection["expose_to"] = []
+  File.write(path, data.to_yaml)
+' "$empty_expose_to_dir/profiles/machine/example-local-skills.yaml"
+empty_expose_to_output="$(expect_failure run_catalog "$empty_expose_to_dir" --json)"
+assert_contains "$empty_expose_to_output" "profiles/machine/example-local-skills.yaml example-skill expose_to must list at least one consumer"
 
 invalid_selection_state_dir="$tmp_dir/invalid-selection-state"
 write_ok_fixture "$invalid_selection_state_dir"

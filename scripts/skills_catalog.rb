@@ -565,6 +565,7 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
     end
 
     expose_to = string_array(entry["expose_to"], reporter, "#{display_path(profile_path)} #{entry["skill_id"]} expose_to")
+    reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} expose_to must list at least one consumer") if expose_to.empty?
     seen_expose_to_consumers = {}
     expose_to.each do |consumer|
       unless safe_non_path_identifier?(consumer)
@@ -1095,9 +1096,9 @@ def markdown_document(catalog)
 
   lines << "# Skills Catalog"
   lines << ""
-  lines << "This file is generated. Edit `skills.registry.yaml`, `skills.lock.yaml`,"
+  lines << "This file is generated. Edit `skills.registry.yaml`,"
   lines << "`profiles/machine/example-local-skills.yaml`, or registered `SKILL.md`"
-  lines << "front matter, then run"
+  lines << "front matter, refresh `skills.lock.yaml` if source contents changed, then run"
   lines << "`scripts/skills_catalog.rb --write`."
   lines << ""
   lines << "- Registry: #{registry.fetch("name")} (#{code_span(registry.fetch("id"))})"

@@ -1,8 +1,8 @@
 # Skills Catalog
 
-This file is generated. Edit `skills.registry.yaml`, `skills.lock.yaml`,
+This file is generated. Edit `skills.registry.yaml`,
 `profiles/machine/example-local-skills.yaml`, or registered `SKILL.md`
-front matter, then run
+front matter, refresh `skills.lock.yaml` if source contents changed, then run
 `scripts/skills_catalog.rb --write`.
 
 - Registry: Agent Skills (`agent-skills`)
