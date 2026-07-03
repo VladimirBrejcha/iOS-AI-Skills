@@ -334,6 +334,18 @@ ruby -rjson -e '
   raise "non-exposed skill should not emit install command" if example.key?("install")
 ' "$not_exposed_dir/skills.catalog.json"
 
+missing_profile_dir="$tmp_dir/missing-profile"
+write_ok_fixture "$missing_profile_dir"
+rm -rf "$missing_profile_dir/profiles"
+run_catalog "$missing_profile_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  raise "missing profile should suppress install command" if example.key?("install")
+  source_files = parsed.fetch("registry").fetch("source_files")
+  raise "missing profile should not emit example profile source file" if source_files.any? { |path| path.include?("example-local-skills.yaml") }
+' "$missing_profile_dir/skills.catalog.json"
+
 renamed_export_dir="$tmp_dir/renamed-export"
 write_ok_fixture "$renamed_export_dir"
 ruby -ryaml -e '
@@ -543,5 +555,23 @@ ruby -ryaml -e '
 ' "$duplicate_source_owner_dir/skills.lock.yaml"
 duplicate_source_owner_output="$(expect_failure run_catalog "$duplicate_source_owner_dir" --json)"
 assert_contains "$duplicate_source_owner_output" "manual-review-skill: registry-local source.path example-skill is already declared by example-skill"
+
+unsafe_skill_id_dir="$tmp_dir/unsafe-skill-id"
+write_ok_fixture "$unsafe_skill_id_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").first["id"] = "C:foo"
+  File.write(path, data.to_yaml)
+' "$unsafe_skill_id_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").first["id"] = "C:foo"
+  File.write(path, data.to_yaml)
+' "$unsafe_skill_id_dir/skills.lock.yaml"
+unsafe_skill_id_output="$(expect_failure run_catalog "$unsafe_skill_id_dir" --json)"
+assert_contains "$unsafe_skill_id_output" "skills[0].id must be a safe non-path identifier"
+assert_contains "$unsafe_skill_id_output" "skills.lock.yaml entries must use safe non-path identifiers"
 
 echo "skills_catalog test ok"

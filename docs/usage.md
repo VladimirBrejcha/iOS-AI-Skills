@@ -62,6 +62,7 @@ ruby -ryaml -e '
   registry.fetch("skills")
     .select { |skill| skill["status"] == "active" }
     .select { |skill| skill.dig("clients", "codex") == "supported" }
+    .select { |skill| skill.dig("source", "type") == "registry-local" }
     .select do |skill|
       path = skill.dig("source", "path")
       path.is_a?(String) && File.file?(File.join(path, "SKILL.md"))
@@ -87,8 +88,9 @@ ruby -ryaml -e '
 This filtered list matches the documented `--agent codex --global` install
 flow for the current reviewed `agents_user` baseline. Registry-covered entries
 that still rely on planned/manual-review profile state, are not exposed to
-`agents_user`, or do not have a checked-in top-level skill folder stay out of
-this list until a follow-up coverage/profile PR promotes them.
+`agents_user`, are not registry-local sources, or do not have a checked-in
+top-level skill folder stay out of this list until a follow-up coverage/profile
+PR promotes them.
 
 Do not use `npx --yes skills@1.5.14 add fiveonecode/agent-skills --list` as a
 registry coverage list. It enumerates every top-level skill folder in the

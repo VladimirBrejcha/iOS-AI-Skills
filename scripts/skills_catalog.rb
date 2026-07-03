@@ -292,7 +292,7 @@ end
 
 def safe_adapter_name?(value)
   return false unless valid_string?(value)
-  return false if value.start_with?("/") || value.include?("\\")
+  return false if value.start_with?("/") || windows_local_path?(value) || value.include?("\\")
   return false if [".", ".."].include?(value)
 
   path = Pathname.new(value)
@@ -301,6 +301,10 @@ def safe_adapter_name?(value)
     path.each_filename.first == value
 rescue ArgumentError
   false
+end
+
+def safe_non_path_identifier?(value)
+  safe_adapter_name?(value)
 end
 
 def string_array(value, reporter, label)
@@ -354,6 +358,7 @@ end
 
 def approved_codex_global_install_ids(profile, profile_path, reporter)
   return {} unless profile.is_a?(Hash)
+  return {} if profile_path.nil?
 
   consumer_roots = profile["consumer_roots"]
   unless consumer_roots.is_a?(Hash)
@@ -500,6 +505,10 @@ def index_lock_entries(lock, reporter)
     end
 
     skill_id = entry["id"]
+    unless safe_non_path_identifier?(skill_id)
+      reporter.error("skills.lock.yaml entries must use safe non-path identifiers")
+      next
+    end
     reporter.error("skills.lock.yaml duplicate lock entry #{skill_id}") if memo.key?(skill_id)
     memo[skill_id] = entry
   end
@@ -630,6 +639,10 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     skill_id = skill["id"]
     unless valid_string?(skill_id)
       reporter.error("skills[#{index}].id is required")
+      next
+    end
+    unless safe_non_path_identifier?(skill_id)
+      reporter.error("skills[#{index}].id must be a safe non-path identifier")
       next
     end
     if seen_skill_ids.key?(skill_id)
@@ -782,7 +795,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   end
 
   registry_skill_ids = raw_skills.each_with_object([]) do |entry, memo|
-    memo << entry["id"] if entry.is_a?(Hash) && entry["id"].is_a?(String)
+    memo << entry["id"] if entry.is_a?(Hash) && safe_non_path_identifier?(entry["id"])
   end
   stale_locks = lock_by_id.keys - registry_skill_ids
   stale_locks.sort.each do |skill_id|
