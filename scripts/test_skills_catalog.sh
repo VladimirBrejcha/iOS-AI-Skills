@@ -338,6 +338,21 @@ ruby -rjson -e '
   raise "planned skill should not emit install command" if example.key?("install")
 ' "$planned_state_dir/skills.catalog.json"
 
+repo_only_scope_dir="$tmp_dir/repo-only-scope"
+write_ok_fixture "$repo_only_scope_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }["scopes"] = ["repo"]
+  File.write(path, data.to_yaml)
+' "$repo_only_scope_dir/skills.registry.yaml"
+run_catalog "$repo_only_scope_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  raise "repo-only scope should not emit a global install command" if example.key?("install")
+' "$repo_only_scope_dir/skills.catalog.json"
+
 multi_export_dir="$tmp_dir/multi-export"
 write_ok_fixture "$multi_export_dir"
 ruby -ryaml -e '
@@ -693,6 +708,17 @@ ruby -ryaml -e '
 unsafe_description_output="$(expect_failure run_catalog "$unsafe_description_dir" --json)"
 assert_contains "$unsafe_description_output" "generated catalog JSON contains macOS user path"
 
+lowercase_windows_path_description_dir="$tmp_dir/lowercase-windows-path-description"
+write_ok_fixture "$lowercase_windows_path_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses C:/users/alice/private."
+  File.write(path, data.to_yaml)
+' "$lowercase_windows_path_description_dir/skills.registry.yaml"
+lowercase_windows_path_description_output="$(expect_failure run_catalog "$lowercase_windows_path_description_dir" --json)"
+assert_contains "$lowercase_windows_path_description_output" "generated catalog JSON contains Windows user path"
+
 non_http_credential_description_dir="$tmp_dir/non-http-credential-description"
 write_ok_fixture "$non_http_credential_description_dir"
 ruby -ryaml -e '
@@ -703,6 +729,17 @@ ruby -ryaml -e '
 ' "$non_http_credential_description_dir/skills.registry.yaml"
 non_http_credential_description_output="$(expect_failure run_catalog "$non_http_credential_description_dir" --json)"
 assert_contains "$non_http_credential_description_output" "generated catalog JSON contains non-HTTP URL password"
+
+encoded_non_http_credential_description_dir="$tmp_dir/encoded-non-http-credential-description"
+write_ok_fixture "$encoded_non_http_credential_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses ssh://user%3Apass@example.com/repo."
+  File.write(path, data.to_yaml)
+' "$encoded_non_http_credential_description_dir/skills.registry.yaml"
+encoded_non_http_credential_description_output="$(expect_failure run_catalog "$encoded_non_http_credential_description_dir" --json)"
+assert_contains "$encoded_non_http_credential_description_output" "generated catalog JSON contains non-HTTP URL password"
 
 scheme_agnostic_credential_description_dir="$tmp_dir/scheme-agnostic-credential-description"
 write_ok_fixture "$scheme_agnostic_credential_description_dir"
@@ -814,6 +851,17 @@ ruby -ryaml -e '
 dot_only_manager_source_output="$(expect_failure run_catalog "$dot_only_manager_source_dir" --json)"
 assert_contains "$dot_only_manager_source_output" "registry.manager_source must be a public-safe skills source"
 
+encoded_dot_segment_manager_source_dir="$tmp_dir/encoded-dot-segment-manager-source"
+write_ok_fixture "$encoded_dot_segment_manager_source_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry")["manager_source"] = "https://github.com/fiveonecode/%2e%2e"
+  File.write(path, data.to_yaml)
+' "$encoded_dot_segment_manager_source_dir/skills.registry.yaml"
+encoded_dot_segment_manager_source_output="$(expect_failure run_catalog "$encoded_dot_segment_manager_source_dir" --json)"
+assert_contains "$encoded_dot_segment_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
 dot_segment_manager_source_dir="$tmp_dir/dot-segment-manager-source"
 write_ok_fixture "$dot_segment_manager_source_dir"
 ruby -ryaml -e '
@@ -890,6 +938,23 @@ ruby -ryaml -e '
 local_external_url_output="$(expect_failure run_catalog "$local_external_url_dir" --json)"
 assert_contains "$local_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
 
+encoded_credential_external_url_dir="$tmp_dir/encoded-credential-external-url"
+write_ok_fixture "$encoded_credential_external_url_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["url"] = "ssh://user%3Apass@github.com/example/agent-skill.git"
+  File.write(path, data.to_yaml)
+' "$encoded_credential_external_url_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }["url"] = "ssh://user%3Apass@github.com/example/agent-skill.git"
+  File.write(path, data.to_yaml)
+' "$encoded_credential_external_url_dir/skills.lock.yaml"
+encoded_credential_external_url_output="$(expect_failure run_catalog "$encoded_credential_external_url_dir" --json)"
+assert_contains "$encoded_credential_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
+
 host_only_external_url_dir="$tmp_dir/host-only-external-url"
 write_ok_fixture "$host_only_external_url_dir"
 ruby -ryaml -e '
@@ -940,6 +1005,23 @@ ruby -ryaml -e '
 ' "$dot_only_external_url_dir/skills.lock.yaml"
 dot_only_external_url_output="$(expect_failure run_catalog "$dot_only_external_url_dir" --json)"
 assert_contains "$dot_only_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
+
+encoded_dot_segment_external_url_dir="$tmp_dir/encoded-dot-segment-external-url"
+write_ok_fixture "$encoded_dot_segment_external_url_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["url"] = "https://github.com/example/%2e%2e"
+  File.write(path, data.to_yaml)
+' "$encoded_dot_segment_external_url_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }["url"] = "https://github.com/example/%2e%2e"
+  File.write(path, data.to_yaml)
+' "$encoded_dot_segment_external_url_dir/skills.lock.yaml"
+encoded_dot_segment_external_url_output="$(expect_failure run_catalog "$encoded_dot_segment_external_url_dir" --json)"
+assert_contains "$encoded_dot_segment_external_url_output" "external-skill: external-git source.url must be a public, credential-free URL"
 
 host_only_scheme_manager_source_dir="$tmp_dir/host-only-scheme-manager-source"
 write_ok_fixture "$host_only_scheme_manager_source_dir"

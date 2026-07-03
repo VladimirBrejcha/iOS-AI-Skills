@@ -25,11 +25,11 @@ PUBLIC_UNSAFE_PATTERNS = {
   "macOS user path" => %r{/Users/[A-Za-z0-9._-]+},
   "Linux user path" => %r{/home/[A-Za-z0-9._-]+},
   "root home path" => %r{/root(?:/|\b)},
-  "Windows user path" => %r{[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s]+},
+  "Windows user path" => %r{[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s]+}i,
   "mac temp path" => %r{/var/folders/},
   "file URL" => %r{[Ff][Ii][Ll][Ee]:(?:/+|[A-Za-z]:)},
   "HTTP credentials" => %r{https?://[^/\s]*@}i,
-  "non-HTTP URL password" => %r{\b(?!https?://)(?:[a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@}i,
+  "non-HTTP URL password" => %r{\b(?!https?://)(?:[a-z][a-z0-9+.-]*://)[^/\s:@]+(?::|%3a)[^/\s@]+@}i,
   "scp-like URL password" => %r{\b[^/\s:@]+:[^/\s@]+@[^/\s:@]+:[^\s]+},
   "GitHub token" => %r{github_pat_|ghp_|gho_|ghu_|ghs_|ghr_},
   "OpenAI key" => %r{sk-[A-Za-z0-9_-]{20,}},
@@ -100,6 +100,10 @@ def normalize_text(value)
   value.to_s.strip.split(/\s+/).join(" ")
 end
 
+def percent_decoded(value)
+  URI::DEFAULT_PARSER.unescape(value.to_s)
+end
+
 def valid_path_string?(value)
   return false unless value.is_a?(String) && !value.empty?
   return false if contains_control_characters?(value)
@@ -156,7 +160,7 @@ end
 
 def credential_bearing_scp_url?(value)
   match = /\A(?<userinfo>[^\/@\s]+)@[^\/:\s]+:.+\z/.match(value.to_s)
-  match && match[:userinfo].include?(":")
+  match && percent_decoded(match[:userinfo]).include?(":")
 end
 
 def query_or_fragment_bearing_scp_url?(value)
@@ -227,7 +231,7 @@ end
 
 def credential_bearing_scheme_url?(value)
   uri = URI.parse(value)
-  userinfo = uri.respond_to?(:userinfo) ? uri.userinfo.to_s : ""
+  userinfo = uri.respond_to?(:userinfo) ? percent_decoded(uri.userinfo) : ""
   return false if userinfo.empty?
 
   !(uri.scheme.to_s.casecmp("ssh").zero? && !userinfo.include?(":"))
@@ -239,7 +243,7 @@ rescue URI::InvalidURIError
   return false unless match
 
   scheme = url_scheme(value).to_s.downcase
-  userinfo = match[:userinfo]
+  userinfo = percent_decoded(match[:userinfo])
 
   !(scheme == "ssh" && !userinfo.include?(":"))
 end
@@ -255,7 +259,7 @@ rescue URI::InvalidURIError
 end
 
 def normalized_remote_path_segments(path)
-  path.to_s.split("/").reject(&:empty?).each_with_object([]) do |segment, memo|
+  percent_decoded(path).split("/").reject(&:empty?).each_with_object([]) do |segment, memo|
     case segment
     when "."
       next
@@ -1043,6 +1047,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     installable_by_manager = source_type == "registry-local" &&
                              status == "active" &&
                              clients["codex"] == "supported" &&
+                             scopes.include?("machine") &&
                              installable_codex_skills[skill_id] &&
                              exported_names == [manager_skill_name]
     manager_source_required ||= installable_by_manager
