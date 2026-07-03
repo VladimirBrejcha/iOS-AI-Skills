@@ -5,12 +5,12 @@
     "id": "agent-skills",
     "name": "Agent Skills",
     "status": "active-partial",
-    "manager_source": "fiveonecode/agent-skills",
     "source_files": [
       "skills.registry.yaml",
       "skills.lock.yaml",
       "profiles/machine/example-local-skills.yaml"
-    ]
+    ],
+    "manager_source": "fiveonecode/agent-skills"
   },
   "skills": [
     {

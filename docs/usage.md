@@ -53,44 +53,19 @@ profile examples.
 List the current reviewed global Codex install ids from this clone:
 
 ```bash
-ruby -ryaml -e '
-  registry = YAML.safe_load(File.read("skills.registry.yaml"), aliases: false)
-  profile = YAML.safe_load(File.read("profiles/machine/example-local-skills.yaml"), aliases: false)
-  selected = profile.fetch("selected_skills").each_with_object({}) do |entry, memo|
-    memo[entry.fetch("skill_id")] = entry
-  end
-  registry.fetch("skills")
-    .select { |skill| skill["status"] == "active" }
-    .select { |skill| skill.dig("clients", "codex") == "supported" }
-    .select { |skill| skill.dig("source", "type") == "registry-local" }
-    .select do |skill|
-      path = skill.dig("source", "path")
-      path.is_a?(String) && File.file?(File.join(path, "SKILL.md"))
-    end
-    .select do |skill|
-      selection = selected[skill.fetch("id")]
-      expose_to = selection&.fetch("expose_to", nil)
-      override = selection&.dig("consumer_overrides", "agents_user")
-      state = selection&.fetch("state", "").to_s
-      selection.is_a?(Hash) &&
-        state == "active" &&
-        expose_to.is_a?(Array) &&
-        expose_to.include?("agents_user") &&
-        override.is_a?(Hash) &&
-        override["adapter"] == "manager-copy" &&
-        override["status"] == "proven-manager-copy"
-    end
+scripts/skills_catalog.rb --json | ruby -rjson -e '
+  catalog = JSON.parse($stdin.read)
+  catalog.fetch("skills")
+    .select { |skill| skill["install"].is_a?(Hash) }
     .sort_by { |skill| skill.fetch("id") }
     .each { |skill| puts skill.fetch("id") }
 '
 ```
 
-This filtered list matches the documented `--agent codex --global` install
-flow for the current reviewed `agents_user` baseline. Registry-covered entries
-that still rely on planned/manual-review profile state, are not exposed to
-`agents_user`, are not registry-local sources, or do not have a checked-in
-top-level skill folder stay out of this list until a follow-up coverage/profile
-PR promotes them.
+This list is derived from the same catalog generator path that emits reviewed
+`--agent codex --global` install commands for the current example profile, so
+renamed exports and other manual-review cases stay out of the list until a
+follow-up coverage/profile PR promotes them.
 
 Do not use `npx --yes skills@1.5.14 add fiveonecode/agent-skills --list` as a
 registry coverage list. It enumerates every top-level skill folder in the

@@ -367,6 +367,17 @@ ruby -rjson -e '
   raise "renamed export should stay manual review for install commands" if example.key?("install")
 ' "$renamed_export_dir/skills.catalog.json"
 
+missing_name_dir="$tmp_dir/missing-name"
+write_ok_fixture "$missing_name_dir"
+ruby -e '
+  path = ARGV.fetch(0)
+  lines = File.readlines(path)
+  File.write(path, lines.reject { |line| line.start_with?("name: ") }.join)
+' "$missing_name_dir/example-skill/SKILL.md"
+write_registry_local_digest "$missing_name_dir"
+missing_name_output="$(expect_failure run_catalog "$missing_name_dir" --json)"
+assert_contains "$missing_name_output" "example-skill: registry-local SKILL.md front matter name is required"
+
 ruby -e '
   path = ARGV.fetch(0)
   text = File.read(path).sub("Example fixture skill.", "Changed fixture skill.")
@@ -451,6 +462,40 @@ assert_contains "$relative_json_output" '"skills.registry.yaml"'
 assert_contains "$relative_json_output" '"skills.lock.yaml"'
 assert_contains "$relative_json_output" '"profiles/machine/example-local-skills.yaml"'
 
+non_mapping_registry_dir="$tmp_dir/non-mapping-registry"
+write_ok_fixture "$non_mapping_registry_dir"
+cat >"$non_mapping_registry_dir/skills.registry.yaml" <<'YAML'
+- fixture
+YAML
+non_mapping_registry_output="$(expect_failure run_catalog "$non_mapping_registry_dir" --json)"
+assert_contains "$non_mapping_registry_output" "top-level YAML document must be a mapping"
+
+non_mapping_lock_dir="$tmp_dir/non-mapping-lock"
+write_ok_fixture "$non_mapping_lock_dir"
+cat >"$non_mapping_lock_dir/skills.lock.yaml" <<'YAML'
+- fixture
+YAML
+non_mapping_lock_output="$(expect_failure run_catalog "$non_mapping_lock_dir" --json)"
+assert_contains "$non_mapping_lock_output" "top-level YAML document must be a mapping"
+
+missing_manager_source_dir="$tmp_dir/missing-manager-source"
+write_ok_fixture "$missing_manager_source_dir"
+rm -rf "$missing_manager_source_dir/profiles"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("registry").delete("manager_source")
+  File.write(path, data.to_yaml)
+' "$missing_manager_source_dir/skills.registry.yaml"
+run_catalog "$missing_manager_source_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  raise "missing manager_source should be omitted when no installs are emitted" if parsed.fetch("registry").key?("manager_source")
+  raise "missing profile should suppress install commands" if parsed.fetch("skills").any? { |skill| skill.key?("install") }
+' "$missing_manager_source_dir/skills.catalog.json"
+missing_manager_source_markdown="$(run_catalog "$missing_manager_source_dir" --markdown)"
+assert_contains "$missing_manager_source_markdown" "Manager source: not required for this catalog"
+
 unsafe_manager_source_dir="$tmp_dir/unsafe-manager-source"
 write_ok_fixture "$unsafe_manager_source_dir"
 ruby -ryaml -e '
@@ -461,6 +506,25 @@ ruby -ryaml -e '
 ' "$unsafe_manager_source_dir/skills.registry.yaml"
 unsafe_manager_source_output="$(expect_failure run_catalog "$unsafe_manager_source_dir" --json)"
 assert_contains "$unsafe_manager_source_output" "registry.manager_source must be a public-safe skills source"
+
+uppercase_commit_dir="$tmp_dir/uppercase-commit"
+write_ok_fixture "$uppercase_commit_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  source = data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")
+  source["observed_commit"] = "ABCDEF0123456789ABCDEF0123456789ABCDEF01"
+  File.write(path, data.to_yaml)
+' "$uppercase_commit_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  entry = data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }
+  entry["observed_commit"] = "abcdef0123456789abcdef0123456789abcdef01"
+  File.write(path, data.to_yaml)
+' "$uppercase_commit_dir/skills.lock.yaml"
+run_catalog "$uppercase_commit_dir" --write
+run_catalog "$uppercase_commit_dir" --check
 
 quoted_command_dir="$tmp_dir/quoted-command"
 write_ok_fixture "$quoted_command_dir"

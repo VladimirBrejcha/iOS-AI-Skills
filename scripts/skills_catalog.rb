@@ -60,6 +60,15 @@ rescue SystemCallError => error
   nil
 end
 
+def load_yaml_mapping_file(path, reporter)
+  parsed = load_yaml_file(path, reporter)
+  return {} if parsed.nil?
+  return parsed if parsed.is_a?(Hash)
+
+  reporter.error("#{display_path(path)} top-level YAML document must be a mapping")
+  {}
+end
+
 def display_path(path, root: ROOT)
   expanded = File.expand_path(path.to_s)
   root_path = File.expand_path(root.to_s)
@@ -522,7 +531,11 @@ end
 
 def compare_lock_field(lock_entry, skill_id, field, expected, reporter)
   actual = lock_entry[field]
-  return if actual == expected
+  if field == "observed_commit" && valid_git_object_id?(actual) && valid_git_object_id?(expected)
+    return if actual.casecmp?(expected)
+  else
+    return if actual == expected
+  end
 
   reporter.error("#{skill_id}: lock #{field} differs from registry metadata")
 end
@@ -614,11 +627,6 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   reporter.error("registry.id is required") unless valid_string?(registry_id)
   reporter.error("registry.name is required") unless valid_string?(registry_name)
   reporter.error("registry.status is required") unless valid_string?(registry_status)
-  if !valid_string?(manager_source)
-    reporter.error("registry.manager_source is required for public install commands")
-  elsif !safe_manager_source?(manager_source)
-    reporter.error("registry.manager_source must be a public-safe skills source")
-  end
   unless raw_skills.is_a?(Array)
     reporter.error("skills.registry.yaml skills must be an array")
     raw_skills = []
@@ -629,6 +637,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   seen_skill_ids = {}
   seen_exported_names = {}
   seen_registry_local_source_paths = {}
+  manager_source_required = false
 
   raw_skills.each_with_index do |skill, index|
     unless skill.is_a?(Hash)
@@ -698,6 +707,9 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       skill_root = source_valid ? registry_root.join(source_path) : nil
       skill_file = skill_root&.join("SKILL.md")
       metadata = skill_file ? frontmatter(skill_file.to_s, reporter) : {}
+      if skill_file&.file? && !valid_string?(metadata["name"])
+        reporter.error("#{skill_id}: registry-local SKILL.md front matter name is required")
+      end
       digest = require_lock_field(lock_entry, skill_id, "digest_sha256", reporter)
       reporter.error("#{skill_id}: lock digest_sha256 must be a 64-character SHA-256") unless digest.empty? || valid_sha256_hex?(digest)
       current_digest = directory_digest(skill_root.to_s, reporter) if skill_root&.directory?
@@ -763,13 +775,14 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     reporter.error("#{skill_id}: catalog description is required") unless valid_string?(description)
 
     install = nil
-    if source_type == "registry-local" &&
-       status == "active" &&
-       clients["codex"] == "supported" &&
-       installable_codex_skills[skill_id] &&
-       safe_manager_source?(manager_source) &&
-       safe_adapter_name?(exported_names.first) &&
-       manager_skill_name == exported_names.first
+    installable_by_manager = source_type == "registry-local" &&
+                             status == "active" &&
+                             clients["codex"] == "supported" &&
+                             installable_codex_skills[skill_id] &&
+                             safe_adapter_name?(exported_names.first) &&
+                             manager_skill_name == exported_names.first
+    manager_source_required ||= installable_by_manager
+    if installable_by_manager && safe_manager_source?(manager_source)
       install = {
         "manager_package" => DEFAULT_SKILLS_CLI_PACKAGE,
         "registry_source" => manager_source,
@@ -802,20 +815,28 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     reporter.error("skills.lock.yaml stale lock entry #{skill_id} is not present in skills.registry.yaml")
   end
 
+  if valid_string?(manager_source)
+    reporter.error("registry.manager_source must be a public-safe skills source") unless safe_manager_source?(manager_source)
+  elsif manager_source_required
+    reporter.error("registry.manager_source is required for public install commands")
+  end
+
+  registry_catalog = {
+    "id" => registry_id,
+    "name" => registry_name,
+    "status" => registry_status,
+    "source_files" => [
+      Pathname.new(registry_path).relative_path_from(registry_root).to_s,
+      Pathname.new(lock_path).relative_path_from(registry_root).to_s,
+      install_profile_path && install_profile_path.relative_path_from(registry_root).to_s
+    ].compact
+  }
+  registry_catalog["manager_source"] = manager_source if safe_manager_source?(manager_source)
+
   catalog = {
     "schema_version" => CATALOG_SCHEMA_VERSION,
     "generated_by" => GENERATOR,
-    "registry" => {
-      "id" => registry_id,
-      "name" => registry_name,
-      "status" => registry_status,
-      "manager_source" => manager_source,
-      "source_files" => [
-        Pathname.new(registry_path).relative_path_from(registry_root).to_s,
-        Pathname.new(lock_path).relative_path_from(registry_root).to_s,
-        install_profile_path && install_profile_path.relative_path_from(registry_root).to_s
-      ].compact
-    },
+    "registry" => registry_catalog,
     "skills" => catalog_skills
   }
 
@@ -849,7 +870,11 @@ def markdown_document(catalog)
   lines << ""
   lines << "- Registry: #{registry.fetch("name")} (#{code_span(registry.fetch("id"))})"
   lines << "- Status: #{code_span(registry.fetch("status"))}"
-  lines << "- Manager source: #{code_span(registry.fetch("manager_source"))}"
+  if registry.key?("manager_source")
+    lines << "- Manager source: #{code_span(registry.fetch("manager_source"))}"
+  else
+    lines << "- Manager source: not required for this catalog"
+  end
   lines << "- Covered skills: #{skills.length}"
   lines << ""
   lines << "## Registry-Covered Skills"
@@ -945,9 +970,9 @@ options[:json_output] = expand_config_path(options[:json_output], base_dir: base
 options[:markdown_output] = expand_config_path(options[:markdown_output], base_dir: base_dir)
 
 reporter = Reporter.new
-registry = load_yaml_file(options[:registry], reporter)
-lock = load_yaml_file(options[:lock], reporter)
-catalog = build_catalog(registry || {}, lock || {}, options[:registry], options[:lock], reporter)
+registry = load_yaml_mapping_file(options[:registry], reporter)
+lock = load_yaml_mapping_file(options[:lock], reporter)
+catalog = build_catalog(registry, lock, options[:registry], options[:lock], reporter) if reporter.errors.empty?
 
 unless reporter.errors.empty?
   warn reporter.errors.join("\n")
