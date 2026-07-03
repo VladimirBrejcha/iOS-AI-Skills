@@ -37,7 +37,7 @@ PUBLIC_UNSAFE_PATTERNS = {
   "GitHub token" => %r{github_pat_|ghp_|gho_|ghu_|ghs_|ghr_},
   "OpenAI key" => %r{sk-[A-Za-z0-9_-]{20,}},
   "AWS access key" => %r{\b(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}\b},
-  "Bearer token" => %r{\bAuthorization:\s*Bearer\s+[A-Za-z0-9._~+\/-]{20,}\b}i,
+  "Bearer token" => %r{\b(?:Authorization:\s*)?Bearer\s+[A-Za-z0-9._~+\/-]{20,}\b}i,
   "private key" => %r{BEGIN [A-Z ]*PRIVATE KEY}
 }.freeze
 
@@ -319,17 +319,80 @@ def normalized_host_name(host)
   host.to_s.delete_prefix("[").delete_suffix("]").downcase
 end
 
+def parse_ipv4_legacy_component(value)
+  text = value.to_s
+  return nil if text.empty?
+
+  base =
+    if text.start_with?("0x", "0X")
+      16
+    elsif text.length > 1 && text.start_with?("0")
+      8
+    else
+      10
+    end
+
+  pattern =
+    case base
+    when 16 then /\A0x[0-9a-f]+\z/i
+    when 8 then /\A0[0-7]*\z/
+    else /\A[0-9]+\z/
+    end
+  return nil unless pattern.match?(text)
+
+  Integer(text, base)
+rescue ArgumentError
+  nil
+end
+
+def normalized_legacy_ipv4_address(host)
+  normalized = normalized_host_name(host)
+  return nil if normalized.empty? || normalized.include?(":") || normalized.include?("%")
+
+  parts = normalized.split(".")
+  return nil unless (1..4).cover?(parts.length)
+
+  values = parts.map { |part| parse_ipv4_legacy_component(part) }
+  return nil if values.any?(&:nil?)
+
+  prefix_values = values[0...-1]
+  return nil unless prefix_values.all? { |part| part.between?(0, 255) }
+
+  max_last = (1 << (8 * (5 - parts.length))) - 1
+  last = values[-1]
+  return nil unless last.between?(0, max_last)
+
+  address =
+    case parts.length
+    when 1
+      last
+    when 2
+      (values[0] << 24) | last
+    when 3
+      (values[0] << 24) | (values[1] << 16) | last
+    when 4
+      (values[0] << 24) | (values[1] << 16) | (values[2] << 8) | last
+    end
+  return nil unless address&.between?(0, 0xFFFF_FFFF)
+
+  [24, 16, 8, 0].map { |shift| (address >> shift) & 0xFF }.join(".")
+end
+
 def private_host?(host)
   normalized = normalized_host_name(host)
   return true if normalized.empty?
   return true if normalized == "localhost" || normalized.end_with?(".localhost", ".local")
 
-  address = IPAddr.new(normalized)
+  address = IPAddr.new(normalized_legacy_ipv4_address(normalized) || normalized)
   return true if address.loopback? || address.private? || address.link_local?
 
   address.to_s == "0.0.0.0" || address.to_s == "::"
 rescue IPAddr::InvalidAddressError
   false
+end
+
+def secure_manager_source_scheme?(value)
+  %w[https ssh ftps].include?(url_scheme(value).to_s.downcase)
 end
 
 def github_host?(host)
@@ -411,6 +474,8 @@ def safe_manager_source?(value)
   return false if query_or_fragment_bearing_scheme_url?(source_base) || query_or_fragment_bearing_scp_url?(source_base)
 
   if scheme_url?(source_base)
+    return false unless secure_manager_source_scheme?(source_base)
+
     valid_http_remote_url?(source_base) || valid_remote_scheme_url?(source_base)
   elsif scp_like_url?(source_base)
     scp_like_url_has_repository_path?(source_base)
@@ -1300,6 +1365,34 @@ end
 def public_safety_scan(text, label, reporter)
   PUBLIC_UNSAFE_PATTERNS.each do |name, pattern|
     reporter.error("#{label} contains #{name}") if text.match?(pattern)
+  end
+
+  reporter.error("#{label} contains private or loopback URL") if contains_private_url?(text)
+end
+
+def trim_url_candidate(value)
+  value.to_s.sub(/[),.;:!?]+$/, "")
+end
+
+def host_from_scheme_url(value)
+  uri = URI.parse(value)
+  return nil if uri.host.to_s.empty?
+
+  uri.host
+rescue URI::InvalidURIError
+  authority = scheme_url_authority(value)
+  return nil if authority.to_s.empty?
+
+  host_port = authority.split("@").last.to_s
+  return host_port[1..host_port.index("]") - 1] if host_port.start_with?("[") && host_port.include?("]")
+
+  host_port.split(":", 2).first
+end
+
+def contains_private_url?(text)
+  text.to_s.scan(%r{\b[a-z][a-z0-9+.-]*://[^\s<>"'`|]+}i).any? do |candidate|
+    host = host_from_scheme_url(trim_url_candidate(candidate))
+    host && private_host?(host)
   end
 end
 
