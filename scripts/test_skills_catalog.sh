@@ -395,6 +395,24 @@ ruby -rjson -e '
   raise "non-exposed skill should not emit install command" if example.key?("install")
 ' "$not_exposed_dir/skills.catalog.json"
 
+root_level_manager_copy_dir="$tmp_dir/consumer-manager-copy-default"
+write_ok_fixture "$root_level_manager_copy_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("consumer_roots").fetch("agents_user")["adapter"] = "manager-copy"
+  data.fetch("consumer_roots").fetch("agents_user")["status"] = "proven-manager-copy"
+  data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }.delete("consumer_overrides")
+  File.write(path, data.to_yaml)
+' "$root_level_manager_copy_dir/profiles/machine/example-local-skills.yaml"
+run_catalog "$root_level_manager_copy_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  install = example.fetch("install")
+  raise "root-level manager-copy approval should emit install command" unless install.fetch("codex_global_command").include?("--skill example-skill")
+' "$root_level_manager_copy_dir/skills.catalog.json"
+
 trailing_slash_agents_root_dir="$tmp_dir/trailing-slash-agents-root"
 write_ok_fixture "$trailing_slash_agents_root_dir"
 ruby -ryaml -e '
@@ -489,6 +507,22 @@ ruby -ryaml -e '
 ' "$missing_selected_skill_dir/profiles/machine/example-local-skills.yaml"
 missing_selected_skill_output="$(expect_failure run_catalog "$missing_selected_skill_dir" --json)"
 assert_contains "$missing_selected_skill_output" "profiles/machine/example-local-skills.yaml selected skill missing-skill is not in registry"
+
+unshared_agents_root_validation_dir="$tmp_dir/unshared-agents-root-validation"
+write_ok_fixture "$unshared_agents_root_validation_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("consumer_roots").fetch("agents_user")["path"] = "./private-agents-skills"
+  data.fetch("selected_skills") << {
+    "skill_id" => "missing-skill",
+    "expose_to" => ["agents_user"],
+    "state" => "active"
+  }
+  File.write(path, data.to_yaml)
+' "$unshared_agents_root_validation_dir/profiles/machine/example-local-skills.yaml"
+unshared_agents_root_validation_output="$(expect_failure run_catalog "$unshared_agents_root_validation_dir" --json)"
+assert_contains "$unshared_agents_root_validation_output" "profiles/machine/example-local-skills.yaml selected skill missing-skill is not in registry"
 
 unsupported_agents_override_key_dir="$tmp_dir/unsupported-agents-override-key"
 write_ok_fixture "$unsupported_agents_override_key_dir"
@@ -600,6 +634,26 @@ ruby -ryaml -e '
 ' "$same_root_alias_target_dir/profiles/machine/example-local-skills.yaml"
 same_root_alias_target_output="$(expect_failure run_catalog "$same_root_alias_target_dir" --json)"
 assert_contains "$same_root_alias_target_output" "profiles/machine/example-local-skills.yaml duplicate selected target for skill_id example-skill because consumers agents_user and codex_legacy_user share the same expanded root"
+
+same_root_symlink_alias_target_dir="$tmp_dir/same-root-symlink-alias-target"
+write_ok_fixture "$same_root_symlink_alias_target_dir"
+same_root_symlink_alias_home="$tmp_dir/same-root-symlink-alias-home"
+mkdir -p "$same_root_symlink_alias_home/.agents" "$same_root_symlink_alias_home/real-skills"
+ln -s "$same_root_symlink_alias_home/real-skills" "$same_root_symlink_alias_home/.agents/skills"
+ln -s "$same_root_symlink_alias_home/.agents/skills" "$same_root_symlink_alias_home/alias-skills"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("consumer_roots")["codex_legacy_user"] = {
+    "path" => "~/alias-skills",
+    "adapter" => "symlink"
+  }
+  selection = data.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }
+  selection["expose_to"] = ["agents_user", "codex_legacy_user"]
+  File.write(path, data.to_yaml)
+' "$same_root_symlink_alias_target_dir/profiles/machine/example-local-skills.yaml"
+same_root_symlink_alias_target_output="$(HOME="$same_root_symlink_alias_home" expect_failure run_catalog "$same_root_symlink_alias_target_dir" --json)"
+assert_contains "$same_root_symlink_alias_target_output" "profiles/machine/example-local-skills.yaml duplicate selected target for skill_id example-skill because consumers agents_user and codex_legacy_user share the same expanded root"
 
 bad_client_status_dir="$tmp_dir/bad-client-status"
 write_ok_fixture "$bad_client_status_dir"
@@ -760,6 +814,28 @@ ruby -ryaml -e '
 ' "$home_relative_description_dir/skills.registry.yaml"
 home_relative_description_output="$(expect_failure run_catalog "$home_relative_description_dir" --json)"
 assert_contains "$home_relative_description_output" "generated catalog JSON contains home-relative local path"
+
+named_user_home_relative_description_dir="$tmp_dir/named-user-home-relative-description"
+write_ok_fixture "$named_user_home_relative_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses ~alice/private-skill."
+  File.write(path, data.to_yaml)
+' "$named_user_home_relative_description_dir/skills.registry.yaml"
+named_user_home_relative_description_output="$(expect_failure run_catalog "$named_user_home_relative_description_dir" --json)"
+assert_contains "$named_user_home_relative_description_output" "generated catalog JSON contains home-relative local path"
+
+backslash_home_relative_description_dir="$tmp_dir/backslash-home-relative-description"
+write_ok_fixture "$backslash_home_relative_description_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] = "Uses ~\\\\private-skill."
+  File.write(path, data.to_yaml)
+' "$backslash_home_relative_description_dir/skills.registry.yaml"
+backslash_home_relative_description_output="$(expect_failure run_catalog "$backslash_home_relative_description_dir" --json)"
+assert_contains "$backslash_home_relative_description_output" "generated catalog JSON contains home-relative local path"
 
 lowercase_macos_path_description_dir="$tmp_dir/lowercase-macos-path-description"
 write_ok_fixture "$lowercase_macos_path_description_dir"

@@ -25,7 +25,7 @@ PUBLIC_UNSAFE_PATTERNS = {
   "macOS user path" => %r{/Users/[A-Za-z0-9._-]+}i,
   "Linux user path" => %r{/home/[A-Za-z0-9._-]+},
   "root home path" => %r{/root(?:/|\b)},
-  "home-relative local path" => %r{(?<![A-Za-z0-9._-])~/},
+  "home-relative local path" => %r{(?<![A-Za-z0-9._-])~[A-Za-z0-9._-]*[\\/]},
   "Windows local path" => %r{(?:\b[A-Za-z]:(?:[\\/]|[^\\/\s])|(?<!:)//[^/\\\s]+[\\/]|\\\\[^\\/\s]+[\\/])},
   "mac temp path" => %r{/var/folders/},
   "file URL" => %r{\bfile:}i,
@@ -138,9 +138,29 @@ def expand_config_path(path, base_dir:)
 end
 
 def normalized_expanded_path(path, base_dir:)
-  Pathname.new(expand_config_path(path, base_dir: base_dir)).cleanpath.to_s
-rescue ArgumentError
+  canonical_existing_path(expand_config_path(path, base_dir: base_dir))
+rescue ArgumentError, SystemCallError
   expand_config_path(path, base_dir: base_dir)
+end
+
+def canonical_existing_path(path)
+  expanded = File.expand_path(path.to_s)
+  return File.realpath(expanded) if File.exist?(expanded) || File.symlink?(expanded)
+
+  parent = expanded
+  missing_parts = []
+  until File.exist?(parent) || File.symlink?(parent)
+    next_parent = File.dirname(parent)
+    break if next_parent == parent
+
+    missing_parts.unshift(File.basename(parent))
+    parent = next_parent
+  end
+
+  parent_real = File.realpath(parent)
+  File.join(parent_real, *missing_parts)
+rescue SystemCallError
+  expanded
 end
 
 def path_within?(path, root)
@@ -569,6 +589,13 @@ def normalized_consumer_overrides(raw_overrides, profile_path, skill_id, expose_
   end
 end
 
+def effective_consumer_config(root_config, overrides, consumer)
+  return root_config unless root_config.is_a?(Hash)
+
+  override = overrides.is_a?(Hash) ? overrides[consumer] : nil
+  override.is_a?(Hash) ? root_config.merge(override) : root_config
+end
+
 def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids, reporter)
   return {} unless profile.is_a?(Hash)
   return {} if profile_path.nil?
@@ -591,7 +618,7 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
   end
 
   agents_root = consumer_roots["agents_user"]
-  return {} unless agents_root.is_a?(Hash) &&
+  shared_agents_root = agents_root.is_a?(Hash) &&
     matches_shared_agents_user_root?(agents_root["path"], base_dir: profile_base_dir)
 
   selected_skills = profile["selected_skills"]
@@ -636,7 +663,6 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
       consumer_roots,
       reporter
     )
-    override = overrides&.fetch("agents_user", nil)
     state = entry["state"]
     if !state.nil? && !state.is_a?(String)
       reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} state must be a string when provided")
@@ -676,14 +702,16 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
     end
 
     seen_active_agents_user_skill_ids[entry["skill_id"]] = true
-    next unless override.is_a?(Hash)
-    next unless override["adapter"] == "manager-copy"
-    next unless override["status"] == "proven-manager-copy"
+    effective_agents_config = effective_consumer_config(agents_root, overrides, "agents_user")
+    next unless effective_agents_config.is_a?(Hash)
+    next unless effective_agents_config["adapter"] == "manager-copy"
+    next unless effective_agents_config["status"] == "proven-manager-copy"
 
     memo[entry["skill_id"]] = true
   end
 
   return {} if reporter.errors.length > starting_error_count
+  return {} unless shared_agents_root
 
   installable_skills
 end
