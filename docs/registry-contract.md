@@ -46,6 +46,8 @@ In scope:
   example profile, and `SKILL.md` front matter
 - machine and repo profile examples that describe intended exposure
 - doctor checks for source, lock, profile, upstream, manager, and adapter drift
+- stale external-pin reporting that compares reviewed tags with upstream
+  release-like tags before update PRs
 - sync-plan output that generates reviewable adapter actions and pinned manager
   commands where the upstream manager can own the write
 - public docs that let external users install skills without private 51Code
@@ -105,6 +107,33 @@ support exists end-to-end.
 
 "Latest" means latest approved on `main` or a tagged release of this registry,
 not unreviewed latest from an arbitrary upstream source.
+
+## Upstream Update Checks
+
+External skills are not silently updated. `scripts/skills_upstream_updates.rb`
+is the read-only reporter for stale third-party pins. It compares each
+`external-git` registry entry against release-like upstream tags, checks that
+the lock entry still matches the registry entry, and emits the evidence needed
+for a reviewed update PR.
+
+Normal output is advisory:
+
+```bash
+scripts/skills_upstream_updates.rb --markdown
+scripts/skills_upstream_updates.rb --json
+```
+
+Scheduled monitors or manual gates can fail when an update needs review:
+
+```bash
+scripts/skills_upstream_updates.rb --fail-on-stale
+```
+
+The script must not mutate `skills.registry.yaml`, `skills.lock.yaml`,
+generated catalog artifacts, or consumer adapters. A human-reviewed update PR
+is still required to review upstream diff, license state, skill instructions,
+registry metadata, lock metadata, catalog impact, doctor proof, and sync-plan
+impact.
 
 ## Generated Public Catalog
 
@@ -189,6 +218,7 @@ A registry-contract PR is ready only when:
 - source ownership remains unique for every registry-covered reusable skill
 - registry and lock/version metadata are consistent
 - generated public catalog artifacts are current and public-safe
+- stale external-pin reports identify whether third-party pins need review
 - public docs use pinned manager commands for reproducible workflows
 - adapter plans cover Codex, Claude Code, and repo-local consumers without
   hand-editing consumer copies
@@ -202,12 +232,15 @@ A registry-contract PR is ready only when:
 Run these checks before opening or updating a PR:
 
 ```bash
-for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_sync.sh; do
+for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
   bash -n "$file"
 done
 ruby -c scripts/skills_catalog.rb
 ruby -c scripts/skills_doctor.rb
 ruby -c scripts/skills_sync.rb
+ruby -c scripts/skills_upstream_updates.rb
+scripts/test_skills_upstream_updates.sh
+scripts/skills_upstream_updates.rb --markdown
 scripts/test_skills_catalog.sh
 scripts/test_skills_doctor.sh
 scripts/test_skills_registry_verify.sh

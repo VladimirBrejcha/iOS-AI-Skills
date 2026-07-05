@@ -27,6 +27,9 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
 - `scripts/skills_catalog.rb` generates and checks public catalog artifacts.
 - `scripts/skills_sync.rb --plan` previews adapter create/update/remove actions
   without changing Codex, Claude, machine, or repo-local consumer folders.
+- `scripts/skills_upstream_updates.rb` reports stale external-git pins and the
+  evidence needed for reviewed update PRs; it does not mutate registry, lock,
+  catalog, or adapter files.
 
 ## How to work in this repo
 - If a task mentions a specific skill, open that skill's `SKILL.md` and follow its workflow.
@@ -48,6 +51,8 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
 - Use pinned upstream `npx skills` commands for normal install/update/remove
   behavior when supported. Keep local scripts focused on policy checks,
   planning, and post-write verification.
+- Use `scripts/skills_upstream_updates.rb --fail-on-stale` for scheduled or
+  manual stale external-pin detection before preparing third-party update PRs.
 - Use `adapter: manager-copy` only in explicit reviewed profiles for targets
   proven to be owned by the upstream manager. It means "verify the manager's
   copied folder by digest"; it does not authorize local copy/install code.
