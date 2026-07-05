@@ -53,42 +53,39 @@ profile examples.
 List the current reviewed global Codex install ids from this clone:
 
 ```bash
-ruby -ryaml -e '
-  registry = YAML.safe_load(File.read("skills.registry.yaml"), aliases: false)
-  profile = YAML.safe_load(File.read("profiles/machine/example-local-skills.yaml"), aliases: false)
-  selected = profile.fetch("selected_skills").each_with_object({}) do |entry, memo|
-    memo[entry.fetch("skill_id")] = entry
-  end
-  registry.fetch("skills")
-    .select { |skill| skill["status"] == "active" }
-    .select { |skill| skill.dig("clients", "codex") == "supported" }
-    .select do |skill|
-      path = skill.dig("source", "path")
-      path.is_a?(String) && File.file?(File.join(path, "SKILL.md"))
-    end
-    .select do |skill|
-      selection = selected[skill.fetch("id")]
-      override = selection&.dig("consumer_overrides", "agents_user")
-      selection.is_a?(Hash) &&
-        selection["state"] == "active" &&
-        override.is_a?(Hash) &&
-        override["adapter"] == "manager-copy" &&
-        override["status"] == "proven-manager-copy"
-    end
+scripts/skills_catalog.rb --json | ruby -rjson -e '
+  catalog = JSON.parse($stdin.read)
+  catalog.fetch("skills")
+    .select { |skill| skill["install"].is_a?(Hash) }
     .sort_by { |skill| skill.fetch("id") }
     .each { |skill| puts skill.fetch("id") }
 '
 ```
 
-This filtered list matches the documented `--agent codex --global` install
-flow for the current reviewed `agents_user` baseline. Registry-covered entries
-that still rely on planned/manual-review profile state or do not have a
-checked-in top-level skill folder stay out of this list until a follow-up
-coverage/profile PR promotes them.
+This list is derived from the same catalog generator path that emits reviewed
+`--agent codex --global` install commands for the current example profile, so
+renamed exports and other manual-review cases stay out of the list until a
+follow-up coverage/profile PR promotes them.
 
 Do not use `npx --yes skills@1.5.14 add fiveonecode/agent-skills --list` as a
 registry coverage list. It enumerates every top-level skill folder in the
 repository, including backlog entries outside the active-partial contract.
+
+Use the generated catalog for the reviewed public registry-covered set:
+
+```bash
+scripts/skills_catalog.rb --check
+ruby -rjson -e '
+  catalog = JSON.parse(File.read("skills.catalog.json"))
+  catalog.fetch("skills").each do |skill|
+    puts "#{skill.fetch("id")}\t#{skill.fetch("status")}\t#{skill.fetch("description")}"
+  end
+'
+```
+
+The same data is available as readable Markdown in
+[`docs/skills-catalog.md`](skills-catalog.md). Both files are generated from
+registry, lock, the checked-in example profile, and `SKILL.md` metadata.
 
 List installed global skills:
 
@@ -119,6 +116,7 @@ Run source and policy checks:
 scripts/skills_doctor.rb
 scripts/skills_doctor.rb --check-upstream
 scripts/skills_doctor.rb --check-manager
+scripts/skills_catalog.rb --check
 ```
 
 Generate a reviewable adapter plan:
@@ -209,13 +207,20 @@ npx --yes skills@1.5.14 --help
 cd path/to/agent-skills
 git switch -c codex/edit-skill-name
 # Edit skill-name/SKILL.md and any references/scripts/assets.
+# Commit or clean reviewed source/registry edits before refreshing the lock.
+tmp_lock="$(mktemp "${TMPDIR:-/tmp}/skills.lock.yaml.XXXXXX")"
+scripts/skills_doctor.rb --print-lock >"$tmp_lock" &&
+  mv "$tmp_lock" skills.lock.yaml
+scripts/skills_catalog.rb --write
 scripts/skills_doctor.rb
+scripts/skills_catalog.rb --check
 scripts/skills_sync.rb --plan --json
 git diff --check
 ```
 
-Update the README skills table or future generated catalog if the public name,
-description, folder, supported clients, or source metadata changed.
+Update the README skills table if top-level skill inventory changed. Regenerate
+the catalog if the public name, description, folder, supported clients, or
+registry-covered source metadata changed.
 
 ## Importing A Third-Party Update
 
@@ -233,9 +238,17 @@ description, folder, supported clients, or source metadata changed.
 
 3. Review the upstream diff, license, skill instructions, and generated adapter
    impact.
-4. Run doctor and sync-plan checks.
-5. Open a PR that includes registry diff, lock diff, observed commit, reviewed
-   date evidence, license review result, and validation output.
+4. Regenerate the catalog:
+
+   ```bash
+   scripts/skills_catalog.rb --write
+   scripts/skills_catalog.rb --check
+   ```
+
+5. Run doctor and sync-plan checks.
+6. Open a PR that includes registry diff, lock diff, catalog diff, observed
+   commit, reviewed date evidence, license review result, and validation
+   output.
 
 If the third-party skill is modified locally, convert the maintained copy to
 `registry-local` and keep the upstream provenance in `notes` or the PR
