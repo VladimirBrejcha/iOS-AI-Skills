@@ -8,6 +8,7 @@ require "optparse"
 require "pathname"
 require "rubygems"
 require "shellwords"
+require "uri"
 require "yaml"
 
 ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
@@ -112,8 +113,32 @@ def scp_like_url?(value)
   value.is_a?(String) && /\A(?:[^\/@\s]+@)?[^\/:\s]+:.+\z/.match?(value)
 end
 
-def credential_bearing_http_url?(value)
-  value.is_a?(String) && %r{\Ahttps?://[^/\s]*@}i.match?(value)
+def percent_decoded(value)
+  URI::DEFAULT_PARSER.unescape(value.to_s)
+end
+
+def credential_bearing_scheme_url?(value)
+  uri = URI.parse(value)
+  userinfo = uri.respond_to?(:userinfo) ? percent_decoded(uri.userinfo) : ""
+  return false if userinfo.empty?
+
+  !(uri.scheme.to_s.casecmp("ssh").zero? && !userinfo.include?(":"))
+rescue URI::InvalidURIError
+  authority = value.to_s.sub(/\A[a-z][a-z0-9+.-]*:\/\//i, "").split(/[\/?#]/, 2).first
+  return false if authority.nil? || authority.empty?
+
+  match = /\A(?<userinfo>[^@]+)@/.match(authority)
+  return false unless match
+
+  scheme = value.to_s[/\A([a-z][a-z0-9+.-]*):/i, 1].to_s.downcase
+  userinfo = percent_decoded(match[:userinfo])
+
+  !(scheme == "ssh" && !userinfo.include?(":"))
+end
+
+def credential_bearing_scp_url?(value)
+  match = /\A(?<userinfo>[^\/@\s]+)@[^\/:\s]+:.+\z/.match(value.to_s)
+  match && percent_decoded(match[:userinfo]).include?(":")
 end
 
 def local_file_url?(value)
@@ -139,7 +164,8 @@ end
 def acceptable_upstream_url?(url)
   return false unless valid_string?(url)
   return false if local_file_url?(url)
-  return false if credential_bearing_http_url?(url)
+  return false if credential_bearing_scheme_url?(url)
+  return false if credential_bearing_scp_url?(url)
   return false if url.start_with?("/") || url.start_with?("~")
 
   scheme_url?(url) || scp_like_url?(url) || safe_relative_path?(url)
@@ -360,11 +386,12 @@ def build_report(registry, lock, options, reporter)
     status = "check-failed"
     status_detail = nil
     if acceptable_upstream_url?(url)
-      tag_map, error = git_ls_remote_tags(resolved_upstream_url(url, registry_root), registry_root)
-      if tag_map.nil?
+      upstream_tags, error = git_ls_remote_tags(resolved_upstream_url(url, registry_root), registry_root)
+      if upstream_tags.nil?
         status_detail = error
         reporter.warn("#{skill_id}: could not list upstream tags: #{error}")
       else
+        tag_map = upstream_tags
         current = tag_map[pinned_tag]
         candidates = semver_candidates(tag_map, include_prerelease: options[:include_prerelease])
         latest = candidates.max_by { |entry| entry["version"] }
@@ -372,18 +399,15 @@ def build_report(registry, lock, options, reporter)
         if current.nil?
           status = "missing-current-tag"
           status_detail = "pinned tag #{pinned_tag} is not present upstream"
+        elsif valid_git_object_id?(observed_commit) && current["commit"].to_s.downcase != observed_commit
+          status = "pin-mismatch"
+          status_detail = "pinned tag no longer resolves to observed_commit"
         elsif latest.nil?
           status = "uncomparable-tags"
           status_detail = "no release-like tags found"
         elsif latest["tag"] == pinned_tag
-          resolved_commit = current["commit"].to_s.downcase
-          if valid_git_object_id?(observed_commit) && resolved_commit != observed_commit
-            status = "pin-mismatch"
-            status_detail = "pinned tag no longer resolves to observed_commit"
-          else
-            status = "current"
-            status_detail = "pinned tag is latest release-like tag"
-          end
+          status = "current"
+          status_detail = "pinned tag is latest release-like tag"
         else
           status = "stale"
           status_detail = "latest release-like tag is #{latest["tag"]}"
@@ -481,10 +505,21 @@ def markdown_document(report)
   end
 
   actionable = report.fetch("skills").select { |skill| skill.fetch("update_required") }
-  if actionable.empty?
+  failed_checks = report.fetch("skills").select { |skill| skill.fetch("status") == "check-failed" }
+  if actionable.empty? && failed_checks.empty?
     lines << ""
     lines << "No external pins require an update PR."
-  else
+  end
+
+  unless failed_checks.empty?
+    lines << ""
+    lines << "## Upstream Check Failures"
+    failed_checks.each do |skill|
+      lines << "- `#{skill.fetch("id")}`: #{skill.fetch("status_detail")}"
+    end
+  end
+
+  unless actionable.empty?
     lines << ""
     lines << "## Required Update PR Evidence"
     actionable.each do |skill|
