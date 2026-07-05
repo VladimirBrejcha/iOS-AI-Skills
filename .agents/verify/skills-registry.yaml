@@ -6,11 +6,11 @@ commands:
   - id: shell-syntax
     run: |
       set -e
-      for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_sync.sh; do
+      for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
         bash -n "$file"
       done
   - id: ruby-syntax
-    run: ruby -c scripts/skills_catalog.rb && ruby -c scripts/skills_doctor.rb && ruby -c scripts/skills_sync.rb
+    run: ruby -c scripts/skills_catalog.rb && ruby -c scripts/skills_doctor.rb && ruby -c scripts/skills_sync.rb && ruby -c scripts/skills_upstream_updates.rb
   - id: skills-catalog-test
     run: scripts/test_skills_catalog.sh
   - id: skills-doctor-test
@@ -19,6 +19,8 @@ commands:
     run: scripts/test_skills_registry_verify.sh
   - id: skills-sync-test
     run: scripts/test_skills_sync.sh
+  - id: skills-upstream-updates-test
+    run: scripts/test_skills_upstream_updates.sh
   - id: catalog-check
     run: scripts/skills_catalog.rb --check
   - id: catalog-artifacts
@@ -165,6 +167,7 @@ required_pass_signals:
   - skills-doctor-test
   - skills-registry-verify-test
   - skills-sync-test
+  - skills-upstream-updates-test
   - catalog-check
   - catalog-artifacts
   - sync-plan

@@ -117,6 +117,7 @@ scripts/skills_doctor.rb
 scripts/skills_doctor.rb --check-upstream
 scripts/skills_doctor.rb --check-manager
 scripts/skills_catalog.rb --check
+scripts/skills_upstream_updates.rb --markdown
 ```
 
 Generate a reviewable adapter plan:
@@ -224,11 +225,23 @@ registry-covered source metadata changed.
 
 ## Importing A Third-Party Update
 
-1. Update `skills.registry.yaml` with the new upstream tag and
-   `source.observed_commit`. Record the reviewed date in `source.observed_at`
-   or in the PR body until doctor/sync/lock enforcement supports it
-   end-to-end.
-2. Regenerate `skills.lock.yaml`:
+1. Run the stale-pin report:
+
+   ```bash
+   scripts/skills_upstream_updates.rb --markdown
+   scripts/skills_upstream_updates.rb --json
+   scripts/skills_upstream_updates.rb --fail-on-stale
+   ```
+
+   Expected outcome: the report lists whether external pins are `current`,
+   `stale`, `missing-current-tag`, or `pin-mismatch`. Use `--fail-on-stale`
+   in scheduled checks or before starting a third-party update PR.
+
+2. For a stale pin, review the upstream diff, license, skill instructions, and
+   generated adapter impact before editing this registry.
+3. Update `skills.registry.yaml` with the new upstream tag and
+   `source.observed_commit`. Record the reviewed date in `source.observed_at`.
+4. Regenerate `skills.lock.yaml`:
 
    ```bash
    tmp_lock="$(mktemp "${TMPDIR:-/tmp}/skills.lock.yaml.XXXXXX")"
@@ -236,17 +249,22 @@ registry-covered source metadata changed.
      mv "$tmp_lock" skills.lock.yaml
    ```
 
-3. Review the upstream diff, license, skill instructions, and generated adapter
-   impact.
-4. Regenerate the catalog:
+5. Regenerate the catalog:
 
    ```bash
    scripts/skills_catalog.rb --write
    scripts/skills_catalog.rb --check
    ```
 
-5. Run doctor and sync-plan checks.
-6. Open a PR that includes registry diff, lock diff, catalog diff, observed
+6. Run doctor and sync-plan checks:
+
+   ```bash
+   scripts/skills_doctor.rb --check-upstream
+   scripts/skills_doctor.rb --check-manager
+   scripts/skills_sync.rb --plan --json
+   ```
+
+7. Open a PR that includes registry diff, lock diff, catalog diff, observed
    commit, reviewed date evidence, license review result, and validation
    output.
 

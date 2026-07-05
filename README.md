@@ -42,6 +42,8 @@ The active-partial registry files are:
 - `scripts/skills_doctor.rb` - registry, profile, lock, upstream, manager, and
   adapter health checks.
 - `scripts/skills_sync.rb` - read-only adapter sync planner.
+- `scripts/skills_upstream_updates.rb` - read-only stale external-pin reporter
+  for third-party update PR preparation.
 - `.agents/manifests/*.yaml` - Autopilot path routing and ownership contract.
 - `.agents/verify/*.yaml` - Autopilot verification profile definitions.
 
@@ -73,6 +75,7 @@ scripts/skills_doctor.rb
 scripts/skills_doctor.rb --check-upstream
 scripts/skills_doctor.rb --check-manager
 scripts/skills_catalog.rb --check
+scripts/skills_upstream_updates.rb --markdown
 scripts/skills_sync.rb --plan --json
 ```
 
@@ -81,6 +84,23 @@ install/update/remove behavior to it; use pinned upstream `npx skills` commands
 where supported and keep unsupported actions in manual review.
 
 For full workflows, see [Usage](docs/usage.md).
+
+## External Update Checks
+
+Third-party skills stay pinned until 51Code reviews the upstream diff and lands
+a registry/lock/catalog update PR. Run the read-only update report to detect
+stale external pins:
+
+```bash
+scripts/skills_upstream_updates.rb --markdown
+scripts/skills_upstream_updates.rb --json
+scripts/skills_upstream_updates.rb --fail-on-stale
+```
+
+`--fail-on-stale` is intended for scheduled monitors or manual readiness
+checks. It reports stale or missing external tags, but it does not edit
+`skills.registry.yaml`, `skills.lock.yaml`, catalog artifacts, or consumer
+adapters.
 
 ## Public Catalog
 
