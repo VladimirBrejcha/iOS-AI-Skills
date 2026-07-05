@@ -8,6 +8,7 @@ require "optparse"
 require "pathname"
 require "rubygems"
 require "shellwords"
+require "tmpdir"
 require "uri"
 require "yaml"
 
@@ -26,6 +27,7 @@ GIT_CONFIG_OVERRIDE_ENV_PREFIXES = %w[
   GIT_CONFIG_KEY_
   GIT_CONFIG_VALUE_
 ].freeze
+SUPPORTED_GIT_TRANSPORT_SCHEMES = %w[file git http https ssh ftp ftps rsync].freeze
 
 class Reporter
   attr_reader :errors, :warnings
@@ -113,6 +115,28 @@ def scp_like_url?(value)
   value.is_a?(String) && /\A(?:[^\/@\s]+@)?[^\/:\s]+:.+\z/.match?(value)
 end
 
+def ext_remote_url?(value)
+  value.is_a?(String) && value.start_with?("ext::")
+end
+
+def url_scheme(value)
+  match = /\A([a-z][a-z0-9+.-]*):/i.match(value.to_s)
+  match && match[1]
+end
+
+def remote_helper_transport_url?(value)
+  raw_scheme = url_scheme(value)
+  return ext_remote_url?(value) if raw_scheme.nil?
+  return true if ext_remote_url?(value)
+  return true if value.to_s.match?(/\A[a-z][a-z0-9+.-]*::/i)
+  return false unless scheme_url?(value)
+
+  scheme = raw_scheme.downcase
+  return true if raw_scheme != scheme
+
+  !SUPPORTED_GIT_TRANSPORT_SCHEMES.include?(scheme)
+end
+
 def percent_decoded(value)
   URI::DEFAULT_PARSER.unescape(value.to_s)
 end
@@ -166,6 +190,7 @@ def acceptable_upstream_url?(url)
   return false if local_file_url?(url)
   return false if credential_bearing_scheme_url?(url)
   return false if credential_bearing_scp_url?(url)
+  return false if remote_helper_transport_url?(url)
   return false if url.start_with?("/") || url.start_with?("~")
 
   scheme_url?(url) || scp_like_url?(url) || safe_relative_path?(url)
@@ -206,6 +231,12 @@ def sanitized_git_env
   env
 end
 
+def neutral_git_working_directory(registry_root)
+  Pathname.new(registry_root.to_s).expand_path.ascend.to_a.last.to_s
+rescue ArgumentError, SystemCallError
+  Dir.tmpdir
+end
+
 def git_ls_remote_tags(url, registry_root)
   stdout, stderr, status = Open3.capture3(
     sanitized_git_env,
@@ -214,7 +245,7 @@ def git_ls_remote_tags(url, registry_root)
     "--tags",
     "--end-of-options",
     url.to_s,
-    chdir: registry_root.to_s
+    chdir: neutral_git_working_directory(registry_root)
   )
   return [nil, redact_local_paths(stderr.strip.empty? ? "git ls-remote failed with status #{status.exitstatus}" : stderr.strip)] unless status.success?
 
@@ -393,6 +424,7 @@ def build_report(registry, lock, options, reporter)
       else
         tag_map = upstream_tags
         current = tag_map[pinned_tag]
+        current_version = version_for_tag(pinned_tag, include_prerelease: true)
         candidates = semver_candidates(tag_map, include_prerelease: options[:include_prerelease])
         latest = candidates.max_by { |entry| entry["version"] }
 
@@ -402,6 +434,12 @@ def build_report(registry, lock, options, reporter)
         elsif valid_git_object_id?(observed_commit) && current["commit"].to_s.downcase != observed_commit
           status = "pin-mismatch"
           status_detail = "pinned tag no longer resolves to observed_commit"
+        elsif current_version&.prerelease? &&
+              !options[:include_prerelease] &&
+              !latest.nil? &&
+              latest["version"] < current_version
+          status = "current"
+          status_detail = "latest stable tag is older than pinned prerelease; rerun with --include-prerelease to compare prereleases"
         elsif latest.nil?
           status = "uncomparable-tags"
           status_detail = "no release-like tags found"

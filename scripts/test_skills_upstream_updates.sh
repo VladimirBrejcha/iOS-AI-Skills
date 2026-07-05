@@ -191,6 +191,168 @@ assert_contains "$check_failed_failure" '"status": "check-failed"'
 assert_contains "$check_failed_failure" "stale external pins or upstream check failures found"
 assert_not_contains "$check_failed_failure" "NoMethodError"
 
+remote_helper_dir="$tmp_dir/remote-helper-url"
+mkdir -p "$remote_helper_dir"
+write_fixture_registry "$remote_helper_dir" "1.0.0" "$commit_100" "1.0.0" "$commit_100" "foo::anything"
+remote_helper_output="$(expect_failure run_report "$remote_helper_dir" --json)"
+assert_contains "$remote_helper_output" "external-skill: external-git source.url must be a public, credential-free URL or safe relative test URL"
+
+mixed_case_transport_dir="$tmp_dir/mixed-case-transport"
+mkdir -p "$mixed_case_transport_dir"
+write_fixture_registry "$mixed_case_transport_dir" "1.0.0" "$commit_100" "1.0.0" "$commit_100" "HTTPS://example.com/acme/skills.git"
+mixed_case_transport_output="$(expect_failure run_report "$mixed_case_transport_dir" --json)"
+assert_contains "$mixed_case_transport_output" "external-skill: external-git source.url must be a public, credential-free URL or safe relative test URL"
+
+upstream_rewrite_disabled_dir="$tmp_dir/upstream-rewrite-disabled"
+mkdir -p "$upstream_rewrite_disabled_dir/tmp-worktree" "$upstream_rewrite_disabled_dir/bin"
+git -C "$upstream_rewrite_disabled_dir/tmp-worktree" init -q
+git -C "$upstream_rewrite_disabled_dir/tmp-worktree" config url.file:///tmp/private.insteadOf https://example.com/org/repo.git
+write_fixture_registry \
+  "$upstream_rewrite_disabled_dir/tmp-worktree" \
+  "1.0.0" \
+  "$commit_100" \
+  "1.0.0" \
+  "$commit_100" \
+  "https://example.com/org/repo.git"
+real_git="$(command -v git)"
+cat >"$upstream_rewrite_disabled_dir/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${1:-}" = "ls-remote" ]; then
+  pwd_path="$(pwd -P)"
+  if [ "${GIT_CONFIG_NOSYSTEM:-}" != "1" ]; then
+    echo "expected GIT_CONFIG_NOSYSTEM=1" >&2
+    exit 99
+  fi
+  if [ "${GIT_CONFIG_SYSTEM:-}" != "/dev/null" ]; then
+    echo "expected GIT_CONFIG_SYSTEM=/dev/null" >&2
+    exit 99
+  fi
+  if [ "${GIT_CONFIG_GLOBAL:-}" != "/dev/null" ]; then
+    echo "expected GIT_CONFIG_GLOBAL=/dev/null" >&2
+    exit 99
+  fi
+  if [ "${GIT_CONFIG_COUNT:-}" != "0" ]; then
+    echo "expected GIT_CONFIG_COUNT=0" >&2
+    exit 99
+  fi
+  if [ -n "${GIT_CONFIG_PARAMETERS:-}" ]; then
+    echo "expected GIT_CONFIG_PARAMETERS to be cleared" >&2
+    exit 99
+  fi
+  if [ -n "${GIT_CONFIG_KEY_0:-}" ] || [ -n "${GIT_CONFIG_VALUE_0:-}" ]; then
+    echo "expected GIT_CONFIG_KEY_0 and GIT_CONFIG_VALUE_0 to be cleared" >&2
+    exit 99
+  fi
+  if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
+    echo "expected GIT_DIR and GIT_WORK_TREE to be cleared" >&2
+    exit 99
+  fi
+  if [ "${GIT_TERMINAL_PROMPT:-}" != "0" ]; then
+    echo "expected GIT_TERMINAL_PROMPT=0" >&2
+    exit 99
+  fi
+  if [ "${GIT_ASKPASS:-}" != "false" ] || [ "${SSH_ASKPASS:-}" != "false" ]; then
+    echo "expected askpass helpers to be disabled" >&2
+    exit 99
+  fi
+  if [ "${SSH_ASKPASS_REQUIRE:-}" != "never" ]; then
+    echo "expected SSH_ASKPASS_REQUIRE=never" >&2
+    exit 99
+  fi
+  if [ "${GCM_INTERACTIVE:-}" != "never" ]; then
+    echo "expected GCM_INTERACTIVE=never" >&2
+    exit 99
+  fi
+  if [ "${GIT_SSH_COMMAND:-}" != "ssh -oBatchMode=yes" ]; then
+    echo "expected GIT_SSH_COMMAND to disable SSH prompts" >&2
+    exit 99
+  fi
+  if [ "$pwd_path" = "__TMP_WORKTREE__" ]; then
+    echo "unexpected repo-local cwd" >&2
+    exit 99
+  fi
+  if [ "${4:-}" != "https://example.com/org/repo.git" ]; then
+    echo "unexpected upstream: ${4:-}" >&2
+    exit 99
+  fi
+
+  printf '__COMMIT_100__\trefs/tags/1.0.0^{}\n'
+  exit 0
+fi
+
+exec "__REAL_GIT__" "$@"
+EOF
+perl -0pi -e "s|__REAL_GIT__|$real_git|g; s|__TMP_WORKTREE__|$upstream_rewrite_disabled_dir/tmp-worktree|g; s|__COMMIT_100__|$commit_100|g" "$upstream_rewrite_disabled_dir/bin/git"
+chmod +x "$upstream_rewrite_disabled_dir/bin/git"
+upstream_rewrite_disabled_output="$(
+  PATH="$upstream_rewrite_disabled_dir/bin:$PATH" \
+    GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0="url.file:///tmp/private.insteadOf" \
+    GIT_CONFIG_VALUE_0="https://example.com/org/repo.git" \
+    GIT_CONFIG_PARAMETERS="'url.file:///tmp/private.insteadOf=https://example.com/org/repo.git'" \
+    GIT_DIR="$upstream_rewrite_disabled_dir/tmp-worktree/.git" \
+    GIT_WORK_TREE="$upstream_rewrite_disabled_dir/tmp-worktree" \
+    GIT_TERMINAL_PROMPT=1 \
+    GIT_ASKPASS=/bin/echo \
+    SSH_ASKPASS=/bin/echo \
+    SSH_ASKPASS_REQUIRE=force \
+    GCM_INTERACTIVE=always \
+    GIT_SSH_COMMAND="ssh -oBatchMode=no" \
+    run_report "$upstream_rewrite_disabled_dir/tmp-worktree" --json
+)"
+assert_contains "$upstream_rewrite_disabled_output" '"status": "current"'
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_CONFIG_NOSYSTEM=1"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_CONFIG_SYSTEM=/dev/null"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_CONFIG_GLOBAL=/dev/null"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_CONFIG_COUNT=0"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_CONFIG_PARAMETERS to be cleared"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_CONFIG_KEY_0 and GIT_CONFIG_VALUE_0 to be cleared"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_DIR and GIT_WORK_TREE to be cleared"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_TERMINAL_PROMPT=0"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected askpass helpers to be disabled"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected SSH_ASKPASS_REQUIRE=never"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GCM_INTERACTIVE=never"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_SSH_COMMAND to disable SSH prompts"
+assert_not_contains "$upstream_rewrite_disabled_output" "unexpected repo-local cwd"
+assert_not_contains "$upstream_rewrite_disabled_output" "unexpected upstream:"
+
+cat >"$upstream_dir/swiftui-pro/SKILL.md" <<'SKILL'
+---
+name: swiftui-pro
+description: Fixture 2.0.0-beta.1 skill.
+---
+
+# SwiftUI Pro
+SKILL
+git_commit "$upstream_dir" "beta skill"
+git -C "$upstream_dir" tag 2.0.0-beta.1
+commit_200_beta_1="$(git -C "$upstream_dir" rev-parse 2.0.0-beta.1^{})"
+
+cat >"$upstream_dir/swiftui-pro/SKILL.md" <<'SKILL'
+---
+name: swiftui-pro
+description: Fixture 2.0.0-beta.2 skill.
+---
+
+# SwiftUI Pro
+SKILL
+git_commit "$upstream_dir" "beta skill update"
+git -C "$upstream_dir" tag 2.0.0-beta.2
+commit_200_beta_2="$(git -C "$upstream_dir" rev-parse 2.0.0-beta.2^{})"
+
+write_fixture_registry "$fixture_dir" "2.0.0-beta.1" "$commit_200_beta_1"
+prerelease_default_json="$(run_report "$fixture_dir" --json)"
+assert_contains "$prerelease_default_json" '"status": "current"'
+assert_contains "$prerelease_default_json" '"update_required": false'
+assert_contains "$prerelease_default_json" '"status_detail": "latest stable tag is older than pinned prerelease; rerun with --include-prerelease to compare prereleases"'
+
+prerelease_full_json="$(run_report "$fixture_dir" --json --include-prerelease)"
+assert_contains "$prerelease_full_json" '"status": "stale"'
+assert_contains "$prerelease_full_json" '"tag": "2.0.0-beta.2"'
+assert_contains "$prerelease_full_json" '"update_required": true'
+
 scheme_credential_dir="$tmp_dir/scheme-credential-url"
 mkdir -p "$scheme_credential_dir"
 write_fixture_registry "$scheme_credential_dir" "1.0.0" "$commit_100" "1.0.0" "$commit_100" "ssh://git:token@example.com/acme/skills.git"
