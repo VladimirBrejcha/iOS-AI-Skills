@@ -203,6 +203,32 @@ write_fixture_registry "$mixed_case_transport_dir" "1.0.0" "$commit_100" "1.0.0"
 mixed_case_transport_output="$(expect_failure run_report "$mixed_case_transport_dir" --json)"
 assert_contains "$mixed_case_transport_output" "external-skill: external-git source.url must be a public, credential-free URL or safe relative test URL"
 
+query_url_dir="$tmp_dir/query-url"
+mkdir -p "$query_url_dir"
+write_fixture_registry "$query_url_dir" "1.0.0" "$commit_100" "1.0.0" "$commit_100" "https://example.com/org/repo.git?token=secret"
+query_url_output="$(expect_failure run_report "$query_url_dir" --json)"
+assert_contains "$query_url_output" "external-skill: external-git source.url must be a public, credential-free URL or safe relative test URL"
+assert_not_contains "$query_url_output" "token"
+
+private_http_dir="$tmp_dir/private-http-url"
+mkdir -p "$private_http_dir"
+write_fixture_registry "$private_http_dir" "1.0.0" "$commit_100" "1.0.0" "$commit_100" "http://10.0.0.5/org/repo.git"
+private_http_output="$(expect_failure run_report "$private_http_dir" --json)"
+assert_contains "$private_http_output" "external-skill: external-git source.url must be a public, credential-free URL or safe relative test URL"
+
+localhost_ssh_dir="$tmp_dir/localhost-ssh-url"
+mkdir -p "$localhost_ssh_dir"
+write_fixture_registry "$localhost_ssh_dir" "1.0.0" "$commit_100" "1.0.0" "$commit_100" "ssh://localhost/org/repo.git"
+localhost_ssh_output="$(expect_failure run_report "$localhost_ssh_dir" --json)"
+assert_contains "$localhost_ssh_output" "external-skill: external-git source.url must be a public, credential-free URL or safe relative test URL"
+
+windows_path_dir="$tmp_dir/windows-path-url"
+mkdir -p "$windows_path_dir"
+write_fixture_registry "$windows_path_dir" "1.0.0" "$commit_100" "1.0.0" "$commit_100" "C:/Users/alice/private-repo"
+windows_path_output="$(expect_failure run_report "$windows_path_dir" --json)"
+assert_contains "$windows_path_output" "external-skill: external-git source.url must be a public, credential-free URL or safe relative test URL"
+assert_not_contains "$windows_path_output" "C:/Users/alice/private-repo"
+
 upstream_rewrite_disabled_dir="$tmp_dir/upstream-rewrite-disabled"
 mkdir -p "$upstream_rewrite_disabled_dir/tmp-worktree" "$upstream_rewrite_disabled_dir/bin"
 git -C "$upstream_rewrite_disabled_dir/tmp-worktree" init -q
@@ -265,8 +291,20 @@ if [ "${1:-}" = "ls-remote" ]; then
     echo "expected GCM_INTERACTIVE=never" >&2
     exit 99
   fi
-  if [ "${GIT_SSH_COMMAND:-}" != "ssh -oBatchMode=yes" ]; then
-    echo "expected GIT_SSH_COMMAND to disable SSH prompts" >&2
+  if [ "${GIT_SSH_COMMAND:-}" != "ssh -F /dev/null -oBatchMode=yes -oIdentityAgent=none" ]; then
+    echo "expected GIT_SSH_COMMAND to ignore SSH config and agent" >&2
+    exit 99
+  fi
+  if [ -n "${SSH_AUTH_SOCK:-}" ] || [ -n "${SSH_AGENT_PID:-}" ]; then
+    echo "expected SSH agent variables to be cleared" >&2
+    exit 99
+  fi
+  if [ "${HOME:-}" = "__ORIGINAL_HOME__" ] || [ "${USERPROFILE:-}" = "__ORIGINAL_HOME__" ]; then
+    echo "expected HOME and USERPROFILE to be isolated from the real home directory" >&2
+    exit 99
+  fi
+  if [ "${XDG_CONFIG_HOME:-}" != "${HOME:-}" ]; then
+    echo "expected XDG_CONFIG_HOME to match HOME" >&2
     exit 99
   fi
   if [ "$pwd_path" = "__TMP_WORKTREE__" ]; then
@@ -284,7 +322,7 @@ fi
 
 exec "__REAL_GIT__" "$@"
 EOF
-perl -0pi -e "s|__REAL_GIT__|$real_git|g; s|__TMP_WORKTREE__|$upstream_rewrite_disabled_dir/tmp-worktree|g; s|__COMMIT_100__|$commit_100|g" "$upstream_rewrite_disabled_dir/bin/git"
+perl -0pi -e "s|__REAL_GIT__|$real_git|g; s|__TMP_WORKTREE__|$upstream_rewrite_disabled_dir/tmp-worktree|g; s|__COMMIT_100__|$commit_100|g; s|__ORIGINAL_HOME__|$HOME|g" "$upstream_rewrite_disabled_dir/bin/git"
 chmod +x "$upstream_rewrite_disabled_dir/bin/git"
 upstream_rewrite_disabled_output="$(
   PATH="$upstream_rewrite_disabled_dir/bin:$PATH" \
@@ -314,7 +352,10 @@ assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_TERMINAL_P
 assert_not_contains "$upstream_rewrite_disabled_output" "expected askpass helpers to be disabled"
 assert_not_contains "$upstream_rewrite_disabled_output" "expected SSH_ASKPASS_REQUIRE=never"
 assert_not_contains "$upstream_rewrite_disabled_output" "expected GCM_INTERACTIVE=never"
-assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_SSH_COMMAND to disable SSH prompts"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected GIT_SSH_COMMAND to ignore SSH config and agent"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected SSH agent variables to be cleared"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected HOME and USERPROFILE to be isolated from the real home directory"
+assert_not_contains "$upstream_rewrite_disabled_output" "expected XDG_CONFIG_HOME to match HOME"
 assert_not_contains "$upstream_rewrite_disabled_output" "unexpected repo-local cwd"
 assert_not_contains "$upstream_rewrite_disabled_output" "unexpected upstream:"
 
@@ -352,6 +393,13 @@ prerelease_full_json="$(run_report "$fixture_dir" --json --include-prerelease)"
 assert_contains "$prerelease_full_json" '"status": "stale"'
 assert_contains "$prerelease_full_json" '"tag": "2.0.0-beta.2"'
 assert_contains "$prerelease_full_json" '"update_required": true'
+
+git -C "$upstream_dir" tag release-2026-07-05 "$commit_200_beta_2"
+write_fixture_registry "$fixture_dir" "release-2026-07-05" "$commit_200_beta_2"
+non_release_pin_json="$(run_report "$fixture_dir" --json)"
+assert_contains "$non_release_pin_json" '"status": "uncomparable-tags"'
+assert_contains "$non_release_pin_json" '"status_detail": "pinned tag is not a release-like version"'
+assert_contains "$non_release_pin_json" '"update_required": false'
 
 scheme_credential_dir="$tmp_dir/scheme-credential-url"
 mkdir -p "$scheme_credential_dir"

@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "date"
+require "ipaddr"
 require "json"
 require "open3"
 require "optparse"
@@ -14,6 +15,28 @@ require "yaml"
 
 ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
 SCRIPT_NAME = "scripts/skills_upstream_updates.rb"
+RFC6598_SHARED_ADDRESS_RANGE = IPAddr.new("100.64.0.0/10").freeze
+SPECIAL_USE_IPV4_ADDRESS_RANGES = [
+  IPAddr.new("0.0.0.0/8"),
+  IPAddr.new("192.0.0.0/29"),
+  IPAddr.new("192.0.0.170/31"),
+  IPAddr.new("192.0.2.0/24"),
+  IPAddr.new("198.18.0.0/15"),
+  IPAddr.new("198.51.100.0/24"),
+  IPAddr.new("203.0.113.0/24"),
+  IPAddr.new("224.0.0.0/4"),
+  IPAddr.new("240.0.0.0/4")
+].freeze
+SPECIAL_USE_IPV6_ADDRESS_RANGES = [
+  IPAddr.new("::/128"),
+  IPAddr.new("::ffff:0:0/96"),
+  IPAddr.new("100::/64"),
+  IPAddr.new("2001::/23"),
+  IPAddr.new("2001:2::/48"),
+  IPAddr.new("2001:db8::/32"),
+  IPAddr.new("2001:10::/28"),
+  IPAddr.new("ff00::/8")
+].freeze
 GIT_REPOSITORY_ENV_KEYS = %w[
   GIT_DIR
   GIT_WORK_TREE
@@ -111,7 +134,19 @@ def scheme_url?(value)
   value.is_a?(String) && /\A[a-z][a-z0-9+.-]*:\/\//i.match?(value)
 end
 
+def scp_like_url_match(value)
+  match = /\A(?:(?<userinfo>[^\/@\s]+)@)?(?<host>[^\/:\s]+):(?<path>.+)\z/.match(value.to_s)
+  return nil unless match
+  return nil unless match[:host].include?(".")
+
+  match
+end
+
 def scp_like_url?(value)
+  !scp_like_url_match(value).nil?
+end
+
+def scp_like_remote_candidate?(value)
   value.is_a?(String) && /\A(?:[^\/@\s]+@)?[^\/:\s]+:.+\z/.match?(value)
 end
 
@@ -162,16 +197,235 @@ end
 
 def credential_bearing_scp_url?(value)
   match = /\A(?<userinfo>[^\/@\s]+)@[^\/:\s]+:.+\z/.match(value.to_s)
-  match && percent_decoded(match[:userinfo]).include?(":")
+  !match[:userinfo].to_s.empty? && percent_decoded(match[:userinfo]).include?(":") if match
+end
+
+def query_or_fragment_bearing_scheme_url?(value)
+  return false unless scheme_url?(value)
+
+  uri = URI.parse(value)
+  !uri.query.to_s.empty? || !uri.fragment.to_s.empty?
+rescue URI::InvalidURIError
+  suffix = value.to_s.sub(/\A[a-z][a-z0-9+.-]*:\/\/[^\/?#]*/i, "")
+  suffix.include?("?") || suffix.include?("#")
+end
+
+def query_or_fragment_bearing_scp_url?(value)
+  match = scp_like_url_match(value)
+  match && (match[:path].include?("?") || match[:path].include?("#"))
 end
 
 def local_file_url?(value)
   value.is_a?(String) && /\Afile:/i.match?(value)
 end
 
+def home_relative_url?(value)
+  value.is_a?(String) && value.start_with?("~")
+end
+
+def windows_drive_letter_path?(value)
+  value.is_a?(String) && /\A[a-z]:(?:[\\\/]|[^\\\/]|$)/i.match?(value)
+end
+
+def windows_unc_path?(value)
+  value.is_a?(String) && (value.start_with?("\\\\") || value.match?(%r{\A//[^/\\]}))
+end
+
+def windows_local_path?(value)
+  windows_drive_letter_path?(value) || windows_unc_path?(value)
+end
+
+def scheme_url_authority(value)
+  return nil unless scheme_url?(value)
+
+  value.sub(/\A[a-z][a-z0-9+.-]*:\/\//i, "").split(/[\/?#]/, 2).first
+end
+
+def http_url_authority(value)
+  return nil unless value.is_a?(String) && /\Ahttps?:\/\//i.match?(value)
+
+  scheme_url_authority(value)
+end
+
+def remote_path_segments(path)
+  percent_decoded(path).split("/").reject(&:empty?)
+end
+
+def remote_path_has_dot_segments?(path)
+  remote_path_segments(path).any? { |segment| %w[. ..].include?(segment) }
+end
+
+def remote_repository_path?(path)
+  segments = remote_path_segments(path)
+  !segments.empty? && !remote_path_has_dot_segments?(path)
+end
+
+def remote_uri_has_repository_path?(uri)
+  remote_repository_path?(uri.path)
+end
+
+def normalized_host_name(host)
+  percent_decoded(host).delete_prefix("[").delete_suffix("]").sub(/\.+\z/, "").downcase
+end
+
+def parse_ipv4_legacy_component(value)
+  text = value.to_s
+  return nil if text.empty?
+
+  base =
+    if text.start_with?("0x", "0X")
+      16
+    elsif text.length > 1 && text.start_with?("0")
+      8
+    else
+      10
+    end
+
+  pattern =
+    case base
+    when 16 then /\A0x[0-9a-f]+\z/i
+    when 8 then /\A0[0-7]*\z/
+    else /\A[0-9]+\z/
+    end
+  return nil unless pattern.match?(text)
+
+  Integer(text, base)
+rescue ArgumentError
+  nil
+end
+
+def normalized_legacy_ipv4_address(host)
+  normalized = normalized_host_name(host)
+  return nil if normalized.empty? || normalized.include?(":") || normalized.include?("%")
+
+  parts = normalized.split(".")
+  return nil unless (1..4).cover?(parts.length)
+
+  values = parts.map { |part| parse_ipv4_legacy_component(part) }
+  return nil if values.any?(&:nil?)
+
+  prefix_values = values[0...-1]
+  return nil unless prefix_values.all? { |part| part.between?(0, 255) }
+
+  max_last = (1 << (8 * (5 - parts.length))) - 1
+  last = values[-1]
+  return nil unless last.between?(0, max_last)
+
+  address =
+    case parts.length
+    when 1
+      last
+    when 2
+      (values[0] << 24) | last
+    when 3
+      (values[0] << 24) | (values[1] << 16) | last
+    when 4
+      (values[0] << 24) | (values[1] << 16) | (values[2] << 8) | last
+    end
+  return nil unless address&.between?(0, 0xFFFF_FFFF)
+
+  [24, 16, 8, 0].map { |shift| (address >> shift) & 0xFF }.join(".")
+end
+
+def special_use_ip_address?(address)
+  ranges = address.ipv4? ? SPECIAL_USE_IPV4_ADDRESS_RANGES : SPECIAL_USE_IPV6_ADDRESS_RANGES
+  ranges.any? { |range| range.include?(address) }
+end
+
+def private_host?(host)
+  normalized = normalized_host_name(host)
+  return true if normalized.empty?
+  return true if normalized == "localhost" || normalized.end_with?(".localhost", ".local")
+
+  address = IPAddr.new(normalized_legacy_ipv4_address(normalized) || normalized)
+  return true if RFC6598_SHARED_ADDRESS_RANGE.include?(address)
+  return true if special_use_ip_address?(address)
+  return true if address.loopback? || address.private? || address.link_local?
+
+  false
+rescue IPAddr::InvalidAddressError
+  false
+end
+
+def github_host?(host)
+  %w[github.com www.github.com].include?(normalized_host_name(host))
+end
+
+def github_repository_path?(path)
+  segments = remote_path_segments(path)
+  segments.length == 2 && !remote_path_has_dot_segments?(path)
+end
+
+def scp_like_url_has_repository_path?(value)
+  match = scp_like_url_match(value)
+  return false unless match
+  return false if match[:path].include?("@")
+  return false if private_host?(match[:host])
+  return false if github_host?(match[:host]) && !github_repository_path?(match[:path])
+
+  remote_repository_path?(match[:path])
+end
+
+def valid_http_remote_url?(value)
+  return false unless value.is_a?(String) && /\Ahttps?:\/\//i.match?(value)
+
+  uri = URI.parse(value)
+  return false unless uri.is_a?(URI::HTTP) && !uri.host.to_s.empty?
+  return false if private_host?(uri.host)
+  return false unless remote_uri_has_repository_path?(uri)
+  return false if github_host?(uri.host) && !github_repository_path?(uri.path)
+
+  true
+rescue URI::InvalidURIError
+  false
+end
+
+def valid_remote_scheme_url?(value)
+  return false unless scheme_url?(value)
+
+  uri = URI.parse(value)
+  return false if uri.scheme.to_s.empty? || uri.host.to_s.empty?
+  return false if private_host?(uri.host)
+  return false unless remote_uri_has_repository_path?(uri)
+  return false if github_host?(uri.host) && !github_repository_path?(uri.path)
+
+  true
+rescue URI::InvalidURIError
+  false
+end
+
+def external_git_url_public?(value)
+  return false unless valid_string?(value)
+  return false if value.start_with?("-")
+  return false if windows_local_path?(value) || Pathname.new(value).absolute?
+  return false if local_file_url?(value) || home_relative_url?(value)
+  return false unless scheme_url?(value) || scp_like_url?(value)
+  return false if ext_remote_url?(value) || remote_helper_transport_url?(value)
+  return false if credential_bearing_scheme_url?(value) || credential_bearing_scp_url?(value)
+  return false if query_or_fragment_bearing_scheme_url?(value) || query_or_fragment_bearing_scp_url?(value)
+  return false if http_url_authority(value) && !valid_http_remote_url?(value)
+  return false if scheme_url?(value) && http_url_authority(value).nil? && !valid_remote_scheme_url?(value)
+  return false if scp_like_url?(value) && !scp_like_url_has_repository_path?(value)
+
+  true
+rescue ArgumentError
+  false
+end
+
+def safe_relative_upstream_url?(value)
+  return false unless valid_string?(value)
+  return false if value.start_with?("-")
+  return false if windows_local_path?(value) || Pathname.new(value).absolute?
+  return false if local_file_url?(value) || home_relative_url?(value)
+  return false if scheme_url?(value) || scp_like_remote_candidate?(value)
+
+  safe_relative_path?(value)
+rescue ArgumentError
+  false
+end
+
 def registry_relative_upstream_path(url, registry_root)
-  return nil unless safe_relative_path?(url)
-  return nil if scheme_url?(url) || scp_like_url?(url)
+  return nil unless safe_relative_upstream_url?(url)
 
   registry_root.join(url).cleanpath
 rescue ArgumentError
@@ -186,14 +440,7 @@ def resolved_upstream_url(url, registry_root)
 end
 
 def acceptable_upstream_url?(url)
-  return false unless valid_string?(url)
-  return false if local_file_url?(url)
-  return false if credential_bearing_scheme_url?(url)
-  return false if credential_bearing_scp_url?(url)
-  return false if remote_helper_transport_url?(url)
-  return false if url.start_with?("/") || url.start_with?("~")
-
-  scheme_url?(url) || scp_like_url?(url) || safe_relative_path?(url)
+  external_git_url_public?(url) || safe_relative_upstream_url?(url)
 end
 
 def valid_git_object_id?(value)
@@ -210,18 +457,23 @@ rescue SystemCallError
   false
 end
 
-def sanitized_git_env
+def sanitized_git_env(ssh_state_dir:)
   env = {
     "GIT_TERMINAL_PROMPT" => "0",
     "GIT_ASKPASS" => "false",
     "SSH_ASKPASS" => "false",
     "SSH_ASKPASS_REQUIRE" => "never",
     "GCM_INTERACTIVE" => "never",
-    "GIT_SSH_COMMAND" => "ssh -oBatchMode=yes",
+    "GIT_SSH_COMMAND" => "ssh -F #{File::NULL} -oBatchMode=yes -oIdentityAgent=none",
     "GIT_CONFIG_NOSYSTEM" => "1",
     "GIT_CONFIG_SYSTEM" => File::NULL,
     "GIT_CONFIG_GLOBAL" => File::NULL,
-    "GIT_CONFIG_COUNT" => "0"
+    "GIT_CONFIG_COUNT" => "0",
+    "HOME" => ssh_state_dir,
+    "USERPROFILE" => ssh_state_dir,
+    "XDG_CONFIG_HOME" => ssh_state_dir,
+    "SSH_AUTH_SOCK" => nil,
+    "SSH_AGENT_PID" => nil
   }
   GIT_REPOSITORY_ENV_KEYS.each { |key| env[key] = nil }
   GIT_CONFIG_OVERRIDE_ENV_KEYS.each { |key| env[key] = nil }
@@ -238,15 +490,19 @@ rescue ArgumentError, SystemCallError
 end
 
 def git_ls_remote_tags(url, registry_root)
-  stdout, stderr, status = Open3.capture3(
-    sanitized_git_env,
-    "git",
-    "ls-remote",
-    "--tags",
-    "--end-of-options",
-    url.to_s,
-    chdir: neutral_git_working_directory(registry_root)
-  )
+  stdout = stderr = nil
+  status = nil
+  Dir.mktmpdir("skills-upstream-ssh-") do |ssh_state_dir|
+    stdout, stderr, status = Open3.capture3(
+      sanitized_git_env(ssh_state_dir: ssh_state_dir),
+      "git",
+      "ls-remote",
+      "--tags",
+      "--end-of-options",
+      url.to_s,
+      chdir: neutral_git_working_directory(registry_root)
+    )
+  end
   return [nil, redact_local_paths(stderr.strip.empty? ? "git ls-remote failed with status #{status.exitstatus}" : stderr.strip)] unless status.success?
 
   tags = {}
@@ -434,6 +690,9 @@ def build_report(registry, lock, options, reporter)
         elsif valid_git_object_id?(observed_commit) && current["commit"].to_s.downcase != observed_commit
           status = "pin-mismatch"
           status_detail = "pinned tag no longer resolves to observed_commit"
+        elsif current_version.nil?
+          status = "uncomparable-tags"
+          status_detail = "pinned tag is not a release-like version"
         elsif current_version&.prerelease? &&
               !options[:include_prerelease] &&
               !latest.nil? &&

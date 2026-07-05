@@ -89,7 +89,8 @@ commands:
             "git config file URL fixture" => %r{url\.file:///tmp/private\.insteadOf}
           },
           "scripts/test_skills_upstream_updates.sh" => {
-            "git config file URL fixture" => %r{url\.file:///tmp/private\.insteadOf}
+            "git config file URL fixture" => %r{url\.file:///tmp/private\.insteadOf},
+            "Windows path fixture" => %r{C:[/\\]Users[/\\]alice[/\\][^[:space:]"\\]+}
           },
           "scripts/test_skills_sync.sh" => {
             "Windows path fixture" => %r{C:[/\\]Users[/\\]alice[/\\][^[:space:]"\\]+}
