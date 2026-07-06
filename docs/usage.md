@@ -1,9 +1,10 @@
 # Usage
 
 Status: active-partial
-Last updated: 2026-07-02
+Last updated: 2026-07-06
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
+[Setup And Update Workflow](setup-update-workflow.md),
 [Contributing](contributing.md), [Manager Boundary](manager-boundary.md)
 
 ## Prerequisites
@@ -100,6 +101,11 @@ npx --yes skills@1.5.14 ls --json
 ```
 
 ## 51Code Operator Workflow
+
+For a step-by-step new-machine, existing-machine, repo-local setup, failure
+recovery, and restart runbook, use
+[Setup And Update Workflow](setup-update-workflow.md). This section remains a
+compact command reference.
 
 Start from a clean clone:
 

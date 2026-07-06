@@ -16,6 +16,9 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
   lock/version metadata, generated adapter views, public-safety requirements,
   and completion criteria.
 - `docs/usage.md` contains public and 51Code operator workflows.
+- `docs/setup-update-workflow.md` contains the public-safe new-machine,
+  existing-machine, repo-local setup, verification, failure recovery, and
+  restart workflow.
 - `docs/contributing.md` contains skill editing, third-party update, fork, and
   validation workflows.
 - `docs/manager-boundary.md` defines the accepted boundary between this public
@@ -53,6 +56,9 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
   planning, and post-write verification.
 - Use `scripts/skills_upstream_updates.rb --fail-on-stale` for scheduled or
   manual stale external-pin detection before preparing third-party update PRs.
+- Use `docs/setup-update-workflow.md` as the canonical setup/update runbook;
+  keep commands pinned, expected outcomes explicit, and unsupported adapter
+  writes in manual review.
 - Use `adapter: manager-copy` only in explicit reviewed profiles for targets
   proven to be owned by the upstream manager. It means "verify the manager's
   copied folder by digest"; it does not authorize local copy/install code.
