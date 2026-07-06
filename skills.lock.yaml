@@ -26,6 +26,12 @@ skills:
   digest_sha256: 9a3cad891dd6166f24819914880b0486ef9e18bc00b4b219333099f2b34dfa30
   exported_names:
   - spec-creation-updating
+- id: swift-concurrency
+  source_type: registry-local
+  path: swift-concurrency
+  digest_sha256: f23e7ef12daf167ef2a99be9860066c79ee0e63f51c0b423826575d0bf7c5ea9
+  exported_names:
+  - swift-concurrency
 - id: swiftui-pro
   source_type: external-git
   path: swiftui-pro

@@ -132,7 +132,7 @@ a primary source or reproducible failure.
 
 ## Proven Manager-Owned Targets
 
-Five global Codex manager-copy targets are already proven on the default example
+Six global Codex manager-copy targets are already proven on the default example
 profile:
 
 | Skill | Manager command | Adapter target | Lock key |
@@ -142,6 +142,7 @@ profile:
 | `spec-creation-updating` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes` | `~/.agents/skills/spec-creation-updating` | `skills.spec-creation-updating` |
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes` | `~/.agents/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent codex --global --yes` | `~/.agents/skills/xcode-build` | `skills.xcode-build` |
+| `swift-concurrency` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent codex --global --yes` | `~/.agents/skills/swift-concurrency` | `skills.swift-concurrency` |
 
 The proof profiles and initial drift report are historical artifacts under
 `docs/history/`:

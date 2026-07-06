@@ -179,6 +179,39 @@
       }
     },
     {
+      "id": "swift-concurrency",
+      "name": "swift-concurrency",
+      "description": "Guide for building, auditing, and refactoring Swift code using modern concurrency patterns (Swift 6+). This skill should be used when working with async/await, Tasks, actors, MainActor, Sendable types, isolation domains, or when migrating legacy callback/Combine code to structured concurrency. Covers Approachable Concurrency settings, isolated parameters, and common pitfalls.",
+      "status": "active",
+      "source": {
+        "type": "registry-local",
+        "path": "swift-concurrency"
+      },
+      "exported_names": [
+        "swift-concurrency"
+      ],
+      "clients": {
+        "claude": "planned",
+        "codex": "supported"
+      },
+      "scopes": [
+        "machine",
+        "repo"
+      ],
+      "update_policy": "internal-reviewed",
+      "lock": {
+        "source_type": "registry-local",
+        "path": "swift-concurrency",
+        "digest_sha256": "f23e7ef12daf167ef2a99be9860066c79ee0e63f51c0b423826575d0bf7c5ea9"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "swift-concurrency",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent codex --global --yes"
+      }
+    },
+    {
       "id": "swiftui-pro",
       "name": "swiftui-pro",
       "description": "SwiftUI Agent Skill workflows for SwiftUI app development, pinned to a reviewed upstream tag before import or adapter rollout.",

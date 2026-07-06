@@ -129,6 +129,27 @@ skills:
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 
+  - id: swift-concurrency
+    status: active
+    source:
+      type: registry-local
+      path: swift-concurrency
+    exported_names:
+      - swift-concurrency
+    clients:
+      codex: supported
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: internal-reviewed
+    notes:
+      - Swift async/await, actors, Sendable, MainActor, and Swift 6+
+        concurrency guidance selected as the next managed profile expansion
+        after xcode-build.
+      - Repo-local usage remains manual review until project profile and
+        upstream manager behavior have equivalent proof.
+
   - id: swiftui-pro
     status: needs-import-review
     source:
