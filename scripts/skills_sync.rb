@@ -574,7 +574,7 @@ def frontmatter(path, reporter)
   end
 
   frontmatter_lines = lines[1, closing]
-  if frontmatter_lines.any? { |line| unquoted_description_comment?(line) }
+  if unquoted_description_comment?(frontmatter_lines)
     reporter.error("#{display_path(path)} front matter description contains an unquoted #; quote the value or use a block scalar")
     return {}
   end
@@ -592,14 +592,38 @@ rescue SystemCallError => error
   {}
 end
 
-def unquoted_description_comment?(line)
-  match = /\A\s*description:\s+(.+)\z/.match(line)
-  return false unless match
+def unquoted_description_comment?(frontmatter_lines)
+  frontmatter_lines.each_with_index do |line, index|
+    match = /\A(?<indent>\s*)description:(?<value>.*)\z/.match(line)
+    next unless match
 
-  value = match[1].lstrip
-  return false if value.start_with?("\"", "'", "|", ">")
+    value = match[:value].lstrip
+    next if value.start_with?("\"", "'", "|", ">")
 
-  value.match?(/(?:\A|[[:space:]])#/)
+    plain_lines = []
+    plain_lines << value unless value.empty?
+    plain_lines.concat(description_plain_continuation_lines(frontmatter_lines, index, match[:indent].length))
+    return true if plain_lines.any? { |plain_line| plain_line.match?(/(?:\A|[[:space:]])#/) }
+  end
+
+  false
+end
+
+def description_plain_continuation_lines(frontmatter_lines, start_index, description_indent)
+  continuation_lines = []
+
+  frontmatter_lines[(start_index + 1)..]&.each do |line|
+    if line.strip.empty?
+      continuation_lines << line
+      next
+    end
+
+    break if line[/\A[ \t]*/].length <= description_indent
+
+    continuation_lines << line.lstrip
+  end
+
+  continuation_lines
 end
 
 def supported_adapter?(adapter)

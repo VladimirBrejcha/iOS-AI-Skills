@@ -175,6 +175,16 @@ ruby -e '
 unquoted_tab_hash_output="$(expect_failure run_skill_frontmatter "$unquoted_tab_hash_dir")"
 assert_contains "$unquoted_tab_hash_output" "example-skill/SKILL.md: front matter description contains an unquoted #"
 
+multiline_unquoted_hash_dir="$tmp_dir/multiline-unquoted-hash"
+cp -R "$ok_dir/." "$multiline_unquoted_hash_dir/"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Fixture skill.", "description: Uses @Test,\n  #expect, and #require.")
+  File.write(path, text)
+' "$multiline_unquoted_hash_dir/example-skill/SKILL.md"
+multiline_unquoted_hash_output="$(expect_failure run_skill_frontmatter "$multiline_unquoted_hash_dir")"
+assert_contains "$multiline_unquoted_hash_output" "example-skill/SKILL.md: front matter description contains an unquoted #"
+
 invalid_agents_manifest_dir="$tmp_dir/invalid-agents-manifest"
 cp -R "$ok_dir/." "$invalid_agents_manifest_dir/"
 cat >"$invalid_agents_manifest_dir/.agents/manifests/registry.yaml" <<'EOF'

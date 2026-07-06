@@ -57,13 +57,36 @@ commands:
           raise "#{file}: unterminated YAML front matter" unless closing
 
           frontmatter_lines = lines[1, closing]
-          frontmatter_lines.each do |line|
-            match = /\A\s*description:\s+(.+)\z/.match(line)
+          description_plain_continuation_lines = lambda do |all_lines, start_index, description_indent|
+            continuation_lines = []
+
+            all_lines[(start_index + 1)..]&.each do |continuation_line|
+              if continuation_line.strip.empty?
+                continuation_lines << continuation_line
+                next
+              end
+
+              break if continuation_line[/\A[ \t]*/].length <= description_indent
+
+              continuation_lines << continuation_line.lstrip
+            end
+
+            continuation_lines
+          end
+
+          frontmatter_lines.each_with_index do |line, index|
+            match = /\A(?<indent>\s*)description:(?<value>.*)\z/.match(line)
             next unless match
 
-            value = match[1].lstrip
+            value = match[:value].lstrip
             next if value.start_with?("\"", 39.chr, "|", ">")
-            raise "#{file}: front matter description contains an unquoted #; quote the value or use a block scalar" if value.match?(/(?:\A|[[:space:]])#/)
+
+            plain_lines = []
+            plain_lines << value unless value.empty?
+            plain_lines.concat(description_plain_continuation_lines.call(frontmatter_lines, index, match[:indent].length))
+            if plain_lines.any? { |plain_line| plain_line.match?(/(?:\A|[[:space:]])#/) }
+              raise "#{file}: front matter description contains an unquoted #; quote the value or use a block scalar"
+            end
           end
 
           metadata = YAML.safe_load(frontmatter_lines.join("\n"), aliases: false) || {}
