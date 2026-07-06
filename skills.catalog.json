@@ -98,6 +98,12 @@
         "source_type": "registry-local",
         "path": "spec-creation-updating",
         "digest_sha256": "9a3cad891dd6166f24819914880b0486ef9e18bc00b4b219333099f2b34dfa30"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "spec-creation-updating",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes"
       }
     },
     {
