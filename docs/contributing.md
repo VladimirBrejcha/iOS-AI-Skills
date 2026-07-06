@@ -1,10 +1,11 @@
 # Contributing
 
 Status: active-partial
-Last updated: 2026-07-02
+Last updated: 2026-07-06
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
-[Usage](usage.md), [Manager Boundary](manager-boundary.md)
+[Usage](usage.md), [Setup And Update Workflow](setup-update-workflow.md),
+[Manager Boundary](manager-boundary.md)
 
 ## Contribution Rules
 
@@ -16,6 +17,8 @@ Related: [README](../README.md), [Registry Contract](registry-contract.md),
 - Keep generated catalog artifacts current when registry-covered public
   metadata changes.
 - Run the upstream update report before changing third-party pins.
+- Keep setup/update workflow docs pinned, public-safe, and explicit about
+  expected outcomes and stop conditions.
 - Keep adapter views generated from registry, lock, and profile data.
 - Keep `scripts/skills_sync.rb` plan-only; do not add local write fallbacks.
 - Keep changes small enough for focused review.
@@ -151,7 +154,7 @@ Use generic examples such as `path/to/product-repo`.
 Run the checks that match the change:
 
 ```bash
-for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
+for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
   bash -n "$file"
 done
 ruby -c scripts/skills_catalog.rb
@@ -163,6 +166,7 @@ scripts/skills_upstream_updates.rb --markdown
 scripts/test_skills_catalog.sh
 scripts/test_skills_doctor.sh
 scripts/test_skills_registry_verify.sh
+scripts/test_skills_setup_workflow_docs.sh
 scripts/test_skills_sync.sh
 scripts/skills_catalog.rb --check
 scripts/skills_sync.rb --plan --json

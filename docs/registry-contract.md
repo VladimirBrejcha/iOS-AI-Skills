@@ -1,9 +1,10 @@
 # Registry Contract
 
 Status: active-partial
-Last updated: 2026-07-02
+Last updated: 2026-07-06
 
 Related: [README](../README.md), [Usage](usage.md),
+[Setup And Update Workflow](setup-update-workflow.md),
 [Contributing](contributing.md), [Manager Boundary](manager-boundary.md),
 [registry manifest](../skills.registry.yaml), [lock file](../skills.lock.yaml),
 [generated catalog](../skills.catalog.json), [readable catalog](skills-catalog.md),
@@ -50,6 +51,8 @@ In scope:
   release-like tags before update PRs
 - sync-plan output that generates reviewable adapter actions and pinned manager
   commands where the upstream manager can own the write
+- setup/update workflows for new machines, existing machines, repo-local
+  installs, verification, failure recovery, and restart expectations
 - public docs that let external users install skills without private 51Code
   context
 
@@ -220,6 +223,7 @@ A registry-contract PR is ready only when:
 - generated public catalog artifacts are current and public-safe
 - stale external-pin reports identify whether third-party pins need review
 - public docs use pinned manager commands for reproducible workflows
+- setup/update workflows describe expected outcomes and stop conditions
 - adapter plans cover Codex, Claude Code, and repo-local consumers without
   hand-editing consumer copies
 - historical proof artifacts are not the primary onboarding path
@@ -232,7 +236,7 @@ A registry-contract PR is ready only when:
 Run these checks before opening or updating a PR:
 
 ```bash
-for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
+for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
   bash -n "$file"
 done
 ruby -c scripts/skills_catalog.rb
@@ -244,6 +248,7 @@ scripts/skills_upstream_updates.rb --markdown
 scripts/test_skills_catalog.sh
 scripts/test_skills_doctor.sh
 scripts/test_skills_registry_verify.sh
+scripts/test_skills_setup_workflow_docs.sh
 scripts/test_skills_sync.sh
 scripts/skills_catalog.rb --check
 scripts/skills_sync.rb --plan --json

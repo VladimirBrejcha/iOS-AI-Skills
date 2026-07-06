@@ -4,7 +4,8 @@ Status: accepted
 Last verified: 2026-07-02
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
-[Usage](usage.md), [Contributing](contributing.md),
+[Usage](usage.md), [Setup And Update Workflow](setup-update-workflow.md),
+[Contributing](contributing.md),
 [registry manifest](../skills.registry.yaml),
 [example local profile](../profiles/machine/example-local-skills.yaml)
 
@@ -187,7 +188,7 @@ Known limits that should keep local automation conservative:
 
 ## Next Local Slices
 
-1. Define new-machine and repo-level setup/update workflows around pinned
-   manager commands and doctor/sync verification.
-2. Expand managed profiles only after the contract, catalog, and update
-   workflows are in place.
+1. Use [Setup And Update Workflow](setup-update-workflow.md) as the acceptance
+   path for new machine, existing machine, and repo-local skill updates.
+2. Expand managed profiles one target at a time only after each target has exact
+   manager commands and doctor/sync verification evidence.

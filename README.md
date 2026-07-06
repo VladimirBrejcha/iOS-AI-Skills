@@ -22,6 +22,9 @@ The contract is documented in:
   policy, adapter rules, public-safety requirements, and acceptance criteria.
 - [Usage](docs/usage.md) - copyable install, list, update, doctor, and sync-plan
   commands for public users and 51Code operators.
+- [Setup And Update Workflow](docs/setup-update-workflow.md) - step-by-step
+  new-machine setup, existing-machine update, repo-local setup, verification,
+  failure recovery, and restart expectations.
 - [Contributing](docs/contributing.md) - workflows for editing 51Code-owned
   skills, importing third-party updates, and turning modified upstream skills
   into maintained forks.
@@ -44,6 +47,8 @@ The active-partial registry files are:
 - `scripts/skills_sync.rb` - read-only adapter sync planner.
 - `scripts/skills_upstream_updates.rb` - read-only stale external-pin reporter
   for third-party update PR preparation.
+- `scripts/test_skills_setup_workflow_docs.sh` - guardrail for public-safe,
+  pinned setup/update workflow docs.
 - `.agents/manifests/*.yaml` - Autopilot path routing and ownership contract.
 - `.agents/verify/*.yaml` - Autopilot verification profile definitions.
 
@@ -83,7 +88,8 @@ scripts/skills_sync.rb --plan --json
 install/update/remove behavior to it; use pinned upstream `npx skills` commands
 where supported and keep unsupported actions in manual review.
 
-For full workflows, see [Usage](docs/usage.md).
+For full workflows, see [Setup And Update Workflow](docs/setup-update-workflow.md)
+and [Usage](docs/usage.md).
 
 ## External Update Checks
 
