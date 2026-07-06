@@ -8,7 +8,7 @@ front matter, refresh `skills.lock.yaml` if source contents changed, then run
 - Registry: Agent Skills (`agent-skills`)
 - Status: `active-partial`
 - Manager source: `fiveonecode/agent-skills`
-- Covered skills: 5
+- Covered skills: 6
 
 ## Registry-Covered Skills
 
@@ -18,6 +18,7 @@ front matter, refresh `skills.lock.yaml` if source contents changed, then run
 | `harness-engineering` | `active` | `registry-local:harness-engineering` | `harness-engineering` | claude=planned, codex=supported | `machine`, `repo` | `internal-reviewed` | Build and improve agent-first engineering harnesses where AI agents perform most implementation work and humans steer architecture, constraints, and review. Use when defining or upgrading AGENTS.md rules, repository conventions, task decomposition, CI guardrails, merge strategy, quality gates, or cleanup loops to increase autonomous coding throughput and reliability. |
 | `spec-creation-updating` | `active` | `registry-local:spec-creation-updating` | `spec-creation-updating` | claude=planned, codex=supported | `machine`, `repo` | `internal-reviewed` | Create, update, review, and improve technical specification documents so they are complete, testable, and implementation-ready. Use when defining new features/systems/APIs, updating existing specs, restructuring documents, auditing missing requirements, or converting vague plans into concrete, verifiable requirements and acceptance criteria. |
 | `ios-xcodegen` | `active` | `registry-local:ios-xcodegen` | `ios-xcodegen` | claude=planned, codex=supported | `machine`, `repo` | `internal-reviewed` | XcodeGen workflows for iOS/iPadOS apps: generate projects from project.yml/project.yaml, fix build/test destination issues, wire asset catalogs, configure test hosts, manage SwiftPM resolution in CI, and resolve App Store packaging errors related to embedded static libraries. |
+| `xcode-build` | `active` | `registry-local:xcode-build` | `xcode-build` | claude=planned, codex=supported | `machine`, `repo` | `internal-reviewed` | Build and run iOS/macOS apps using xcodebuild and xcrun simctl directly. Use when building Xcode projects, running iOS simulators, managing devices, compiling Swift code, running UI tests, or automating iOS app interactions. Replaces XcodeBuildMCP with native CLI tools. |
 | `swiftui-pro` | `needs-import-review` | `external-git:swiftui-pro@1.1.0` | `swiftui-pro` | claude=planned, codex=planned | `machine`, `repo` | `external-reviewed` | SwiftUI Agent Skill workflows for SwiftUI app development, pinned to a reviewed upstream tag before import or adapter rollout. |
 
 ## Installable Active Skills
@@ -30,4 +31,5 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill code-review --agent
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes
+npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent codex --global --yes
 ```

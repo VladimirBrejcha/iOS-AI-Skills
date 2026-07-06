@@ -132,7 +132,7 @@ a primary source or reproducible failure.
 
 ## Proven Manager-Owned Targets
 
-Four global Codex manager-copy targets are already proven on the default example
+Five global Codex manager-copy targets are already proven on the default example
 profile:
 
 | Skill | Manager command | Adapter target | Lock key |
@@ -141,6 +141,7 @@ profile:
 | `harness-engineering` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes` | `~/.agents/skills/harness-engineering` | `skills.harness-engineering` |
 | `spec-creation-updating` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes` | `~/.agents/skills/spec-creation-updating` | `skills.spec-creation-updating` |
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes` | `~/.agents/skills/ios-xcodegen` | `skills.ios-xcodegen` |
+| `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent codex --global --yes` | `~/.agents/skills/xcode-build` | `skills.xcode-build` |
 
 The proof profiles and initial drift report are historical artifacts under
 `docs/history/`:
@@ -191,9 +192,8 @@ Known limits that should keep local automation conservative:
 
 ## Next Local Slices
 
-1. Reconcile `harness-engineering` install-catalog state or continue
-   managed-profile expansion one registry-local target at a time only when the
-   pre-write sync plan emits an exact pinned manager command.
+1. Continue managed-profile expansion one registry-local target at a time only
+   when the pre-write sync plan emits an exact pinned manager command.
 2. Keep Claude Code, legacy Codex symlink roots, repo-local updates, and
    external-git imports in manual review until each target has equivalent
    manager and doctor/sync evidence.

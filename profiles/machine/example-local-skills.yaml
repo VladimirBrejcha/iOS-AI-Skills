@@ -73,6 +73,16 @@ selected_skills:
       agents_user:
         adapter: manager-copy
         status: proven-manager-copy
+  - skill_id: xcode-build
+    expose_to:
+      - agents_user
+      - codex_legacy_user
+      - claude_user
+    state: active
+    consumer_overrides:
+      agents_user:
+        adapter: manager-copy
+        status: proven-manager-copy
   - skill_id: swiftui-pro
     expose_to:
       - agents_user
