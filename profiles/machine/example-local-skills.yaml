@@ -48,7 +48,7 @@ selected_skills:
       - agents_user
       - codex_legacy_user
       - claude_user
-    state: planned
+    state: active
     consumer_overrides:
       agents_user:
         adapter: manager-copy

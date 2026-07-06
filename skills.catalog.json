@@ -71,6 +71,12 @@
         "source_type": "registry-local",
         "path": "harness-engineering",
         "digest_sha256": "d308a586641d03af8c7348d630900f8faa5e986238f01958952faf434af2046d"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "harness-engineering",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes"
       }
     },
     {
