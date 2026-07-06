@@ -89,6 +89,26 @@ skills:
       - This is the most repeated repo-local skill found in the initial drift
         report and should be one of the first adapter-conversion candidates.
 
+  - id: ios-xcodegen
+    status: active
+    source:
+      type: registry-local
+      path: ios-xcodegen
+    exported_names:
+      - ios-xcodegen
+    clients:
+      codex: supported
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: internal-reviewed
+    notes:
+      - Narrow iOS project-generation workflow selected as the next managed
+        profile expansion after the global Codex manager-copy path was proven.
+      - Repo-local usage remains manual review until project profile and
+        upstream manager behavior have equivalent proof.
+
   - id: swiftui-pro
     status: needs-import-review
     source:
