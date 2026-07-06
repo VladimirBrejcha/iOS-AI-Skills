@@ -38,6 +38,7 @@ SUPPORTED_GLOBAL_MANAGER_LOCK_VERSION = 3
 SUPPORTED_PROJECT_MANAGER_LOCK_VERSION = 1
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
+DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
 
 class Reporter
   attr_reader :errors, :warnings
@@ -500,16 +501,61 @@ end
 
 def unquoted_description_comment?(frontmatter_lines)
   frontmatter_lines.each_with_index do |line, index|
-    match = /\A(?<indent>\s*)description:(?<value>.*)\z/.match(line)
+    match = DESCRIPTION_FRONTMATTER_KEY_PATTERN.match(line)
     next unless match
 
     value = match[:value].lstrip
-    next if value.start_with?("\"", "'", "|", ">")
+    plain_continuation_lines = description_plain_continuation_lines(frontmatter_lines, index, match[:indent].length)
+    next unless description_value_has_unquoted_comment?(value, plain_continuation_lines)
 
-    plain_lines = []
-    plain_lines << value unless value.empty?
-    plain_lines.concat(description_plain_continuation_lines(frontmatter_lines, index, match[:indent].length))
-    return true if plain_lines.any? { |plain_line| plain_line.match?(/(?:\A|[[:space:]])#/) }
+    return true
+  end
+
+  false
+end
+
+def description_value_has_unquoted_comment?(value, continuation_lines)
+  return false if value.start_with?("|", ">")
+
+  value_lines = []
+  value_lines << value unless value.empty?
+  value_lines.concat(continuation_lines)
+  return false if value_lines.empty?
+
+  quoted_style = value_lines.first.start_with?("\"", "'") ? value_lines.first[0] : nil
+  in_quote = quoted_style
+  first_line = true
+
+  value_lines.each do |line|
+    index = quoted_style && first_line ? 1 : 0
+    first_line = false
+
+    while index < line.length
+      char = line[index]
+      case in_quote
+      when "\""
+        if char == "\""
+          backslash_count = 0
+          cursor = index - 1
+          while cursor >= 0 && line[cursor] == "\\"
+            backslash_count += 1
+            cursor -= 1
+          end
+          in_quote = nil if backslash_count.even?
+        end
+      when "'"
+        next_char = line[index + 1]
+        if char == "'" && next_char == "'"
+          index += 1
+        elsif char == "'"
+          in_quote = nil
+        end
+      else
+        return true if char == "#" && (index.zero? || line[index - 1].match?(/[[:space:]]/))
+      end
+
+      index += 1
+    end
   end
 
   false

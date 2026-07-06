@@ -175,6 +175,26 @@ ruby -e '
 unquoted_tab_hash_output="$(expect_failure run_skill_frontmatter "$unquoted_tab_hash_dir")"
 assert_contains "$unquoted_tab_hash_output" "example-skill/SKILL.md: front matter description contains an unquoted #"
 
+quoted_key_unquoted_hash_dir="$tmp_dir/quoted-key-unquoted-hash"
+cp -R "$ok_dir/." "$quoted_key_unquoted_hash_dir/"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Fixture skill.", "\"description\": Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$quoted_key_unquoted_hash_dir/example-skill/SKILL.md"
+quoted_key_unquoted_hash_output="$(expect_failure run_skill_frontmatter "$quoted_key_unquoted_hash_dir")"
+assert_contains "$quoted_key_unquoted_hash_output" "example-skill/SKILL.md: front matter description contains an unquoted #"
+
+spaced_key_unquoted_hash_dir="$tmp_dir/spaced-key-unquoted-hash"
+cp -R "$ok_dir/." "$spaced_key_unquoted_hash_dir/"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Fixture skill.", "description : Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$spaced_key_unquoted_hash_dir/example-skill/SKILL.md"
+spaced_key_unquoted_hash_output="$(expect_failure run_skill_frontmatter "$spaced_key_unquoted_hash_dir")"
+assert_contains "$spaced_key_unquoted_hash_output" "example-skill/SKILL.md: front matter description contains an unquoted #"
+
 multiline_unquoted_hash_dir="$tmp_dir/multiline-unquoted-hash"
 cp -R "$ok_dir/." "$multiline_unquoted_hash_dir/"
 ruby -e '
@@ -184,6 +204,16 @@ ruby -e '
 ' "$multiline_unquoted_hash_dir/example-skill/SKILL.md"
 multiline_unquoted_hash_output="$(expect_failure run_skill_frontmatter "$multiline_unquoted_hash_dir")"
 assert_contains "$multiline_unquoted_hash_output" "example-skill/SKILL.md: front matter description contains an unquoted #"
+
+quoted_prefix_comment_hash_dir="$tmp_dir/quoted-prefix-comment-hash"
+cp -R "$ok_dir/." "$quoted_prefix_comment_hash_dir/"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Fixture skill.", "description: \"Uses @Test,\" #expect, and #require.")
+  File.write(path, text)
+' "$quoted_prefix_comment_hash_dir/example-skill/SKILL.md"
+quoted_prefix_comment_hash_output="$(expect_failure run_skill_frontmatter "$quoted_prefix_comment_hash_dir")"
+assert_contains "$quoted_prefix_comment_hash_output" "example-skill/SKILL.md: front matter description contains an unquoted #"
 
 invalid_agents_manifest_dir="$tmp_dir/invalid-agents-manifest"
 cp -R "$ok_dir/." "$invalid_agents_manifest_dir/"
