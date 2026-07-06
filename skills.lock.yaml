@@ -34,3 +34,9 @@ skills:
   observed_commit: be297ff80dddec529af1f9b1f1f114aab6c9d11c
   exported_names:
   - swiftui-pro
+- id: xcode-build
+  source_type: registry-local
+  path: xcode-build
+  digest_sha256: fcc1b4b8d9e0164e7c1e028ce9bff9ab70ecbaa8372af674f8eda40bb2e51d7f
+  exported_names:
+  - xcode-build

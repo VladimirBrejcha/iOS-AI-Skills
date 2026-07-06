@@ -109,6 +109,26 @@ skills:
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 
+  - id: xcode-build
+    status: active
+    source:
+      type: registry-local
+      path: xcode-build
+    exported_names:
+      - xcode-build
+    clients:
+      codex: supported
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: internal-reviewed
+    notes:
+      - Native Xcode build, run, test, simulator, and UI automation workflow
+        selected as the next managed profile expansion after ios-xcodegen.
+      - Repo-local usage remains manual review until project profile and
+        upstream manager behavior have equivalent proof.
+
   - id: swiftui-pro
     status: needs-import-review
     source:
