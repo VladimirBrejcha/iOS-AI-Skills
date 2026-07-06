@@ -56,7 +56,17 @@ commands:
           closing = lines[1..]&.index("---")
           raise "#{file}: unterminated YAML front matter" unless closing
 
-          metadata = YAML.safe_load(lines[1, closing].join("\n"), aliases: false) || {}
+          frontmatter_lines = lines[1, closing]
+          frontmatter_lines.each do |line|
+            match = /\A\s*description:\s+(.+)\z/.match(line)
+            next unless match
+
+            value = match[1].lstrip
+            next if value.start_with?("\"", 39.chr, "|", ">")
+            raise "#{file}: front matter description contains an unquoted #; quote the value or use a block scalar" if value.include?(" #")
+          end
+
+          metadata = YAML.safe_load(frontmatter_lines.join("\n"), aliases: false) || {}
           ["name", "description"].each do |key|
             raise "#{file}: missing #{key}" if metadata[key].to_s.strip.empty?
           end

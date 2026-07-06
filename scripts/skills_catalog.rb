@@ -863,7 +863,13 @@ def frontmatter(path, reporter)
     return {}
   end
 
-  metadata = YAML.safe_load(lines[1, closing].join("\n"), aliases: false, filename: path) || {}
+  frontmatter_lines = lines[1, closing]
+  if frontmatter_lines.any? { |line| unquoted_description_comment?(line) }
+    reporter.error("#{display_path(path)} front matter description contains an unquoted #; quote the value or use a block scalar")
+    return {}
+  end
+
+  metadata = YAML.safe_load(frontmatter_lines.join("\n"), aliases: false, filename: path) || {}
   return metadata if metadata.is_a?(Hash)
 
   reporter.error("#{display_path(path)} front matter must be a mapping")
@@ -874,6 +880,16 @@ rescue Psych::Exception => error
 rescue SystemCallError => error
   reporter.error("#{display_path(path)} could not be read: #{error.message}")
   {}
+end
+
+def unquoted_description_comment?(line)
+  match = /\A\s*description:\s+(.+)\z/.match(line)
+  return false unless match
+
+  value = match[1].lstrip
+  return false if value.start_with?("\"", "'", "|", ">")
+
+  value.include?(" #")
 end
 
 def valid_sha256_hex?(value)

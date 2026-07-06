@@ -47,6 +47,14 @@ registry_yaml_cmd="$(
   ' "$repo_root/.agents/verify/skills-registry.yaml"
 )"
 
+skill_frontmatter_cmd="$(
+  ruby -ryaml -e '
+    config = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
+    command = config.fetch("commands").find { |entry| entry.fetch("id") == "skill-frontmatter" }
+    puts command.fetch("run")
+  ' "$repo_root/.agents/verify/skills-registry.yaml"
+)"
+
 run_public_safety() {
   local fixture_root="$1"
 
@@ -62,6 +70,15 @@ run_registry_yaml() {
   (
     cd "$fixture_root"
     eval "$registry_yaml_cmd"
+  )
+}
+
+run_skill_frontmatter() {
+  local fixture_root="$1"
+
+  (
+    cd "$fixture_root"
+    eval "$skill_frontmatter_cmd"
   )
 }
 
@@ -133,8 +150,20 @@ ok_dir="$tmp_dir/ok"
 write_fixture_repo "$ok_dir"
 ok_registry_output="$(run_registry_yaml "$ok_dir")"
 assert_contains "$ok_registry_output" "registry YAML parsed"
+ok_frontmatter_output="$(run_skill_frontmatter "$ok_dir")"
+assert_contains "$ok_frontmatter_output" "validated 1 skill entrypoints"
 ok_output="$(run_public_safety "$ok_dir")"
 assert_contains "$ok_output" "public-safety scan ok"
+
+unquoted_hash_dir="$tmp_dir/unquoted-hash"
+cp -R "$ok_dir/." "$unquoted_hash_dir/"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Fixture skill.", "description: Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$unquoted_hash_dir/example-skill/SKILL.md"
+unquoted_hash_output="$(expect_failure run_skill_frontmatter "$unquoted_hash_dir")"
+assert_contains "$unquoted_hash_output" "example-skill/SKILL.md: front matter description contains an unquoted #"
 
 invalid_agents_manifest_dir="$tmp_dir/invalid-agents-manifest"
 cp -R "$ok_dir/." "$invalid_agents_manifest_dir/"

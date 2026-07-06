@@ -4142,6 +4142,53 @@ YAML
 bad_profile_shape_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$bad_profile_shape_dir/skills.registry.yaml" --lock "$bad_profile_shape_dir/skills.lock.yaml" --profile "$bad_profile_shape_dir/profiles/machine/example.yaml")"
 assert_contains "$bad_profile_shape_output" "must contain a top-level mapping"
 
+unquoted_description_hash_dir="$tmp_dir/unquoted-description-hash"
+write_skill "$unquoted_description_hash_dir/example-skill" "example-skill" "Good description fixture."
+mkdir -p "$unquoted_description_hash_dir/profiles/machine" "$unquoted_description_hash_dir/consumer-root"
+
+cat >"$unquoted_description_hash_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: unquoted-description-hash
+  name: Unquoted Description Hash
+skills:
+  - id: example-skill
+    status: active
+    source:
+      type: registry-local
+      path: example-skill
+    exported_names:
+      - example-skill
+YAML
+
+write_lock_from_registry "$unquoted_description_hash_dir"
+
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Good description fixture.", "description: Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$unquoted_description_hash_dir/example-skill/SKILL.md"
+
+cat >"$unquoted_description_hash_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: unquoted-description-hash-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+selected_skills:
+  - skill_id: example-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+
+unquoted_description_hash_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$unquoted_description_hash_dir/skills.registry.yaml" --lock "$unquoted_description_hash_dir/skills.lock.yaml" --profile "$unquoted_description_hash_dir/profiles/machine/example.yaml")"
+assert_contains "$unquoted_description_hash_output" "front matter description contains an unquoted #"
+
 missing_lock_dir="$tmp_dir/missing-lock"
 write_skill "$missing_lock_dir/example-skill" "example-skill" "Missing lock fixture."
 mkdir -p "$missing_lock_dir/profiles/machine"
