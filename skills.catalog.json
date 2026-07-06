@@ -107,6 +107,39 @@
       }
     },
     {
+      "id": "ios-xcodegen",
+      "name": "ios-xcodegen",
+      "description": "XcodeGen workflows for iOS/iPadOS apps: generate projects from project.yml/project.yaml, fix build/test destination issues, wire asset catalogs, configure test hosts, manage SwiftPM resolution in CI, and resolve App Store packaging errors related to embedded static libraries.",
+      "status": "active",
+      "source": {
+        "type": "registry-local",
+        "path": "ios-xcodegen"
+      },
+      "exported_names": [
+        "ios-xcodegen"
+      ],
+      "clients": {
+        "claude": "planned",
+        "codex": "supported"
+      },
+      "scopes": [
+        "machine",
+        "repo"
+      ],
+      "update_policy": "internal-reviewed",
+      "lock": {
+        "source_type": "registry-local",
+        "path": "ios-xcodegen",
+        "digest_sha256": "8cb369d77201d30bdd79cba8cdb8886675a6cfc3962d34469203d76f590fdec9"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "ios-xcodegen",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes"
+      }
+    },
+    {
       "id": "swiftui-pro",
       "name": "swiftui-pro",
       "description": "SwiftUI Agent Skill workflows for SwiftUI app development, pinned to a reviewed upstream tag before import or adapter rollout.",

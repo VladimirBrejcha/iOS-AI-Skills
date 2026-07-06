@@ -14,6 +14,12 @@ skills:
   digest_sha256: d308a586641d03af8c7348d630900f8faa5e986238f01958952faf434af2046d
   exported_names:
   - harness-engineering
+- id: ios-xcodegen
+  source_type: registry-local
+  path: ios-xcodegen
+  digest_sha256: 8cb369d77201d30bdd79cba8cdb8886675a6cfc3962d34469203d76f590fdec9
+  exported_names:
+  - ios-xcodegen
 - id: spec-creation-updating
   source_type: registry-local
   path: spec-creation-updating
