@@ -1,7 +1,7 @@
 # Manager Boundary
 
 Status: accepted
-Last verified: 2026-07-02
+Last verified: 2026-07-06
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Usage](usage.md), [Setup And Update Workflow](setup-update-workflow.md),
@@ -132,13 +132,14 @@ a primary source or reproducible failure.
 
 ## Proven Manager-Owned Targets
 
-Two global Codex manager-copy targets are already proven on the default example
+Three global Codex manager-copy targets are already proven on the default example
 profile:
 
 | Skill | Manager command | Adapter target | Lock key |
 | --- | --- | --- | --- |
 | `code-review` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill code-review --agent codex --global --yes` | `~/.agents/skills/code-review` | `skills.code-review` |
 | `harness-engineering` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes` | `~/.agents/skills/harness-engineering` | `skills.harness-engineering` |
+| `spec-creation-updating` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes` | `~/.agents/skills/spec-creation-updating` | `skills.spec-creation-updating` |
 
 The proof profiles and initial drift report are historical artifacts under
 `docs/history/`:
@@ -147,9 +148,10 @@ The proof profiles and initial drift report are historical artifacts under
 - `docs/history/manager-pilot-harness-engineering-codex-global.profile.yaml`
 - `docs/history/skill-registry-drift-report-2026-06-26.md`
 
-Do not add another proof target as the next default action. New managed targets
-should be introduced only after the public registry contract, usage workflow,
-contribution workflow, and catalog/update tasks are in place.
+New managed targets should be introduced one target at a time through the
+setup/update workflow, with the pre-write sync plan showing an exact pinned
+manager command and the post-write doctor/sync plan proving a matching
+manager-owned copy.
 
 ## Current Upstream Limits To Respect
 
@@ -188,7 +190,9 @@ Known limits that should keep local automation conservative:
 
 ## Next Local Slices
 
-1. Use [Setup And Update Workflow](setup-update-workflow.md) as the acceptance
-   path for new machine, existing machine, and repo-local skill updates.
-2. Expand managed profiles one target at a time only after each target has exact
-   manager commands and doctor/sync verification evidence.
+1. Continue managed-profile expansion one target at a time, starting only with
+   registry-local skills whose pre-write sync plan emits an exact pinned
+   manager command.
+2. Keep Claude Code, legacy Codex symlink roots, repo-local updates, and
+   external-git imports in manual review until each target has equivalent
+   manager and doctor/sync evidence.
