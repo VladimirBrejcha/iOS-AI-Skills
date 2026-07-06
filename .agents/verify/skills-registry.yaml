@@ -63,7 +63,7 @@ commands:
 
             value = match[1].lstrip
             next if value.start_with?("\"", 39.chr, "|", ">")
-            raise "#{file}: front matter description contains an unquoted #; quote the value or use a block scalar" if value.include?(" #")
+            raise "#{file}: front matter description contains an unquoted #; quote the value or use a block scalar" if value.match?(/(?:\A|[[:space:]])#/)
           end
 
           metadata = YAML.safe_load(frontmatter_lines.join("\n"), aliases: false) || {}

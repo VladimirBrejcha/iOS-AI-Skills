@@ -599,7 +599,7 @@ def unquoted_description_comment?(line)
   value = match[1].lstrip
   return false if value.start_with?("\"", "'", "|", ">")
 
-  value.include?(" #")
+  value.match?(/(?:\A|[[:space:]])#/)
 end
 
 def supported_adapter?(adapter)

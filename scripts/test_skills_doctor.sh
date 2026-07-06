@@ -4854,6 +4854,38 @@ frontmatter_unquoted_hash_output="$(expect_failure ruby "$repo_root/scripts/skil
 assert_contains "$frontmatter_unquoted_hash_output" "front matter description contains an unquoted #"
 assert_not_contains "$frontmatter_unquoted_hash_output" "generated_by: scripts/skills_doctor.rb --print-lock"
 
+frontmatter_tab_unquoted_hash_dir="$tmp_dir/frontmatter-tab-unquoted-hash"
+mkdir -p "$frontmatter_tab_unquoted_hash_dir/example-skill"
+
+cat >"$frontmatter_tab_unquoted_hash_dir/example-skill/SKILL.md" <<'SKILL'
+---
+name: example-skill
+description: Uses @Test,	#expect, and #require.
+---
+
+# Frontmatter Tab Unquoted Hash Fixture
+SKILL
+
+cat >"$frontmatter_tab_unquoted_hash_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: frontmatter-tab-unquoted-hash
+  name: Frontmatter Tab Unquoted Hash
+skills:
+  - id: example-skill
+    status: active
+    source:
+      type: registry-local
+      path: example-skill
+    exported_names:
+      - example-skill
+YAML
+
+frontmatter_tab_unquoted_hash_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$frontmatter_tab_unquoted_hash_dir/skills.registry.yaml" --print-lock)"
+assert_contains "$frontmatter_tab_unquoted_hash_output" "front matter description contains an unquoted #"
+assert_not_contains "$frontmatter_tab_unquoted_hash_output" "generated_by: scripts/skills_doctor.rb --print-lock"
+
 frontmatter_control_char_name_dir="$tmp_dir/frontmatter-control-char-name"
 mkdir -p "$frontmatter_control_char_name_dir/example-skill"
 
