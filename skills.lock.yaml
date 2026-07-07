@@ -32,6 +32,12 @@ skills:
   digest_sha256: f23e7ef12daf167ef2a99be9860066c79ee0e63f51c0b423826575d0bf7c5ea9
   exported_names:
   - swift-concurrency
+- id: swift-testing
+  source_type: registry-local
+  path: swift-testing
+  digest_sha256: f9a582f50e47013b378c48434bdfb5eaee1a269d912601cee60de34c705ac04a
+  exported_names:
+  - swift-testing
 - id: swiftui-pro
   source_type: external-git
   path: swiftui-pro

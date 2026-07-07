@@ -150,6 +150,26 @@ skills:
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 
+  - id: swift-testing
+    status: active
+    source:
+      type: registry-local
+      path: swift-testing
+    exported_names:
+      - swift-testing
+    clients:
+      codex: supported
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: internal-reviewed
+    notes:
+      - Swift Testing framework guidance selected as the next managed profile
+        expansion after the front-matter description was quoted and verified.
+      - Repo-local usage remains manual review until project profile and
+        upstream manager behavior have equivalent proof.
+
   - id: swiftui-pro
     status: needs-import-review
     source:

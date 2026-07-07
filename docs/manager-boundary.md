@@ -1,7 +1,7 @@
 # Manager Boundary
 
 Status: accepted
-Last verified: 2026-07-06
+Last verified: 2026-07-07
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Usage](usage.md), [Setup And Update Workflow](setup-update-workflow.md),
@@ -132,7 +132,7 @@ a primary source or reproducible failure.
 
 ## Proven Manager-Owned Targets
 
-Six global Codex manager-copy targets are already proven on the default example
+Seven global Codex manager-copy targets are already proven on the default example
 profile:
 
 | Skill | Manager command | Adapter target | Lock key |
@@ -143,6 +143,7 @@ profile:
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes` | `~/.agents/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent codex --global --yes` | `~/.agents/skills/xcode-build` | `skills.xcode-build` |
 | `swift-concurrency` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent codex --global --yes` | `~/.agents/skills/swift-concurrency` | `skills.swift-concurrency` |
+| `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes` | `~/.agents/skills/swift-testing` | `skills.swift-testing` |
 
 The proof profiles and initial drift report are historical artifacts under
 `docs/history/`:

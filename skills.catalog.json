@@ -212,6 +212,39 @@
       }
     },
     {
+      "id": "swift-testing",
+      "name": "swift-testing",
+      "description": "Use when writing tests with Swift Testing (@Test, #expect, #require), migrating from XCTest, implementing async tests, or parameterizing tests.",
+      "status": "active",
+      "source": {
+        "type": "registry-local",
+        "path": "swift-testing"
+      },
+      "exported_names": [
+        "swift-testing"
+      ],
+      "clients": {
+        "claude": "planned",
+        "codex": "supported"
+      },
+      "scopes": [
+        "machine",
+        "repo"
+      ],
+      "update_policy": "internal-reviewed",
+      "lock": {
+        "source_type": "registry-local",
+        "path": "swift-testing",
+        "digest_sha256": "f9a582f50e47013b378c48434bdfb5eaee1a269d912601cee60de34c705ac04a"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "swift-testing",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes"
+      }
+    },
+    {
       "id": "swiftui-pro",
       "name": "swiftui-pro",
       "description": "SwiftUI Agent Skill workflows for SwiftUI app development, pinned to a reviewed upstream tag before import or adapter rollout.",
