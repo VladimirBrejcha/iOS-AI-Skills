@@ -26,7 +26,7 @@ Registry coverage is currently active-partial. Only skills listed in
 `skills.registry.yaml` are registry-covered; other top-level skill folders stay
 in backlog until a follow-up coverage PR registers them.
 
-Install one skill globally for Codex:
+Install one skill into the reviewed shared global manager root:
 
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills \
@@ -47,11 +47,14 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
   --yes
 ```
 
-Claude Code remains manual-review for this registry until the relevant skills
-move from `clients.claude: planned` to reviewed support in the registry and
-profile examples.
+OpenCode support for the reviewed global skills currently comes through the
+same manager-owned `~/.agents/skills` root used by the pinned Codex command;
+verify it with `npx --yes skills@1.5.14 list --global --json` before treating a
+skill as installed for OpenCode. Claude Code remains manual-review for this
+registry until the relevant skills move from `clients.claude: planned` to
+reviewed support in the registry and profile examples.
 
-List the current reviewed global Codex install ids from this clone:
+List the current reviewed shared-root install ids from this clone:
 
 ```bash
 scripts/skills_catalog.rb --json | ruby -rjson -e '
@@ -169,12 +172,12 @@ npx --yes skills@1.5.14 ls --global --json | ruby -rjson -e '
 ' code-review
 ```
 
-Continue only when the matching entry is limited to the reviewed Codex global
+Continue only when the matching entry is limited to the reviewed shared global
 surface you intend to update. If the same skill id is also installed for Claude
 Code or another manual-review agent, do not run `update --global <skill>` from
 this workflow.
 
-Update one reviewed global Codex skill:
+Update one reviewed shared-root skill:
 
 ```bash
 npx --yes skills@1.5.14 update --global --yes code-review

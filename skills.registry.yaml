@@ -8,8 +8,9 @@ registry:
   repo_path_hint: .
   purpose: >
     Versioned source and policy registry for reusable agent skills with an
-    active-partial reviewed Codex baseline and planned/manual-review adapter
-    coverage for Claude, repo-local, and broader machine-level consumers.
+    active-partial reviewed shared-root baseline for Codex and OpenCode, plus
+    planned/manual-review adapter coverage for Claude Code, repo-local, and
+    broader machine-level consumers.
 
 rules:
   source_of_truth:
@@ -43,6 +44,7 @@ skills:
       - code-review
     clients:
       codex: supported
+      opencode: supported
       claude: planned
     scopes:
       - machine
@@ -62,6 +64,7 @@ skills:
       - harness-engineering
     clients:
       codex: supported
+      opencode: supported
       claude: planned
     scopes:
       - machine
@@ -80,6 +83,7 @@ skills:
       - spec-creation-updating
     clients:
       codex: supported
+      opencode: supported
       claude: planned
     scopes:
       - machine
@@ -98,6 +102,7 @@ skills:
       - ios-xcodegen
     clients:
       codex: supported
+      opencode: supported
       claude: planned
     scopes:
       - machine
@@ -105,7 +110,7 @@ skills:
     update_policy: internal-reviewed
     notes:
       - Narrow iOS project-generation workflow selected as the next managed
-        profile expansion after the global Codex manager-copy path was proven.
+        profile expansion after the shared global manager-copy path was proven.
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 
@@ -118,6 +123,7 @@ skills:
       - xcode-build
     clients:
       codex: supported
+      opencode: supported
       claude: planned
     scopes:
       - machine
@@ -138,6 +144,7 @@ skills:
       - xcode-cloud
     clients:
       codex: supported
+      opencode: supported
       claude: planned
     scopes:
       - machine
@@ -158,6 +165,7 @@ skills:
       - swift-concurrency
     clients:
       codex: supported
+      opencode: supported
       claude: planned
     scopes:
       - machine
@@ -179,6 +187,7 @@ skills:
       - swift-testing
     clients:
       codex: supported
+      opencode: supported
       claude: planned
     scopes:
       - machine
@@ -187,6 +196,31 @@ skills:
     notes:
       - Swift Testing framework guidance selected as the next managed profile
         expansion after the front-matter description was quoted and verified.
+      - Repo-local usage remains manual review until project profile and
+        upstream manager behavior have equivalent proof.
+
+  - id: swiftui-view-refactor
+    status: active
+    source:
+      type: registry-local
+      path: swiftui-view-refactor
+    exported_names:
+      - swiftui-view-refactor
+    clients:
+      codex: supported
+      opencode: supported
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: internal-reviewed
+    notes:
+      - Narrow SwiftUI view-structure and dependency-pattern workflow selected
+        as the next managed profile expansion after the Swift testing and
+        Xcode Cloud slices.
+      - OpenCode support is through the same manager-owned shared
+        ~/.agents/skills root proven for the shared-root manager command; Claude Code
+        remains planned until its separate root has equivalent evidence.
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 
@@ -203,6 +237,7 @@ skills:
       - swiftui-pro
     clients:
       codex: planned
+      opencode: planned
       claude: planned
     scopes:
       - machine

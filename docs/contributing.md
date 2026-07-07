@@ -186,6 +186,6 @@ Include:
 - why it changed
 - source ownership impact
 - lock/version metadata impact
-- Codex, Claude Code, and repo-local adapter impact
+- Codex, OpenCode, Claude Code, and repo-local adapter impact
 - public-safety review result
 - validation commands and outcomes

@@ -291,7 +291,7 @@ assert_contains "$markdown_output" "# Skills Catalog"
 assert_contains "$markdown_output" "## Registry-Covered Skills"
 assert_contains "$markdown_output" "## Installable Active Skills"
 assert_contains "$markdown_output" "refresh \`skills.lock.yaml\` if source contents changed"
-assert_contains "$markdown_output" "for the current reviewed example profile."
+assert_contains "$markdown_output" "for the current reviewed shared-root example profile."
 
 ruby -rjson -e '
   parsed = JSON.parse(File.read(ARGV.fetch(0)))

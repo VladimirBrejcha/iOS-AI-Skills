@@ -1465,10 +1465,12 @@ def markdown_document(catalog)
   lines << "## Installable Active Skills"
   lines << ""
   if active_installable.empty?
-    lines << "No active Codex-supported skills currently emit public install commands."
+    lines << "No active shared-root supported skills currently emit public install commands."
   else
     lines << "The commands below use the pinned upstream skills manager package"
-    lines << "for the current reviewed example profile."
+    lines << "for the current reviewed shared-root example profile. The command"
+    lines << "uses `--agent codex` for the proven shared manager write path;"
+    lines << "verify OpenCode visibility with the upstream global list."
     lines << ""
     lines << "```bash"
     active_installable.each do |skill|

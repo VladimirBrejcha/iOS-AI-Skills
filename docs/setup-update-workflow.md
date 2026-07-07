@@ -22,7 +22,8 @@ are adapter views, not sources.
 Use this workflow when you need one of these outcomes:
 
 - A new machine has the reviewed registry clone, prerequisites, and approved
-  global Codex skills installed or verified.
+  shared global skills installed or verified for the supported shared-root
+  agents.
 - An existing machine pulls the latest approved registry state and refreshes
   only manager-owned adapters.
 - A product repo gets a reviewed repo-local skill install without creating a
@@ -75,7 +76,7 @@ about planned, blocked, or manual-review adapters are not install permission;
 they identify work that needs a follow-up registry/profile PR or an upstream
 manager fix.
 
-Print the reviewed global Codex install commands from the generated catalog:
+Print the reviewed shared-root install commands from the generated catalog:
 
 ```bash
 ruby -rjson -e '
@@ -101,7 +102,7 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
 
 Expected outcome: each selected command completes through the upstream
 manager. The command may create or update a manager-owned copied directory in
-the manager's global Codex target.
+the manager's shared global target, currently `~/.agents/skills`.
 
 Verify the install:
 
@@ -228,6 +229,9 @@ Use these rules when setup or update output is not clean:
   and scope, then verify with `ls`, doctor, and sync plan.
 - Mixed global installs: do not run broad `update --global`; inspect the
   installed global set and update reviewed skill ids one at a time.
+- OpenCode support: rely on the proven shared `~/.agents/skills` manager state
+  and verify it with the upstream global list; do not add a separate local
+  writer.
 - Claude Code or repo-local planned support: keep it manual-review unless the
   registry, profile, and manager boundary docs explicitly promote that target.
 - Current agent session does not see a newly installed skill: restart the app
