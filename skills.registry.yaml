@@ -9,9 +9,9 @@ registry:
   purpose: >
     Versioned source and policy registry for reusable agent skills with an
     active-partial reviewed shared-root baseline for Codex and OpenCode, a
-    narrow proven Claude Code global baseline for harness-engineering, plus
-    planned/manual-review adapter coverage for repo-local and broader
-    machine-level consumers.
+    narrow proven Claude Code global baseline for code-review and
+    harness-engineering, plus planned/manual-review adapter coverage for
+    repo-local and broader machine-level consumers.
 
 rules:
   source_of_truth:
@@ -46,7 +46,7 @@ skills:
     clients:
       codex: supported
       opencode: supported
-      claude: planned
+      claude: supported
     scopes:
       - machine
       - repo
@@ -55,6 +55,9 @@ skills:
       - Existing Codex user adapter is already a symlink from
         a user-level skills directory to this registry path in one maintainer
         environment.
+      - Claude Code support is proven through a pinned upstream manager write
+        to ~/.claude/skills for this skill; additional Claude Code targets stay
+        planned until separately promoted.
 
   - id: harness-engineering
     status: active
@@ -75,7 +78,7 @@ skills:
       - Current repo-local copies should be converted to declared adapters or
         repo-owned forks after the drift report is reviewed.
       - Claude Code support is proven through a pinned upstream manager write
-        to ~/.claude/skills for this skill only; other Claude Code targets stay
+        to ~/.claude/skills for this skill; additional Claude Code targets stay
         planned until separately promoted.
 
   - id: spec-creation-updating
