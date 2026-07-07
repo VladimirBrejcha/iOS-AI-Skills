@@ -9,9 +9,9 @@ registry:
   purpose: >
     Versioned source and policy registry for reusable agent skills with an
     active-partial reviewed shared-root baseline for Codex and OpenCode, a
-    narrow proven Claude Code global baseline for code-review and
-    harness-engineering, plus planned/manual-review adapter coverage for
-    repo-local and broader machine-level consumers.
+    narrow proven Claude Code global baseline for code-review,
+    harness-engineering, and spec-creation-updating, plus planned/manual-review
+    adapter coverage for repo-local and broader machine-level consumers.
 
 rules:
   source_of_truth:
@@ -91,7 +91,7 @@ skills:
     clients:
       codex: supported
       opencode: supported
-      claude: planned
+      claude: supported
     scopes:
       - machine
       - repo
@@ -99,6 +99,9 @@ skills:
     notes:
       - This is the most repeated repo-local skill found in the initial drift
         report and should be one of the first adapter-conversion candidates.
+      - Claude Code support is proven through a pinned upstream manager write
+        to ~/.claude/skills for this skill; additional Claude Code targets stay
+        planned until separately promoted.
 
   - id: ios-xcodegen
     status: active

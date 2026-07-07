@@ -12,12 +12,12 @@ agent skills. The registry is active as the source and policy layer, but
 coverage is currently partial: skills listed in `skills.registry.yaml` have one
 source owner, lock/version metadata, and registry-defined adapter coverage
 metadata. The shared `~/.agents/skills` manager path is the current reviewed
-baseline for Codex and OpenCode; `code-review` and `harness-engineering` also
-have narrow reviewed Claude Code baselines through `~/.claude/skills`. Other
-Claude Code skills and repo-local consumers still include planned or
-manual-review coverage until follow-up profile and coverage PRs land. Other
-top-level `SKILL.md` folders remain unclassified backlog until follow-up
-coverage PRs register them.
+baseline for Codex and OpenCode; `code-review`, `harness-engineering`, and
+`spec-creation-updating` also have narrow reviewed Claude Code baselines
+through `~/.claude/skills`. Other Claude Code skills and repo-local consumers
+still include planned or manual-review coverage until follow-up profile and
+coverage PRs land. Other top-level `SKILL.md` folders remain unclassified
+backlog until follow-up coverage PRs register them.
 
 The contract is documented in:
 

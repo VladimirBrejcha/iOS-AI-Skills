@@ -1,7 +1,7 @@
 # Usage
 
 Status: active-partial
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Setup And Update Workflow](setup-update-workflow.md),
@@ -51,10 +51,10 @@ OpenCode support for the reviewed global skills currently comes through the
 same manager-owned `~/.agents/skills` root used by the pinned Codex command;
 verify it with `npx --yes skills@1.5.14 list --global --json` before treating a
 skill as installed for OpenCode. Claude Code support is currently proven for
-`code-review` and `harness-engineering` through the separate
-`~/.claude/skills` root; other Claude Code skills remain manual-review until
-they move from `clients.claude: planned` to reviewed support in the registry
-and profile examples.
+`code-review`, `harness-engineering`, and `spec-creation-updating` through the
+separate `~/.claude/skills` root; other Claude Code skills remain manual-review
+until they move from `clients.claude: planned` to reviewed support in the
+registry and profile examples.
 
 Install a reviewed Claude Code target:
 
@@ -69,6 +69,14 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills \
   --skill harness-engineering \
+  --agent claude-code \
+  --global \
+  --yes
+```
+
+```bash
+npx --yes skills@1.5.14 add fiveonecode/agent-skills \
+  --skill spec-creation-updating \
   --agent claude-code \
   --global \
   --yes

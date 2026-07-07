@@ -1,0 +1,31 @@
+schema_version: 0.1
+status: historical-proof-target
+profile:
+  id: manager-pilot-spec-creation-updating-claude-global
+  owner: maintainers
+  purpose: >
+    Historical proof target for the reviewed Claude Code manager-owned write
+    for spec-creation-updating. This profile is not auto-loaded by default and
+    is retained for audit context.
+
+registry:
+  path_hint: ../..
+  manifest: ../../skills.registry.yaml
+
+consumer_roots:
+  claude_global_manager:
+    path: ~/.claude/skills
+    adapter: manager-copy
+    status: historical-proof-target
+
+selected_skills:
+  - skill_id: spec-creation-updating
+    expose_to:
+      - claude_global_manager
+    state: active
+
+non_goals:
+  - installing more than spec-creation-updating
+  - changing ~/.agents/skills
+  - changing ~/.codex/skills
+  - stale cleanup

@@ -70,6 +70,9 @@ selected_skills:
       agents_user:
         adapter: manager-copy
         status: proven-manager-copy
+      claude_user:
+        adapter: manager-copy
+        status: proven-manager-copy
   - skill_id: ios-xcodegen
     expose_to:
       - agents_user
