@@ -150,6 +150,7 @@ skills:
       - example-skill
     clients:
       codex: supported
+      claude: supported
       claude: planned
   - id: stale-skill
     status: active
@@ -244,6 +245,7 @@ ruby -rjson -e '
 manager_copy_dir="$tmp_dir/manager-copy"
 manager_copy_home="$tmp_dir/manager-copy-home"
 write_skill "$manager_copy_dir/example-skill" "example-skill" "Manager copy fixture skill."
+write_skill "$manager_copy_dir/planned-claude-skill" "planned-claude-skill" "Planned Claude fixture skill."
 write_skill "$manager_copy_dir/stale-skill" "stale-skill" "Manager copy stale fixture skill."
 mkdir -p "$manager_copy_dir/profiles/machine" "$manager_copy_home"
 mkdir -p \
@@ -274,6 +276,17 @@ skills:
       - example-skill
     clients:
       codex: supported
+      claude: supported
+  - id: planned-claude-skill
+    status: active
+    source:
+      type: registry-local
+      path: planned-claude-skill
+    exported_names:
+      - planned-claude-skill
+    clients:
+      codex: supported
+      claude: planned
   - id: stale-skill
     status: active
     source:
@@ -319,6 +332,93 @@ assert_contains "$manager_copy_missing_output" "manager_command=npx --yes skills
 assert_contains "$manager_copy_missing_output" "consumer root is missing; upstream manager install is expected to create or repair it"
 assert_not_contains "$manager_copy_missing_output" "$manager_copy_home"
 
+cat >"$manager_copy_dir/profiles/machine/claude.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: manager-copy-claude-profile
+consumer_roots:
+  claude_user:
+    path: ~/.claude/skills
+    adapter: verify-before-use
+    status: planned
+selected_skills:
+  - skill_id: example-skill
+    expose_to:
+      - claude_user
+    state: active
+    consumer_overrides:
+      claude_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+YAML
+
+manager_copy_claude_missing_output="$(
+  HOME="$manager_copy_home" \
+    ruby "$repo_root/scripts/skills_sync.rb" \
+    --plan \
+    --registry "$manager_copy_dir/skills.registry.yaml" \
+    --lock "$manager_copy_dir/skills.lock.yaml" \
+    --profile "$manager_copy_dir/profiles/machine/claude.yaml"
+)"
+assert_contains "$manager_copy_claude_missing_output" "create | planned | claude_user/example-skill"
+assert_contains "$manager_copy_claude_missing_output" "target=~/.claude/skills/example-skill"
+assert_contains "$manager_copy_claude_missing_output" "management=upstream-manager:add"
+assert_contains "$manager_copy_claude_missing_output" "manager_command=npx --yes skills@1.5.14 add fixture/skills --skill example-skill --agent claude-code --global --yes"
+assert_contains "$manager_copy_claude_missing_output" "consumer root is missing; upstream manager install is expected to create or repair it"
+assert_not_contains "$manager_copy_claude_missing_output" "$manager_copy_home"
+
+cat >"$manager_copy_dir/profiles/machine/claude-planned.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: manager-copy-claude-planned-profile
+consumer_roots:
+  claude_user:
+    path: ~/.claude/skills
+    adapter: verify-before-use
+    status: planned
+selected_skills:
+  - skill_id: planned-claude-skill
+    expose_to:
+      - claude_user
+    state: active
+    consumer_overrides:
+      claude_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+YAML
+
+manager_copy_claude_planned_output="$(
+  HOME="$manager_copy_home" \
+    ruby "$repo_root/scripts/skills_sync.rb" \
+    --plan \
+    --registry "$manager_copy_dir/skills.registry.yaml" \
+    --lock "$manager_copy_dir/skills.lock.yaml" \
+    --profile "$manager_copy_dir/profiles/machine/claude-planned.yaml"
+)"
+assert_contains "$manager_copy_claude_planned_output" "create | planned | claude_user/planned-claude-skill"
+assert_contains "$manager_copy_claude_planned_output" "management=manual-review"
+assert_contains "$manager_copy_claude_planned_output" "skill client claude is planned in the registry; upstream manager commands require supported client approval"
+assert_not_contains "$manager_copy_claude_planned_output" "manager_command="
+
+manager_copy_claude_planned_json="$(
+  HOME="$manager_copy_home" \
+    ruby "$repo_root/scripts/skills_sync.rb" \
+    --plan \
+    --json \
+    --registry "$manager_copy_dir/skills.registry.yaml" \
+    --lock "$manager_copy_dir/skills.lock.yaml" \
+    --profile "$manager_copy_dir/profiles/machine/claude-planned.yaml"
+)"
+ruby -rjson -e '
+  parsed = JSON.parse(ARGF.read)
+  planned = parsed.fetch("actions").find { |action| action["consumer"] == "claude_user" && action["skill_id"] == "planned-claude-skill" }
+  raise "expected planned claude action" unless planned
+  raise "expected planned claude manual review" unless planned.dig("management", "owner") == "manual-review"
+  raise "expected planned claude approval reason" unless planned.dig("management", "reason") == "skill client claude is planned in the registry; upstream manager commands require supported client approval"
+' <<<"$manager_copy_claude_planned_json"
+
 mkdir -p "$manager_copy_home/.agents/skills"
 mkdir -p "$manager_copy_home/.agents/skills/example-skill/references"
 cp "$manager_copy_dir/example-skill/SKILL.md" "$manager_copy_home/.agents/skills/example-skill/SKILL.md"
@@ -335,6 +435,22 @@ assert_contains "$manager_copy_keep_output" "keep | ok | codex_global_manager/ex
 assert_contains "$manager_copy_keep_output" "management=none"
 assert_contains "$manager_copy_keep_output" "manager-owned copy matches registry source digest"
 assert_not_contains "$manager_copy_keep_output" "manager_command="
+
+mkdir -p "$manager_copy_home/.claude/skills/example-skill/references"
+cp "$manager_copy_dir/example-skill/SKILL.md" "$manager_copy_home/.claude/skills/example-skill/SKILL.md"
+cp "$manager_copy_dir/example-skill/references/guide.md" "$manager_copy_home/.claude/skills/example-skill/references/guide.md"
+manager_copy_claude_keep_output="$(
+  HOME="$manager_copy_home" \
+    ruby "$repo_root/scripts/skills_sync.rb" \
+    --plan \
+    --registry "$manager_copy_dir/skills.registry.yaml" \
+    --lock "$manager_copy_dir/skills.lock.yaml" \
+    --profile "$manager_copy_dir/profiles/machine/claude.yaml"
+)"
+assert_contains "$manager_copy_claude_keep_output" "keep | ok | claude_user/example-skill"
+assert_contains "$manager_copy_claude_keep_output" "management=none"
+assert_contains "$manager_copy_claude_keep_output" "manager-owned copy matches registry source digest"
+assert_not_contains "$manager_copy_claude_keep_output" "manager_command="
 
 cp -R "$manager_copy_dir/stale-skill" "$manager_copy_home/.agents/skills/stale-skill"
 manager_copy_unselected_keep_output="$(
@@ -661,7 +777,7 @@ noncanonical_manager_copy_output="$(
 )"
 assert_contains "$noncanonical_manager_copy_output" "create | planned | codex_legacy_manager/example-skill"
 assert_contains "$noncanonical_manager_copy_output" "management=manual-review"
-assert_contains "$noncanonical_manager_copy_output" "manager-copy commands are only proven for the shared ~/.agents/skills root"
+assert_contains "$noncanonical_manager_copy_output" "manager-copy commands are only proven for ~/.agents/skills and ~/.claude/skills global roots"
 assert_not_contains "$noncanonical_manager_copy_output" "manager_command="
 
 missing_agent_root_dir="$tmp_dir/missing-agent-root"

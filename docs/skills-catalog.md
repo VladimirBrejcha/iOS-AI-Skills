@@ -15,7 +15,7 @@ front matter, refresh `skills.lock.yaml` if source contents changed, then run
 | Skill | Status | Source | Exports | Clients | Scopes | Update Policy | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `code-review` | `active` | `registry-local:code-review` | `code-review` | claude=planned, codex=supported, opencode=supported | `machine`, `repo` | `internal-reviewed` | Review pull requests, commits, or diffs for high-signal engineering issues and merge risk. Use when asked to review code, audit a patch, find bugs, or provide merge readiness feedback. Focus on defects introduced by the proposed changes (correctness, security, performance, reliability, and maintainability) and report actionable findings with severity, confidence, and precise code locations. |
-| `harness-engineering` | `active` | `registry-local:harness-engineering` | `harness-engineering` | claude=planned, codex=supported, opencode=supported | `machine`, `repo` | `internal-reviewed` | Build and improve agent-first engineering harnesses where AI agents perform most implementation work and humans steer architecture, constraints, and review. Use when defining or upgrading AGENTS.md rules, repository conventions, task decomposition, CI guardrails, merge strategy, quality gates, or cleanup loops to increase autonomous coding throughput and reliability. |
+| `harness-engineering` | `active` | `registry-local:harness-engineering` | `harness-engineering` | claude=supported, codex=supported, opencode=supported | `machine`, `repo` | `internal-reviewed` | Build and improve agent-first engineering harnesses where AI agents perform most implementation work and humans steer architecture, constraints, and review. Use when defining or upgrading AGENTS.md rules, repository conventions, task decomposition, CI guardrails, merge strategy, quality gates, or cleanup loops to increase autonomous coding throughput and reliability. |
 | `spec-creation-updating` | `active` | `registry-local:spec-creation-updating` | `spec-creation-updating` | claude=planned, codex=supported, opencode=supported | `machine`, `repo` | `internal-reviewed` | Create, update, review, and improve technical specification documents so they are complete, testable, and implementation-ready. Use when defining new features/systems/APIs, updating existing specs, restructuring documents, auditing missing requirements, or converting vague plans into concrete, verifiable requirements and acceptance criteria. |
 | `ios-xcodegen` | `active` | `registry-local:ios-xcodegen` | `ios-xcodegen` | claude=planned, codex=supported, opencode=supported | `machine`, `repo` | `internal-reviewed` | XcodeGen workflows for iOS/iPadOS apps: generate projects from project.yml/project.yaml, fix build/test destination issues, wire asset catalogs, configure test hosts, manage SwiftPM resolution in CI, and resolve App Store packaging errors related to embedded static libraries. |
 | `xcode-build` | `active` | `registry-local:xcode-build` | `xcode-build` | claude=planned, codex=supported, opencode=supported | `machine`, `repo` | `internal-reviewed` | Build and run iOS/macOS apps using xcodebuild and xcrun simctl directly. Use when building Xcode projects, running iOS simulators, managing devices, compiling Swift code, running UI tests, or automating iOS app interactions. Replaces XcodeBuildMCP with native CLI tools. |
@@ -28,13 +28,16 @@ front matter, refresh `skills.lock.yaml` if source contents changed, then run
 ## Installable Active Skills
 
 The commands below use the pinned upstream skills manager package
-for the current reviewed shared-root example profile. The command
-uses `--agent codex` for the proven shared manager write path;
-verify OpenCode visibility with the upstream global list.
+for the current reviewed example profile. `--agent codex` commands
+target the proven shared manager root; verify OpenCode visibility with
+the upstream global list. `--agent claude-code` commands target the
+separate proven Claude Code root for skills that explicitly carry that
+profile proof.
 
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill code-review --agent codex --global --yes
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes
+npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent claude-code --global --yes
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes
 npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent codex --global --yes

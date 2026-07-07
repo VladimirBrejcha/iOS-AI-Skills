@@ -19,6 +19,7 @@ GENERATOR = "scripts/skills_catalog.rb"
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 DEFAULT_INSTALL_PROFILE = File.join("profiles", "machine", "example-local-skills.yaml").freeze
 SHARED_AGENTS_USER_ROOT = File.expand_path("~/.agents/skills").freeze
+CLAUDE_USER_ROOT = File.expand_path("~/.claude/skills").freeze
 RFC6598_SHARED_ADDRESS_RANGE = IPAddr.new("100.64.0.0/10").freeze
 SPECIAL_USE_IPV4_ADDRESS_RANGES = [
   IPAddr.new("0.0.0.0/8"),
@@ -611,6 +612,14 @@ rescue ArgumentError
   false
 end
 
+def matches_claude_user_root?(value, base_dir:)
+  return false unless valid_string?(value)
+
+  expand_config_path(value, base_dir: base_dir) == CLAUDE_USER_ROOT
+rescue ArgumentError
+  false
+end
+
 def normalized_consumer_roots(raw_consumer_roots, profile_path, reporter)
   unless raw_consumer_roots.is_a?(Hash)
     reporter.error("#{display_path(profile_path)} consumer_roots must be a mapping")
@@ -851,6 +860,53 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
   installable_skills
 end
 
+def approved_claude_code_global_install_ids(profile, profile_path, registry_skill_ids, reporter)
+  return {} unless profile.is_a?(Hash)
+  return {} if profile_path.nil?
+  return {} unless reporter.errors.empty?
+
+  starting_error_count = reporter.errors.length
+  profile_base_dir = File.dirname(profile_path)
+  consumer_roots = normalized_consumer_roots(profile["consumer_roots"], profile_path, reporter)
+  claude_root = consumer_roots["claude_user"]
+  return {} unless claude_root.is_a?(Hash)
+  return {} unless matches_claude_user_root?(claude_root["path"], base_dir: profile_base_dir)
+
+  selected_skills = profile["selected_skills"]
+  unless selected_skills.is_a?(Array)
+    reporter.error("#{display_path(profile_path)} selected_skills must be an array")
+    return {}
+  end
+
+  installable_skills = selected_skills.each_with_object({}) do |entry, memo|
+    next unless entry.is_a?(Hash) && valid_string?(entry["skill_id"])
+    next unless registry_skill_ids.key?(entry["skill_id"])
+
+    expose_to = string_array(entry["expose_to"], reporter, "#{display_path(profile_path)} #{entry["skill_id"]} expose_to")
+    next unless expose_to.include?("claude_user")
+    next unless entry["state"].to_s == "active"
+
+    overrides = normalized_consumer_overrides(
+      entry["consumer_overrides"],
+      profile_path,
+      entry["skill_id"],
+      expose_to,
+      consumer_roots,
+      reporter
+    )
+    effective_claude_config = effective_consumer_config(claude_root, overrides, "claude_user")
+    next unless effective_claude_config.is_a?(Hash)
+    next unless effective_claude_config["adapter"] == "manager-copy"
+    next unless effective_claude_config["status"] == "proven-manager-copy"
+
+    memo[entry["skill_id"]] = true
+  end
+
+  return {} if reporter.errors.length > starting_error_count
+
+  installable_skills
+end
+
 def frontmatter(path, reporter)
   lines = File.readlines(path, chomp: true)
   unless lines.first == "---"
@@ -1080,7 +1136,7 @@ def compare_lock_array(lock_entry, skill_id, field, expected, reporter)
   reporter.error("#{skill_id}: lock #{field} differs from registry metadata")
 end
 
-def install_command(manager_source, skill_name)
+def install_command(manager_source, skill_name, agent:)
   Shellwords.join([
                     "npx",
                     "--yes",
@@ -1090,7 +1146,7 @@ def install_command(manager_source, skill_name)
                     "--skill",
                     skill_name,
                     "--agent",
-                    "codex",
+                    agent,
                     "--global",
                     "--yes"
                   ])
@@ -1174,6 +1230,12 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   end
   install_profile, install_profile_path = load_install_profile(registry_root, reporter)
   installable_codex_skills = approved_codex_global_install_ids(
+    install_profile,
+    install_profile_path,
+    registry_skill_ids,
+    reporter
+  )
+  installable_claude_code_skills = approved_claude_code_global_install_ids(
     install_profile,
     install_profile_path,
     registry_skill_ids,
@@ -1333,18 +1395,23 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     install = nil
     installable_by_manager = source_type == "registry-local" &&
                              status == "active" &&
-                             clients["codex"] == "supported" &&
                              scopes.include?("machine") &&
-                             installable_codex_skills[skill_id] &&
                              exported_names == [manager_skill_name]
-    manager_source_required ||= installable_by_manager
-    if installable_by_manager && safe_manager_source?(manager_source)
+    installable_for_codex = installable_by_manager &&
+                            clients["codex"] == "supported" &&
+                            installable_codex_skills[skill_id]
+    installable_for_claude_code = installable_by_manager &&
+                                  clients["claude"] == "supported" &&
+                                  installable_claude_code_skills[skill_id]
+    manager_source_required ||= installable_for_codex || installable_for_claude_code
+    if safe_manager_source?(manager_source) && (installable_for_codex || installable_for_claude_code)
       install = {
         "manager_package" => DEFAULT_SKILLS_CLI_PACKAGE,
         "registry_source" => manager_source,
-        "skill" => manager_skill_name,
-        "codex_global_command" => install_command(manager_source, manager_skill_name)
+        "skill" => manager_skill_name
       }
+      install["codex_global_command"] = install_command(manager_source, manager_skill_name, agent: "codex") if installable_for_codex
+      install["claude_code_global_command"] = install_command(manager_source, manager_skill_name, agent: "claude-code") if installable_for_claude_code
     end
 
     entry = {
@@ -1465,16 +1532,20 @@ def markdown_document(catalog)
   lines << "## Installable Active Skills"
   lines << ""
   if active_installable.empty?
-    lines << "No active shared-root supported skills currently emit public install commands."
+    lines << "No active supported skills currently emit public install commands."
   else
     lines << "The commands below use the pinned upstream skills manager package"
-    lines << "for the current reviewed shared-root example profile. The command"
-    lines << "uses `--agent codex` for the proven shared manager write path;"
-    lines << "verify OpenCode visibility with the upstream global list."
+    lines << "for the current reviewed example profile. `--agent codex` commands"
+    lines << "target the proven shared manager root; verify OpenCode visibility with"
+    lines << "the upstream global list. `--agent claude-code` commands target the"
+    lines << "separate proven Claude Code root for skills that explicitly carry that"
+    lines << "profile proof."
     lines << ""
     lines << "```bash"
     active_installable.each do |skill|
-      lines << skill.fetch("install").fetch("codex_global_command")
+      install = skill.fetch("install")
+      lines << install.fetch("codex_global_command") if install.key?("codex_global_command")
+      lines << install.fetch("claude_code_global_command") if install.key?("claude_code_global_command")
     end
     lines << "```"
   end
