@@ -52,3 +52,9 @@ skills:
   digest_sha256: fcc1b4b8d9e0164e7c1e028ce9bff9ab70ecbaa8372af674f8eda40bb2e51d7f
   exported_names:
   - xcode-build
+- id: xcode-cloud
+  source_type: registry-local
+  path: xcode-cloud
+  digest_sha256: 64807117128a7d5365ff2aaab3658a47d49b03f411424f981aaacac2c2de515b
+  exported_names:
+  - xcode-cloud
