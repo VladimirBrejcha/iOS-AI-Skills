@@ -107,7 +107,7 @@ Expected outcome: each selected command completes through the upstream
 manager. The command may create or update a manager-owned copied directory in
 the manager's reviewed global targets, currently `~/.agents/skills` for the
 shared Codex/OpenCode root and `~/.claude/skills` for the narrow Claude Code
-target.
+targets.
 
 Verify the install:
 
