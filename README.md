@@ -12,10 +12,11 @@ agent skills. The registry is active as the source and policy layer, but
 coverage is currently partial: skills listed in `skills.registry.yaml` have one
 source owner, lock/version metadata, and registry-defined adapter coverage
 metadata. The shared `~/.agents/skills` manager path is the current reviewed
-baseline for Codex and OpenCode; Claude Code and repo-local consumers still
-include planned or manual-review coverage until follow-up profile and coverage
-PRs land. Other top-level `SKILL.md` folders remain unclassified backlog until
-follow-up coverage PRs register them.
+baseline for Codex and OpenCode; `harness-engineering` also has a narrow
+reviewed Claude Code baseline through `~/.claude/skills`. Other Claude Code
+skills and repo-local consumers still include planned or manual-review coverage
+until follow-up profile and coverage PRs land. Other top-level `SKILL.md`
+folders remain unclassified backlog until follow-up coverage PRs register them.
 
 The contract is documented in:
 
@@ -116,7 +117,7 @@ The registry-covered skill set is also published as generated catalog artifacts:
 - [skills.catalog.json](skills.catalog.json) for websites, automation, and
   agent-host integrations.
 - [Skills Catalog](docs/skills-catalog.md) for a readable list and current
-  pinned shared-root install commands.
+  pinned reviewed install commands.
 
 Do not edit those artifacts directly. Change `skills.registry.yaml`,
 `skills.lock.yaml`, or the relevant `SKILL.md` front matter, then run:

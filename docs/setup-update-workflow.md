@@ -22,8 +22,7 @@ are adapter views, not sources.
 Use this workflow when you need one of these outcomes:
 
 - A new machine has the reviewed registry clone, prerequisites, and approved
-  shared global skills installed or verified for the supported shared-root
-  agents.
+  global skills installed or verified for the supported manager roots.
 - An existing machine pulls the latest approved registry state and refreshes
   only manager-owned adapters.
 - A product repo gets a reviewed repo-local skill install without creating a
@@ -76,14 +75,18 @@ about planned, blocked, or manual-review adapters are not install permission;
 they identify work that needs a follow-up registry/profile PR or an upstream
 manager fix.
 
-Print the reviewed shared-root install commands from the generated catalog:
+Print the reviewed global install commands from the generated catalog:
 
 ```bash
 ruby -rjson -e '
   catalog = JSON.parse(File.read("skills.catalog.json"))
   catalog.fetch("skills").each do |skill|
-    command = skill.dig("install", "codex_global_command")
-    puts command if command
+    install = skill["install"]
+    next unless install.is_a?(Hash)
+    %w[codex_global_command claude_code_global_command].each do |key|
+      command = install[key]
+      puts command if command
+    end
   end
 '
 ```
@@ -102,7 +105,9 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
 
 Expected outcome: each selected command completes through the upstream
 manager. The command may create or update a manager-owned copied directory in
-the manager's shared global target, currently `~/.agents/skills`.
+the manager's reviewed global targets, currently `~/.agents/skills` for the
+shared Codex/OpenCode root and `~/.claude/skills` for the narrow Claude Code
+target.
 
 Verify the install:
 
@@ -232,8 +237,9 @@ Use these rules when setup or update output is not clean:
 - OpenCode support: rely on the proven shared `~/.agents/skills` manager state
   and verify it with the upstream global list; do not add a separate local
   writer.
-- Claude Code or repo-local planned support: keep it manual-review unless the
-  registry, profile, and manager boundary docs explicitly promote that target.
+- Unpromoted Claude Code or repo-local planned support: keep it manual-review
+  unless the registry, profile, and manager boundary docs explicitly promote
+  that target.
 - Current agent session does not see a newly installed skill: restart the app
   or CLI session after verification succeeds.
 

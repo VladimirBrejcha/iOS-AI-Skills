@@ -150,6 +150,7 @@ skills:
       - example-skill
     clients:
       codex: supported
+      claude: supported
       claude: planned
   - id: stale-skill
     status: active
@@ -319,6 +320,42 @@ assert_contains "$manager_copy_missing_output" "manager_command=npx --yes skills
 assert_contains "$manager_copy_missing_output" "consumer root is missing; upstream manager install is expected to create or repair it"
 assert_not_contains "$manager_copy_missing_output" "$manager_copy_home"
 
+cat >"$manager_copy_dir/profiles/machine/claude.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: manager-copy-claude-profile
+consumer_roots:
+  claude_user:
+    path: ~/.claude/skills
+    adapter: verify-before-use
+    status: planned
+selected_skills:
+  - skill_id: example-skill
+    expose_to:
+      - claude_user
+    state: active
+    consumer_overrides:
+      claude_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+YAML
+
+manager_copy_claude_missing_output="$(
+  HOME="$manager_copy_home" \
+    ruby "$repo_root/scripts/skills_sync.rb" \
+    --plan \
+    --registry "$manager_copy_dir/skills.registry.yaml" \
+    --lock "$manager_copy_dir/skills.lock.yaml" \
+    --profile "$manager_copy_dir/profiles/machine/claude.yaml"
+)"
+assert_contains "$manager_copy_claude_missing_output" "create | planned | claude_user/example-skill"
+assert_contains "$manager_copy_claude_missing_output" "target=~/.claude/skills/example-skill"
+assert_contains "$manager_copy_claude_missing_output" "management=upstream-manager:add"
+assert_contains "$manager_copy_claude_missing_output" "manager_command=npx --yes skills@1.5.14 add fixture/skills --skill example-skill --agent claude-code --global --yes"
+assert_contains "$manager_copy_claude_missing_output" "consumer root is missing; upstream manager install is expected to create or repair it"
+assert_not_contains "$manager_copy_claude_missing_output" "$manager_copy_home"
+
 mkdir -p "$manager_copy_home/.agents/skills"
 mkdir -p "$manager_copy_home/.agents/skills/example-skill/references"
 cp "$manager_copy_dir/example-skill/SKILL.md" "$manager_copy_home/.agents/skills/example-skill/SKILL.md"
@@ -335,6 +372,22 @@ assert_contains "$manager_copy_keep_output" "keep | ok | codex_global_manager/ex
 assert_contains "$manager_copy_keep_output" "management=none"
 assert_contains "$manager_copy_keep_output" "manager-owned copy matches registry source digest"
 assert_not_contains "$manager_copy_keep_output" "manager_command="
+
+mkdir -p "$manager_copy_home/.claude/skills/example-skill/references"
+cp "$manager_copy_dir/example-skill/SKILL.md" "$manager_copy_home/.claude/skills/example-skill/SKILL.md"
+cp "$manager_copy_dir/example-skill/references/guide.md" "$manager_copy_home/.claude/skills/example-skill/references/guide.md"
+manager_copy_claude_keep_output="$(
+  HOME="$manager_copy_home" \
+    ruby "$repo_root/scripts/skills_sync.rb" \
+    --plan \
+    --registry "$manager_copy_dir/skills.registry.yaml" \
+    --lock "$manager_copy_dir/skills.lock.yaml" \
+    --profile "$manager_copy_dir/profiles/machine/claude.yaml"
+)"
+assert_contains "$manager_copy_claude_keep_output" "keep | ok | claude_user/example-skill"
+assert_contains "$manager_copy_claude_keep_output" "management=none"
+assert_contains "$manager_copy_claude_keep_output" "manager-owned copy matches registry source digest"
+assert_not_contains "$manager_copy_claude_keep_output" "manager_command="
 
 cp -R "$manager_copy_dir/stale-skill" "$manager_copy_home/.agents/skills/stale-skill"
 manager_copy_unselected_keep_output="$(
@@ -661,7 +714,7 @@ noncanonical_manager_copy_output="$(
 )"
 assert_contains "$noncanonical_manager_copy_output" "create | planned | codex_legacy_manager/example-skill"
 assert_contains "$noncanonical_manager_copy_output" "management=manual-review"
-assert_contains "$noncanonical_manager_copy_output" "manager-copy commands are only proven for the shared ~/.agents/skills root"
+assert_contains "$noncanonical_manager_copy_output" "manager-copy commands are only proven for ~/.agents/skills and ~/.claude/skills global roots"
 assert_not_contains "$noncanonical_manager_copy_output" "manager_command="
 
 missing_agent_root_dir="$tmp_dir/missing-agent-root"

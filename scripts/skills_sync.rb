@@ -1526,6 +1526,15 @@ def shared_manager_root?(root_path)
   File.expand_path(root_path.to_s) == File.join(File.expand_path("~"), ".agents", "skills")
 end
 
+def proven_manager_copy_root?(root_path)
+  expanded = File.expand_path(root_path.to_s)
+  home = File.expand_path("~")
+  [
+    File.join(home, ".agents", "skills"),
+    File.join(home, ".claude", "skills")
+  ].include?(expanded)
+end
+
 def existing_path_or_symlink?(path)
   File.exist?(path) || File.symlink?(path)
 end
@@ -1585,8 +1594,8 @@ def desired_manager_recommendation(skill:, exported_name:, consumer:, root_path:
   agent = manager_agent_for_consumer(consumer, root_path)
   return manual_review_management("consumer #{consumer} does not map to a supported upstream skills agent") if agent.nil?
   return manual_review_management("consumer root is not a recognized global skills root") unless global_manager_scope?(root_path)
-  if manager_copy_adapter?(adapter) && !shared_manager_root?(root_path)
-    return manual_review_management("manager-copy commands are only proven for the shared ~/.agents/skills root")
+  if manager_copy_adapter?(adapter) && !proven_manager_copy_root?(root_path)
+    return manual_review_management("manager-copy commands are only proven for ~/.agents/skills and ~/.claude/skills global roots")
   end
   if shared_manager_root?(root_path) && !manager_copy_adapter?(adapter)
     return manual_review_management("shared ~/.agents/skills root cannot be targeted explicitly by the upstream manager")

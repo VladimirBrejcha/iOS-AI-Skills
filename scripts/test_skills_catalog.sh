@@ -291,7 +291,7 @@ assert_contains "$markdown_output" "# Skills Catalog"
 assert_contains "$markdown_output" "## Registry-Covered Skills"
 assert_contains "$markdown_output" "## Installable Active Skills"
 assert_contains "$markdown_output" "refresh \`skills.lock.yaml\` if source contents changed"
-assert_contains "$markdown_output" "for the current reviewed shared-root example profile."
+assert_contains "$markdown_output" "for the current reviewed example profile."
 
 ruby -rjson -e '
   parsed = JSON.parse(File.read(ARGV.fetch(0)))
@@ -412,6 +412,39 @@ ruby -rjson -e '
   install = example.fetch("install")
   raise "root-level manager-copy approval should emit install command" unless install.fetch("codex_global_command").include?("--skill example-skill")
 ' "$root_level_manager_copy_dir/skills.catalog.json"
+
+claude_manager_copy_dir="$tmp_dir/claude-manager-copy"
+write_ok_fixture "$claude_manager_copy_dir"
+ruby -ryaml -e '
+  profile_path = ARGV.fetch(0)
+  registry_path = ARGV.fetch(1)
+  profile = YAML.safe_load(File.read(profile_path), aliases: false)
+  profile.fetch("consumer_roots")["claude_user"] = {
+    "path" => "~/.claude/skills",
+    "adapter" => "verify-before-use",
+    "status" => "planned"
+  }
+  selection = profile.fetch("selected_skills").find { |entry| entry.fetch("skill_id") == "example-skill" }
+  selection["expose_to"] = ["agents_user", "claude_user"]
+  selection.fetch("consumer_overrides")["claude_user"] = {
+    "adapter" => "manager-copy",
+    "status" => "proven-manager-copy"
+  }
+  File.write(profile_path, profile.to_yaml)
+
+  registry = YAML.safe_load(File.read(registry_path), aliases: false)
+  registry.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+    .fetch("clients")["claude"] = "supported"
+  File.write(registry_path, registry.to_yaml)
+' "$claude_manager_copy_dir/profiles/machine/example-local-skills.yaml" "$claude_manager_copy_dir/skills.registry.yaml"
+run_catalog "$claude_manager_copy_dir" --write
+ruby -rjson -e '
+  parsed = JSON.parse(File.read(ARGV.fetch(0)))
+  example = parsed.fetch("skills").find { |skill| skill.fetch("id") == "example-skill" }
+  install = example.fetch("install")
+  raise "claude manager-copy approval should keep codex command" unless install.fetch("codex_global_command").include?("--agent codex")
+  raise "claude manager-copy approval should emit claude command" unless install.fetch("claude_code_global_command").include?("--agent claude-code")
+' "$claude_manager_copy_dir/skills.catalog.json"
 
 trailing_slash_agents_root_dir="$tmp_dir/trailing-slash-agents-root"
 write_ok_fixture "$trailing_slash_agents_root_dir"

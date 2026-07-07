@@ -8,9 +8,10 @@ registry:
   repo_path_hint: .
   purpose: >
     Versioned source and policy registry for reusable agent skills with an
-    active-partial reviewed shared-root baseline for Codex and OpenCode, plus
-    planned/manual-review adapter coverage for Claude Code, repo-local, and
-    broader machine-level consumers.
+    active-partial reviewed shared-root baseline for Codex and OpenCode, a
+    narrow proven Claude Code global baseline for harness-engineering, plus
+    planned/manual-review adapter coverage for repo-local and broader
+    machine-level consumers.
 
 rules:
   source_of_truth:
@@ -65,7 +66,7 @@ skills:
     clients:
       codex: supported
       opencode: supported
-      claude: planned
+      claude: supported
     scopes:
       - machine
       - repo
@@ -73,6 +74,9 @@ skills:
     notes:
       - Current repo-local copies should be converted to declared adapters or
         repo-owned forks after the drift report is reviewed.
+      - Claude Code support is proven through a pinned upstream manager write
+        to ~/.claude/skills for this skill only; other Claude Code targets stay
+        planned until separately promoted.
 
   - id: spec-creation-updating
     status: active

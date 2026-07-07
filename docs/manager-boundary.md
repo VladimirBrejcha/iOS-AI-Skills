@@ -137,8 +137,10 @@ a primary source or reproducible failure.
 Nine shared global manager-copy targets are already proven on the default
 example profile. The command currently uses `--agent codex` because that is the
 reviewed manager write path for `~/.agents/skills`; the upstream manager reports
-that same shared-root install as visible to OpenCode. Claude Code remains on a
-separate planned/manual-review root until equivalent proof exists.
+that same shared-root install as visible to OpenCode. Claude Code has one
+separate proven global target, `harness-engineering`, through
+`~/.claude/skills`; other Claude Code targets remain planned/manual-review
+until equivalent proof exists.
 
 | Skill | Manager command | Adapter target | Lock key |
 | --- | --- | --- | --- |
@@ -151,6 +153,19 @@ separate planned/manual-review root until equivalent proof exists.
 | `swift-concurrency` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent codex --global --yes` | `~/.agents/skills/swift-concurrency` | `skills.swift-concurrency` |
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes` | `~/.agents/skills/swift-testing` | `skills.swift-testing` |
 | `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent codex --global --yes` | `~/.agents/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
+
+One separate Claude Code global manager-copy target is proven on the default
+example profile:
+
+| Skill | Manager command | Adapter target | Lock key |
+| --- | --- | --- | --- |
+| `harness-engineering` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent claude-code --global --yes` | `~/.claude/skills/harness-engineering` | `skills.harness-engineering` |
+
+The Claude Code proof used the same standard as the shared-root proofs:
+pre-write sync emitted the exact pinned manager command, the command created a
+manager-owned copy under `~/.claude/skills`, the installed file set matched the
+registry source, the post-write sync plan reported `keep`/`ok`, and the manager
+global list reported `harness-engineering` for Claude Code.
 
 The proof profiles and initial drift report are historical artifacts under
 `docs/history/`:
@@ -203,7 +218,8 @@ Known limits that should keep local automation conservative:
 
 1. Continue managed-profile expansion one registry-local target at a time only
    when the pre-write sync plan emits an exact pinned manager command.
-2. Keep Claude Code, legacy Codex symlink roots, repo-local updates, and
-   external-git imports in manual review until each target has equivalent
-   manager and doctor/sync evidence. Keep OpenCode tied to proven shared-root
-   manager evidence rather than adding a separate local writer.
+2. Continue Claude Code expansion one registry-local target at a time only when
+   the target has equivalent manager and doctor/sync evidence. Keep legacy
+   Codex symlink roots, repo-local updates, and external-git imports in manual
+   review until their own evidence exists. Keep OpenCode tied to proven
+   shared-root manager evidence rather than adding a separate local writer.

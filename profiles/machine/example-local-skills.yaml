@@ -25,7 +25,7 @@ consumer_roots:
   claude_user:
     path: ~/.claude/skills
     adapter: verify-before-use
-    status: copied-today
+    status: planned
   shared_machine_candidate:
     path: ~/.local/share/agent-skills/current
     adapter: symlink-farm
@@ -51,6 +51,9 @@ selected_skills:
     state: active
     consumer_overrides:
       agents_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+      claude_user:
         adapter: manager-copy
         status: proven-manager-copy
   - skill_id: spec-creation-updating
