@@ -18,7 +18,7 @@ Provide a repeatable setup for Xcode Cloud custom scripts, with ready-to-copy te
 4. Copy templates from `assets/`.
 5. Customize variables noted in the templates.
 6. `chmod +x ci_scripts/*.sh`.
-7. In Xcode Cloud, add required secrets (for tagging) and ensure an Archive action exists.
+7. In Xcode Cloud, add `ENABLE_ARCHIVE_TAG_PUSH=1` and `GITHUB_TOKEN` only to the release-tagging workflow, and ensure an Archive action exists.
 
 ## Workflow: XcodeGen + Tagging
 
@@ -31,14 +31,15 @@ Xcode Cloud validates the project path and schemes before `ci_pre_xcodebuild.sh`
 pre-xcodebuild is too late in that setup.
 Copy `assets/ci_post_clone.sh` to `ci_scripts/ci_post_clone.sh`.
 Use `ci_pre_xcodebuild.sh` only when the project already exists in the repo.
-Adjust the root detection if your `project.yml` is not at repo root.
+Set `PROJECT_SPEC_PATH` if your `project.yml` or `project.yaml` lives outside repo root.
 
 ### 3) Tagging after successful archives
 Copy `assets/ci_post_xcodebuild.sh` to `ci_scripts/ci_post_xcodebuild.sh`.
 Set `INFO_PLIST_PATH` (or provide it as an Xcode Cloud env var).
 Set `TAG_PREFIX` if you want a custom prefix.
 Ensure the workflow includes an Archive action; otherwise the script will no-op.
-Add `GITHUB_TOKEN` as a secret environment variable in Xcode Cloud.
+Add `ENABLE_ARCHIVE_TAG_PUSH=1` and `GITHUB_TOKEN` only on the workflow that should publish tags.
+Optionally set `TAG_ALLOWED_BRANCHES` to a comma-separated allowlist such as `main,release`.
 
 ### 4) Make scripts executable
 Run `chmod +x ci_scripts/*.sh` after adding or editing scripts.
@@ -47,7 +48,7 @@ Run `chmod +x ci_scripts/*.sh` after adding or editing scripts.
 
 - `assets/ci_pre_xcodebuild.sh`: XcodeGen install + project generation (two-script setup)
 - `assets/ci_post_clone.sh`: XcodeGen install + project generation (alternative)
-- `assets/ci_post_xcodebuild.sh`: archive-only tag push using `GITHUB_TOKEN`
+- `assets/ci_post_xcodebuild.sh`: archive-only, opt-in tag push using `GITHUB_TOKEN`
 
 ## Notes
 

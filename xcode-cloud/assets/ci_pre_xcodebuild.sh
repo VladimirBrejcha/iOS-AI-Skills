@@ -10,8 +10,18 @@ REPO_ROOT="${SCRIPT_DIR}/.."
 
 cd "$REPO_ROOT"
 
-if [ ! -f "project.yml" ]; then
-  echo "ERROR: project.yml not found at repo root: $(pwd)"
+PROJECT_SPEC_PATH="${PROJECT_SPEC_PATH:-}"
+if [ -n "${PROJECT_SPEC_PATH}" ]; then
+  if [ ! -f "${PROJECT_SPEC_PATH}" ]; then
+    echo "ERROR: PROJECT_SPEC_PATH not found: ${PROJECT_SPEC_PATH}"
+    exit 1
+  fi
+elif [ -f "project.yml" ]; then
+  PROJECT_SPEC_PATH="project.yml"
+elif [ -f "project.yaml" ]; then
+  PROJECT_SPEC_PATH="project.yaml"
+else
+  echo "ERROR: project.yml or project.yaml not found at repo root: $(pwd)"
   exit 1
 fi
 
@@ -22,7 +32,7 @@ else
   brew install xcodegen
 fi
 
-echo "Generating Xcode project..."
-xcodegen generate
+echo "Generating Xcode project from ${PROJECT_SPEC_PATH}..."
+xcodegen generate --spec "${PROJECT_SPEC_PATH}"
 
 echo "=== pre-xcodebuild complete ==="
