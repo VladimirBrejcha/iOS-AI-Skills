@@ -1,6 +1,6 @@
 ---
 name: swift-testing
-description: Use when writing tests with Swift Testing (@Test, #expect, #require), migrating from XCTest, implementing async tests, or parameterizing tests.
+description: "Use when writing tests with Swift Testing (@Test, #expect, #require), migrating from XCTest, implementing async tests, or parameterizing tests."
 ---
 
 # Swift Testing Framework

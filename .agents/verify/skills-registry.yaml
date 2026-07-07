@@ -56,7 +56,90 @@ commands:
           closing = lines[1..]&.index("---")
           raise "#{file}: unterminated YAML front matter" unless closing
 
-          metadata = YAML.safe_load(lines[1, closing].join("\n"), aliases: false) || {}
+          frontmatter_lines = lines[1, closing]
+          description_frontmatter_key_pattern = Regexp.new("\\A(?<indent>\\s*)(?:\\\"description\\\"|#{39.chr}description#{39.chr}|description)\\s*:(?<value>.*)\\z")
+          description_plain_continuation_lines = lambda do |all_lines, start_index, description_indent|
+            continuation_lines = []
+
+            all_lines[(start_index + 1)..]&.each do |continuation_line|
+              if continuation_line.strip.empty?
+                continuation_lines << continuation_line
+                next
+              end
+
+              break if continuation_line[/\A[ \t]*/].length <= description_indent
+
+              continuation_lines << continuation_line.lstrip
+            end
+
+            continuation_lines
+          end
+
+          description_value_has_unquoted_comment = lambda do |value, continuation_lines|
+            next false if value.start_with?("|", ">")
+
+            value_lines = []
+            value_lines << value unless value.empty?
+            value_lines.concat(continuation_lines)
+            next false if value_lines.empty?
+
+            quoted_style = value_lines.first.start_with?("\"", 39.chr) ? value_lines.first[0] : nil
+            in_quote = quoted_style
+            first_line = true
+            comment_found = false
+
+            value_lines.each do |candidate_line|
+              index = quoted_style && first_line ? 1 : 0
+              first_line = false
+
+              while index < candidate_line.length
+                character = candidate_line[index]
+                case in_quote
+                when "\""
+                  if character == "\""
+                    backslash_count = 0
+                    cursor = index - 1
+                    while cursor >= 0 && candidate_line[cursor] == "\\"
+                      backslash_count += 1
+                      cursor -= 1
+                    end
+                    in_quote = nil if backslash_count.even?
+                  end
+                when 39.chr
+                  next_character = candidate_line[index + 1]
+                  if character == 39.chr && next_character == 39.chr
+                    index += 1
+                  elsif character == 39.chr
+                    in_quote = nil
+                  end
+                else
+                  if character == "#" && (index.zero? || candidate_line[index - 1].match?(/[[:space:]]/))
+                    comment_found = true
+                    break
+                  end
+                end
+
+                index += 1
+              end
+
+              break if comment_found
+            end
+
+            comment_found
+          end
+
+          frontmatter_lines.each_with_index do |line, index|
+            match = description_frontmatter_key_pattern.match(line)
+            next unless match
+
+            value = match[:value].lstrip
+            plain_continuation_lines = description_plain_continuation_lines.call(frontmatter_lines, index, match[:indent].length)
+            if description_value_has_unquoted_comment.call(value, plain_continuation_lines)
+              raise "#{file}: front matter description contains an unquoted #; quote the value or use a block scalar"
+            end
+          end
+
+          metadata = YAML.safe_load(frontmatter_lines.join("\n"), aliases: false) || {}
           ["name", "description"].each do |key|
             raise "#{file}: missing #{key}" if metadata[key].to_s.strip.empty?
           end

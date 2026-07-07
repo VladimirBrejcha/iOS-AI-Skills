@@ -14,6 +14,7 @@ ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
+DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
 DEFAULT_MANAGER_SOURCE_BY_REGISTRY_ID = {
   "agent-skills" => "fiveonecode/agent-skills"
 }.freeze
@@ -573,7 +574,13 @@ def frontmatter(path, reporter)
     return {}
   end
 
-  metadata = YAML.safe_load(lines[1, closing].join("\n"), aliases: false) || {}
+  frontmatter_lines = lines[1, closing]
+  if unquoted_description_comment?(frontmatter_lines)
+    reporter.error("#{display_path(path)} front matter description contains an unquoted #; quote the value or use a block scalar")
+    return {}
+  end
+
+  metadata = YAML.safe_load(frontmatter_lines.join("\n"), aliases: false) || {}
   return metadata if metadata.is_a?(Hash)
 
   reporter.error("#{display_path(path)} front matter must be a mapping")
@@ -584,6 +591,85 @@ rescue Psych::Exception => error
 rescue SystemCallError => error
   reporter.error("#{display_path(path)} could not be read: #{redact_local_paths(error.message, known_paths: [path])}")
   {}
+end
+
+def unquoted_description_comment?(frontmatter_lines)
+  frontmatter_lines.each_with_index do |line, index|
+    match = DESCRIPTION_FRONTMATTER_KEY_PATTERN.match(line)
+    next unless match
+
+    value = match[:value].lstrip
+    plain_continuation_lines = description_plain_continuation_lines(frontmatter_lines, index, match[:indent].length)
+    next unless description_value_has_unquoted_comment?(value, plain_continuation_lines)
+
+    return true
+  end
+
+  false
+end
+
+def description_value_has_unquoted_comment?(value, continuation_lines)
+  return false if value.start_with?("|", ">")
+
+  value_lines = []
+  value_lines << value unless value.empty?
+  value_lines.concat(continuation_lines)
+  return false if value_lines.empty?
+
+  quoted_style = value_lines.first.start_with?("\"", "'") ? value_lines.first[0] : nil
+  in_quote = quoted_style
+  first_line = true
+
+  value_lines.each do |line|
+    index = quoted_style && first_line ? 1 : 0
+    first_line = false
+
+    while index < line.length
+      char = line[index]
+      case in_quote
+      when "\""
+        if char == "\""
+          backslash_count = 0
+          cursor = index - 1
+          while cursor >= 0 && line[cursor] == "\\"
+            backslash_count += 1
+            cursor -= 1
+          end
+          in_quote = nil if backslash_count.even?
+        end
+      when "'"
+        next_char = line[index + 1]
+        if char == "'" && next_char == "'"
+          index += 1
+        elsif char == "'"
+          in_quote = nil
+        end
+      else
+        return true if char == "#" && (index.zero? || line[index - 1].match?(/[[:space:]]/))
+      end
+
+      index += 1
+    end
+  end
+
+  false
+end
+
+def description_plain_continuation_lines(frontmatter_lines, start_index, description_indent)
+  continuation_lines = []
+
+  frontmatter_lines[(start_index + 1)..]&.each do |line|
+    if line.strip.empty?
+      continuation_lines << line
+      next
+    end
+
+    break if line[/\A[ \t]*/].length <= description_indent
+
+    continuation_lines << line.lstrip
+  end
+
+  continuation_lines
 end
 
 def supported_adapter?(adapter)

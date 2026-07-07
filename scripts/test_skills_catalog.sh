@@ -724,6 +724,76 @@ write_registry_local_digest "$missing_local_description_dir"
 missing_local_description_output="$(expect_failure run_catalog "$missing_local_description_dir" --json)"
 assert_contains "$missing_local_description_output" "example-skill: registry-local SKILL.md front matter description is required"
 
+unquoted_description_hash_dir="$tmp_dir/unquoted-description-hash"
+write_ok_fixture "$unquoted_description_hash_dir"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Example fixture skill.", "description: Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$unquoted_description_hash_dir/example-skill/SKILL.md"
+unquoted_description_hash_output="$(expect_failure run_catalog "$unquoted_description_hash_dir" --json)"
+assert_contains "$unquoted_description_hash_output" "example-skill/SKILL.md front matter description contains an unquoted #"
+
+unquoted_description_tab_hash_dir="$tmp_dir/unquoted-description-tab-hash"
+write_ok_fixture "$unquoted_description_tab_hash_dir"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Example fixture skill.", "description: Uses @Test,\t#expect, and #require.")
+  File.write(path, text)
+' "$unquoted_description_tab_hash_dir/example-skill/SKILL.md"
+unquoted_description_tab_hash_output="$(expect_failure run_catalog "$unquoted_description_tab_hash_dir" --json)"
+assert_contains "$unquoted_description_tab_hash_output" "example-skill/SKILL.md front matter description contains an unquoted #"
+
+quoted_key_unquoted_description_hash_dir="$tmp_dir/quoted-key-unquoted-description-hash"
+write_ok_fixture "$quoted_key_unquoted_description_hash_dir"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Example fixture skill.", "\"description\": Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$quoted_key_unquoted_description_hash_dir/example-skill/SKILL.md"
+quoted_key_unquoted_description_hash_output="$(expect_failure run_catalog "$quoted_key_unquoted_description_hash_dir" --json)"
+assert_contains "$quoted_key_unquoted_description_hash_output" "example-skill/SKILL.md front matter description contains an unquoted #"
+
+spaced_key_unquoted_description_hash_dir="$tmp_dir/spaced-key-unquoted-description-hash"
+write_ok_fixture "$spaced_key_unquoted_description_hash_dir"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Example fixture skill.", "description : Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$spaced_key_unquoted_description_hash_dir/example-skill/SKILL.md"
+spaced_key_unquoted_description_hash_output="$(expect_failure run_catalog "$spaced_key_unquoted_description_hash_dir" --json)"
+assert_contains "$spaced_key_unquoted_description_hash_output" "example-skill/SKILL.md front matter description contains an unquoted #"
+
+multiline_unquoted_description_hash_dir="$tmp_dir/multiline-unquoted-description-hash"
+write_ok_fixture "$multiline_unquoted_description_hash_dir"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Example fixture skill.", "description: Uses @Test,\n  #expect, and #require.")
+  File.write(path, text)
+' "$multiline_unquoted_description_hash_dir/example-skill/SKILL.md"
+multiline_unquoted_description_hash_output="$(expect_failure run_catalog "$multiline_unquoted_description_hash_dir" --json)"
+assert_contains "$multiline_unquoted_description_hash_output" "example-skill/SKILL.md front matter description contains an unquoted #"
+
+continuation_only_unquoted_description_hash_dir="$tmp_dir/continuation-only-unquoted-description-hash"
+write_ok_fixture "$continuation_only_unquoted_description_hash_dir"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Example fixture skill.", "description:\n  Uses @Test,\n  #expect, and #require.")
+  File.write(path, text)
+' "$continuation_only_unquoted_description_hash_dir/example-skill/SKILL.md"
+continuation_only_unquoted_description_hash_output="$(expect_failure run_catalog "$continuation_only_unquoted_description_hash_dir" --json)"
+assert_contains "$continuation_only_unquoted_description_hash_output" "example-skill/SKILL.md front matter description contains an unquoted #"
+
+quoted_prefix_comment_description_hash_dir="$tmp_dir/quoted-prefix-comment-description-hash"
+write_ok_fixture "$quoted_prefix_comment_description_hash_dir"
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Example fixture skill.", "description: \"Uses @Test,\" #expect, and #require.")
+  File.write(path, text)
+' "$quoted_prefix_comment_description_hash_dir/example-skill/SKILL.md"
+quoted_prefix_comment_description_hash_output="$(expect_failure run_catalog "$quoted_prefix_comment_description_hash_dir" --json)"
+assert_contains "$quoted_prefix_comment_description_hash_output" "example-skill/SKILL.md front matter description contains an unquoted #"
+
 ruby -e '
   path = ARGV.fetch(0)
   text = File.read(path).sub("Example fixture skill.", "Changed fixture skill.")

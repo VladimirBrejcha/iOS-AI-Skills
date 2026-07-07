@@ -4142,6 +4142,288 @@ YAML
 bad_profile_shape_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$bad_profile_shape_dir/skills.registry.yaml" --lock "$bad_profile_shape_dir/skills.lock.yaml" --profile "$bad_profile_shape_dir/profiles/machine/example.yaml")"
 assert_contains "$bad_profile_shape_output" "must contain a top-level mapping"
 
+unquoted_description_hash_dir="$tmp_dir/unquoted-description-hash"
+write_skill "$unquoted_description_hash_dir/example-skill" "example-skill" "Good description fixture."
+mkdir -p "$unquoted_description_hash_dir/profiles/machine" "$unquoted_description_hash_dir/consumer-root"
+
+cat >"$unquoted_description_hash_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: unquoted-description-hash
+  name: Unquoted Description Hash
+skills:
+  - id: example-skill
+    status: active
+    source:
+      type: registry-local
+      path: example-skill
+    exported_names:
+      - example-skill
+YAML
+
+write_lock_from_registry "$unquoted_description_hash_dir"
+
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Good description fixture.", "description: Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$unquoted_description_hash_dir/example-skill/SKILL.md"
+
+cat >"$unquoted_description_hash_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: unquoted-description-hash-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+selected_skills:
+  - skill_id: example-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+
+unquoted_description_hash_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$unquoted_description_hash_dir/skills.registry.yaml" --lock "$unquoted_description_hash_dir/skills.lock.yaml" --profile "$unquoted_description_hash_dir/profiles/machine/example.yaml")"
+assert_contains "$unquoted_description_hash_output" "front matter description contains an unquoted #"
+
+unquoted_description_tab_hash_dir="$tmp_dir/unquoted-description-tab-hash"
+write_skill "$unquoted_description_tab_hash_dir/example-skill" "example-skill" "Good description fixture."
+mkdir -p "$unquoted_description_tab_hash_dir/profiles/machine"
+
+cat >"$unquoted_description_tab_hash_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: unquoted-description-tab-hash
+  name: Unquoted Description Tab Hash
+skills:
+  - id: example-skill
+    status: active
+    source:
+      type: registry-local
+      path: example-skill
+    exported_names:
+      - example-skill
+YAML
+
+write_lock_from_registry "$unquoted_description_tab_hash_dir"
+
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Good description fixture.", "description: Uses @Test,\t#expect, and #require.")
+  File.write(path, text)
+' "$unquoted_description_tab_hash_dir/example-skill/SKILL.md"
+
+cat >"$unquoted_description_tab_hash_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: unquoted-description-tab-hash-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+selected_skills:
+  - skill_id: example-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+
+unquoted_description_tab_hash_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$unquoted_description_tab_hash_dir/skills.registry.yaml" --lock "$unquoted_description_tab_hash_dir/skills.lock.yaml" --profile "$unquoted_description_tab_hash_dir/profiles/machine/example.yaml")"
+assert_contains "$unquoted_description_tab_hash_output" "front matter description contains an unquoted #"
+
+quoted_key_unquoted_description_hash_dir="$tmp_dir/quoted-key-unquoted-description-hash"
+write_skill "$quoted_key_unquoted_description_hash_dir/example-skill" "example-skill" "Good description fixture."
+mkdir -p "$quoted_key_unquoted_description_hash_dir/profiles/machine" "$quoted_key_unquoted_description_hash_dir/consumer-root"
+
+cat >"$quoted_key_unquoted_description_hash_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: quoted-key-unquoted-description-hash
+  name: Quoted Key Unquoted Description Hash
+skills:
+  - id: example-skill
+    status: active
+    source:
+      type: registry-local
+      path: example-skill
+    exported_names:
+      - example-skill
+YAML
+
+write_lock_from_registry "$quoted_key_unquoted_description_hash_dir"
+
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Good description fixture.", "\"description\": Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$quoted_key_unquoted_description_hash_dir/example-skill/SKILL.md"
+
+cat >"$quoted_key_unquoted_description_hash_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: quoted-key-unquoted-description-hash-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+selected_skills:
+  - skill_id: example-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+
+quoted_key_unquoted_description_hash_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$quoted_key_unquoted_description_hash_dir/skills.registry.yaml" --lock "$quoted_key_unquoted_description_hash_dir/skills.lock.yaml" --profile "$quoted_key_unquoted_description_hash_dir/profiles/machine/example.yaml")"
+assert_contains "$quoted_key_unquoted_description_hash_output" "front matter description contains an unquoted #"
+
+spaced_key_unquoted_description_hash_dir="$tmp_dir/spaced-key-unquoted-description-hash"
+write_skill "$spaced_key_unquoted_description_hash_dir/example-skill" "example-skill" "Good description fixture."
+mkdir -p "$spaced_key_unquoted_description_hash_dir/profiles/machine" "$spaced_key_unquoted_description_hash_dir/consumer-root"
+
+cat >"$spaced_key_unquoted_description_hash_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: spaced-key-unquoted-description-hash
+  name: Spaced Key Unquoted Description Hash
+skills:
+  - id: example-skill
+    status: active
+    source:
+      type: registry-local
+      path: example-skill
+    exported_names:
+      - example-skill
+YAML
+
+write_lock_from_registry "$spaced_key_unquoted_description_hash_dir"
+
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Good description fixture.", "description : Uses @Test, #expect, and #require.")
+  File.write(path, text)
+' "$spaced_key_unquoted_description_hash_dir/example-skill/SKILL.md"
+
+cat >"$spaced_key_unquoted_description_hash_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: spaced-key-unquoted-description-hash-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+selected_skills:
+  - skill_id: example-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+
+spaced_key_unquoted_description_hash_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$spaced_key_unquoted_description_hash_dir/skills.registry.yaml" --lock "$spaced_key_unquoted_description_hash_dir/skills.lock.yaml" --profile "$spaced_key_unquoted_description_hash_dir/profiles/machine/example.yaml")"
+assert_contains "$spaced_key_unquoted_description_hash_output" "front matter description contains an unquoted #"
+
+multiline_unquoted_description_hash_dir="$tmp_dir/multiline-unquoted-description-hash"
+write_skill "$multiline_unquoted_description_hash_dir/example-skill" "example-skill" "Good description fixture."
+mkdir -p "$multiline_unquoted_description_hash_dir/profiles/machine" "$multiline_unquoted_description_hash_dir/consumer-root"
+
+cat >"$multiline_unquoted_description_hash_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: multiline-unquoted-description-hash
+  name: Multiline Unquoted Description Hash
+skills:
+  - id: example-skill
+    status: active
+    source:
+      type: registry-local
+      path: example-skill
+    exported_names:
+      - example-skill
+YAML
+
+write_lock_from_registry "$multiline_unquoted_description_hash_dir"
+
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Good description fixture.", "description: Uses @Test,\n  #expect, and #require.")
+  File.write(path, text)
+' "$multiline_unquoted_description_hash_dir/example-skill/SKILL.md"
+
+cat >"$multiline_unquoted_description_hash_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: multiline-unquoted-description-hash-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+selected_skills:
+  - skill_id: example-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+
+multiline_unquoted_description_hash_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$multiline_unquoted_description_hash_dir/skills.registry.yaml" --lock "$multiline_unquoted_description_hash_dir/skills.lock.yaml" --profile "$multiline_unquoted_description_hash_dir/profiles/machine/example.yaml")"
+assert_contains "$multiline_unquoted_description_hash_output" "front matter description contains an unquoted #"
+
+quoted_prefix_comment_description_hash_dir="$tmp_dir/quoted-prefix-comment-description-hash"
+write_skill "$quoted_prefix_comment_description_hash_dir/example-skill" "example-skill" "Good description fixture."
+mkdir -p "$quoted_prefix_comment_description_hash_dir/profiles/machine" "$quoted_prefix_comment_description_hash_dir/consumer-root"
+
+cat >"$quoted_prefix_comment_description_hash_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: quoted-prefix-comment-description-hash
+  name: Quoted Prefix Comment Description Hash
+skills:
+  - id: example-skill
+    status: active
+    source:
+      type: registry-local
+      path: example-skill
+    exported_names:
+      - example-skill
+YAML
+
+write_lock_from_registry "$quoted_prefix_comment_description_hash_dir"
+
+ruby -e '
+  path = ARGV.fetch(0)
+  text = File.read(path).sub("description: Good description fixture.", "description: \"Uses @Test,\" #expect, and #require.")
+  File.write(path, text)
+' "$quoted_prefix_comment_description_hash_dir/example-skill/SKILL.md"
+
+cat >"$quoted_prefix_comment_description_hash_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: quoted-prefix-comment-description-hash-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+selected_skills:
+  - skill_id: example-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+
+quoted_prefix_comment_description_hash_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$quoted_prefix_comment_description_hash_dir/skills.registry.yaml" --lock "$quoted_prefix_comment_description_hash_dir/skills.lock.yaml" --profile "$quoted_prefix_comment_description_hash_dir/profiles/machine/example.yaml")"
+assert_contains "$quoted_prefix_comment_description_hash_output" "front matter description contains an unquoted #"
+
 missing_lock_dir="$tmp_dir/missing-lock"
 write_skill "$missing_lock_dir/example-skill" "example-skill" "Missing lock fixture."
 mkdir -p "$missing_lock_dir/profiles/machine"
