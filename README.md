@@ -11,10 +11,11 @@ This repository is the public source and policy registry for reusable 51Code
 agent skills. The registry is active as the source and policy layer, but
 coverage is currently partial: skills listed in `skills.registry.yaml` have one
 source owner, lock/version metadata, and registry-defined adapter coverage
-metadata. Codex paths are the current reviewed support baseline; Claude Code
-and repo-local consumers still include planned or manual-review coverage until
-follow-up profile and coverage PRs land. Other top-level `SKILL.md` folders
-remain unclassified backlog until follow-up coverage PRs register them.
+metadata. The shared `~/.agents/skills` manager path is the current reviewed
+baseline for Codex and OpenCode; Claude Code and repo-local consumers still
+include planned or manual-review coverage until follow-up profile and coverage
+PRs land. Other top-level `SKILL.md` folders remain unclassified backlog until
+follow-up coverage PRs register them.
 
 The contract is documented in:
 
@@ -57,7 +58,7 @@ are retained for audit context, not as the current onboarding path.
 
 ## Quick Start
 
-Install one skill globally for Codex:
+Install one skill into the reviewed shared global manager root:
 
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills \
@@ -115,7 +116,7 @@ The registry-covered skill set is also published as generated catalog artifacts:
 - [skills.catalog.json](skills.catalog.json) for websites, automation, and
   agent-host integrations.
 - [Skills Catalog](docs/skills-catalog.md) for a readable list and current
-  pinned Codex install commands.
+  pinned shared-root install commands.
 
 Do not edit those artifacts directly. Change `skills.registry.yaml`,
 `skills.lock.yaml`, or the relevant `SKILL.md` front matter, then run:

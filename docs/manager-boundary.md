@@ -64,7 +64,7 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
   --yes
 ```
 
-Install one skill globally for Codex:
+Install one skill into the reviewed shared global manager root:
 
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills \
@@ -107,8 +107,10 @@ exception is an explicit reviewed `manager-copy` profile: it models a copied
 folder owned by the upstream manager and verifies the copy by digest instead of
 expecting a symlink.
 
-Claude Code stays manual-review in this registry until the relevant skills move
-from `clients.claude: planned` to reviewed support in the registry and example
+OpenCode support uses the same reviewed shared `~/.agents/skills` manager root
+where the upstream global list reports OpenCode visibility. Claude Code stays
+manual-review in this registry until the relevant skills move from
+`clients.claude: planned` to reviewed support in the registry and example
 profiles.
 
 There is no local `--apply` fallback in this repository. If the upstream manager
@@ -132,8 +134,11 @@ a primary source or reproducible failure.
 
 ## Proven Manager-Owned Targets
 
-Eight global Codex manager-copy targets are already proven on the default example
-profile:
+Nine shared global manager-copy targets are already proven on the default
+example profile. The command currently uses `--agent codex` because that is the
+reviewed manager write path for `~/.agents/skills`; the upstream manager reports
+that same shared-root install as visible to OpenCode. Claude Code remains on a
+separate planned/manual-review root until equivalent proof exists.
 
 | Skill | Manager command | Adapter target | Lock key |
 | --- | --- | --- | --- |
@@ -145,6 +150,7 @@ profile:
 | `xcode-cloud` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent codex --global --yes` | `~/.agents/skills/xcode-cloud` | `skills.xcode-cloud` |
 | `swift-concurrency` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent codex --global --yes` | `~/.agents/skills/swift-concurrency` | `skills.swift-concurrency` |
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes` | `~/.agents/skills/swift-testing` | `skills.swift-testing` |
+| `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent codex --global --yes` | `~/.agents/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
 
 The proof profiles and initial drift report are historical artifacts under
 `docs/history/`:
@@ -199,4 +205,5 @@ Known limits that should keep local automation conservative:
    when the pre-write sync plan emits an exact pinned manager command.
 2. Keep Claude Code, legacy Codex symlink roots, repo-local updates, and
    external-git imports in manual review until each target has equivalent
-   manager and doctor/sync evidence.
+   manager and doctor/sync evidence. Keep OpenCode tied to proven shared-root
+   manager evidence rather than adding a separate local writer.

@@ -21,7 +21,7 @@ The non-negotiable contract is:
 - registry-covered reusable skills have one source owner
 - registry-covered reusable skills have lock/version metadata
 - registry-covered reusable skills have generated adapter views for Codex,
-  Claude Code, and repo-local consumers
+  OpenCode, Claude Code, and repo-local consumers
 
 ## Coverage State
 
@@ -175,6 +175,7 @@ Generated adapter views must cover these consumer classes:
 | Consumer class | Typical roots | Current policy |
 | --- | --- | --- |
 | Codex | `.agents/skills`, `~/.agents/skills`, `~/.codex/skills` | Use pinned upstream manager commands where proven; verify manager-owned copies by digest. |
+| OpenCode | `~/.agents/skills` | Use the proven shared manager-owned root where the upstream manager reports OpenCode visibility; verify copied skills by digest. |
 | Claude Code | `.claude/skills`, `~/.claude/skills` | Use pinned upstream manager commands where supported; keep unsupported adapter shapes in manual review. |
 | Repo-local consumers | repo `.agents/skills`, repo `.claude/skills` | Generate from repo profiles; do not commit copied reusable skills as hidden forks. |
 
@@ -224,8 +225,8 @@ A registry-contract PR is ready only when:
 - stale external-pin reports identify whether third-party pins need review
 - public docs use pinned manager commands for reproducible workflows
 - setup/update workflows describe expected outcomes and stop conditions
-- adapter plans cover Codex, Claude Code, and repo-local consumers without
-  hand-editing consumer copies
+- adapter plans cover Codex, OpenCode, Claude Code, and repo-local consumers
+  without hand-editing consumer copies
 - historical proof artifacts are not the primary onboarding path
 - `scripts/skills_sync.rb` remains plan-only
 - public-safety scans show no local path, secret, or private-context leaks

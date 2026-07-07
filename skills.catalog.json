@@ -27,7 +27,8 @@
       ],
       "clients": {
         "claude": "planned",
-        "codex": "supported"
+        "codex": "supported",
+        "opencode": "supported"
       },
       "scopes": [
         "machine",
@@ -60,7 +61,8 @@
       ],
       "clients": {
         "claude": "planned",
-        "codex": "supported"
+        "codex": "supported",
+        "opencode": "supported"
       },
       "scopes": [
         "machine",
@@ -93,7 +95,8 @@
       ],
       "clients": {
         "claude": "planned",
-        "codex": "supported"
+        "codex": "supported",
+        "opencode": "supported"
       },
       "scopes": [
         "machine",
@@ -126,7 +129,8 @@
       ],
       "clients": {
         "claude": "planned",
-        "codex": "supported"
+        "codex": "supported",
+        "opencode": "supported"
       },
       "scopes": [
         "machine",
@@ -159,7 +163,8 @@
       ],
       "clients": {
         "claude": "planned",
-        "codex": "supported"
+        "codex": "supported",
+        "opencode": "supported"
       },
       "scopes": [
         "machine",
@@ -192,7 +197,8 @@
       ],
       "clients": {
         "claude": "planned",
-        "codex": "supported"
+        "codex": "supported",
+        "opencode": "supported"
       },
       "scopes": [
         "machine",
@@ -225,7 +231,8 @@
       ],
       "clients": {
         "claude": "planned",
-        "codex": "supported"
+        "codex": "supported",
+        "opencode": "supported"
       },
       "scopes": [
         "machine",
@@ -258,7 +265,8 @@
       ],
       "clients": {
         "claude": "planned",
-        "codex": "supported"
+        "codex": "supported",
+        "opencode": "supported"
       },
       "scopes": [
         "machine",
@@ -275,6 +283,40 @@
         "registry_source": "fiveonecode/agent-skills",
         "skill": "swift-testing",
         "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes"
+      }
+    },
+    {
+      "id": "swiftui-view-refactor",
+      "name": "swiftui-view-refactor",
+      "description": "Refactor and review SwiftUI view files for consistent structure, dependency injection, and Observation usage. Use when asked to clean up a SwiftUI view’s layout/ordering, handle view models safely (non-optional when possible), or standardize how dependencies and @Observable state are initialized and passed.",
+      "status": "active",
+      "source": {
+        "type": "registry-local",
+        "path": "swiftui-view-refactor"
+      },
+      "exported_names": [
+        "swiftui-view-refactor"
+      ],
+      "clients": {
+        "claude": "planned",
+        "codex": "supported",
+        "opencode": "supported"
+      },
+      "scopes": [
+        "machine",
+        "repo"
+      ],
+      "update_policy": "internal-reviewed",
+      "lock": {
+        "source_type": "registry-local",
+        "path": "swiftui-view-refactor",
+        "digest_sha256": "26b824f6fca3a4d564706c06162a0948e3e51cb7b0fb4b0a45fd3e5eef73ec76"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "swiftui-view-refactor",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent codex --global --yes"
       }
     },
     {
@@ -295,7 +337,8 @@
       ],
       "clients": {
         "claude": "planned",
-        "codex": "planned"
+        "codex": "planned",
+        "opencode": "planned"
       },
       "scopes": [
         "machine",

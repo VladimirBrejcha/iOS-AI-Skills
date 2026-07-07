@@ -46,6 +46,12 @@ skills:
   observed_commit: be297ff80dddec529af1f9b1f1f114aab6c9d11c
   exported_names:
   - swiftui-pro
+- id: swiftui-view-refactor
+  source_type: registry-local
+  path: swiftui-view-refactor
+  digest_sha256: 26b824f6fca3a4d564706c06162a0948e3e51cb7b0fb4b0a45fd3e5eef73ec76
+  exported_names:
+  - swiftui-view-refactor
 - id: xcode-build
   source_type: registry-local
   path: xcode-build

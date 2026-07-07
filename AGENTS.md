@@ -44,7 +44,8 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
   checked-in example profile, or skill front matter, then run
   `scripts/skills_catalog.rb --write`.
 - Reusable skills must have one source owner, lock/version metadata, and
-  generated adapter views for Codex, Claude Code, and repo-local consumers.
+  generated adapter views for Codex, Claude Code, OpenCode, and repo-local
+  consumers.
 - Keep edits scoped to the requested skill(s); avoid cross-skill changes unless asked.
 - When adding/removing a skill, update the README skills list and regenerate
   the catalog if registry-covered metadata changed.
