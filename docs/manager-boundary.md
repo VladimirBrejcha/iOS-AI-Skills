@@ -167,11 +167,13 @@ manager-owned copy under `~/.claude/skills`, the installed file set matched the
 registry source, the post-write sync plan reported `keep`/`ok`, and the manager
 global list reported `harness-engineering` for Claude Code.
 
-The proof profiles and initial drift report are historical artifacts under
-`docs/history/`:
+The checked-in proof artifacts and initial drift report are historical records
+under `docs/history/`:
 
 - `docs/history/manager-pilot-code-review-codex-global.profile.yaml`
 - `docs/history/manager-pilot-harness-engineering-codex-global.profile.yaml`
+- `docs/history/manager-pilot-harness-engineering-claude-global.profile.yaml`
+- `docs/history/manager-pilot-harness-engineering-claude-global.md`
 - `docs/history/skill-registry-drift-report-2026-06-26.md`
 
 New managed targets should be introduced one target at a time through the
