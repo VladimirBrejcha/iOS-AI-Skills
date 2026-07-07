@@ -132,7 +132,7 @@ a primary source or reproducible failure.
 
 ## Proven Manager-Owned Targets
 
-Seven global Codex manager-copy targets are already proven on the default example
+Eight global Codex manager-copy targets are already proven on the default example
 profile:
 
 | Skill | Manager command | Adapter target | Lock key |
@@ -142,6 +142,7 @@ profile:
 | `spec-creation-updating` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes` | `~/.agents/skills/spec-creation-updating` | `skills.spec-creation-updating` |
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes` | `~/.agents/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent codex --global --yes` | `~/.agents/skills/xcode-build` | `skills.xcode-build` |
+| `xcode-cloud` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent codex --global --yes` | `~/.agents/skills/xcode-cloud` | `skills.xcode-cloud` |
 | `swift-concurrency` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent codex --global --yes` | `~/.agents/skills/swift-concurrency` | `skills.swift-concurrency` |
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes` | `~/.agents/skills/swift-testing` | `skills.swift-testing` |
 

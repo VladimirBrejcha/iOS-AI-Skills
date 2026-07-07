@@ -129,6 +129,26 @@ skills:
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 
+  - id: xcode-cloud
+    status: active
+    source:
+      type: registry-local
+      path: xcode-cloud
+    exported_names:
+      - xcode-cloud
+    clients:
+      codex: supported
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: internal-reviewed
+    notes:
+      - Xcode Cloud CI/CD and ci_scripts workflow selected as the next managed
+        profile expansion after the local Xcode build/test lane was proven.
+      - Repo-local usage remains manual review until project profile and
+        upstream manager behavior have equivalent proof.
+
   - id: swift-concurrency
     status: active
     source:

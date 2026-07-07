@@ -179,6 +179,39 @@
       }
     },
     {
+      "id": "xcode-cloud",
+      "name": "xcode-cloud",
+      "description": "Set up, configure, or troubleshoot Xcode Cloud CI/CD workflows and custom build scripts, especially for iOS apps using XcodeGen. Use for requests about Xcode Cloud setup, ci_scripts (ci_post_clone.sh/ci_pre_xcodebuild.sh/ci_post_xcodebuild.sh), build/test/archive automation, or tag-pushing after archives.",
+      "status": "active",
+      "source": {
+        "type": "registry-local",
+        "path": "xcode-cloud"
+      },
+      "exported_names": [
+        "xcode-cloud"
+      ],
+      "clients": {
+        "claude": "planned",
+        "codex": "supported"
+      },
+      "scopes": [
+        "machine",
+        "repo"
+      ],
+      "update_policy": "internal-reviewed",
+      "lock": {
+        "source_type": "registry-local",
+        "path": "xcode-cloud",
+        "digest_sha256": "bb8a1735915cffba60b3a501d0495de9fa5cc0568ad27b62100de7a11fa80d07"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "xcode-cloud",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent codex --global --yes"
+      }
+    },
+    {
       "id": "swift-concurrency",
       "name": "swift-concurrency",
       "description": "Guide for building, auditing, and refactoring Swift code using modern concurrency patterns (Swift 6+). This skill should be used when working with async/await, Tasks, actors, MainActor, Sendable types, isolation domains, or when migrating legacy callback/Combine code to structured concurrency. Covers Approachable Concurrency settings, isolated parameters, and common pitfalls.",
