@@ -201,7 +201,7 @@
         "xcode-cloud"
       ],
       "clients": {
-        "claude": "planned",
+        "claude": "supported",
         "codex": "supported",
         "opencode": "supported"
       },
@@ -219,7 +219,8 @@
         "manager_package": "skills@1.5.14",
         "registry_source": "fiveonecode/agent-skills",
         "skill": "xcode-cloud",
-        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent codex --global --yes"
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent codex --global --yes",
+        "claude_code_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent claude-code --global --yes"
       }
     },
     {

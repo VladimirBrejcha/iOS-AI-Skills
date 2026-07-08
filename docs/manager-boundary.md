@@ -137,11 +137,11 @@ a primary source or reproducible failure.
 Nine shared global manager-copy targets are already proven on the default
 example profile. The command currently uses `--agent codex` because that is the
 reviewed manager write path for `~/.agents/skills`; the upstream manager reports
-that same shared-root install as visible to OpenCode. Claude Code has five
+that same shared-root install as visible to OpenCode. Claude Code has six
 separate proven global targets, `code-review`, `harness-engineering`,
-`spec-creation-updating`, `ios-xcodegen`, and `xcode-build`, through
-`~/.claude/skills`; other Claude Code targets remain planned/manual-review
-until equivalent proof exists.
+`spec-creation-updating`, `ios-xcodegen`, `xcode-build`, and `xcode-cloud`,
+through `~/.claude/skills`; other Claude Code targets remain
+planned/manual-review until equivalent proof exists.
 
 | Skill | Manager command | Adapter target | Lock key |
 | --- | --- | --- | --- |
@@ -155,7 +155,7 @@ until equivalent proof exists.
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes` | `~/.agents/skills/swift-testing` | `skills.swift-testing` |
 | `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent codex --global --yes` | `~/.agents/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
 
-Five separate Claude Code global manager-copy targets are proven on the default
+Six separate Claude Code global manager-copy targets are proven on the default
 example profile:
 
 | Skill | Manager command | Adapter target | Lock key |
@@ -165,6 +165,7 @@ example profile:
 | `spec-creation-updating` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent claude-code --global --yes` | `~/.claude/skills/spec-creation-updating` | `skills.spec-creation-updating` |
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent claude-code --global --yes` | `~/.claude/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent claude-code --global --yes` | `~/.claude/skills/xcode-build` | `skills.xcode-build` |
+| `xcode-cloud` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent claude-code --global --yes` | `~/.claude/skills/xcode-cloud` | `skills.xcode-cloud` |
 
 The Claude Code proofs use the same standard as the shared-root proofs:
 pre-write sync emitted the exact pinned manager command, the command created a
@@ -187,6 +188,8 @@ under `docs/history/`:
 - `docs/history/manager-pilot-spec-creation-updating-claude-global.md`
 - `docs/history/manager-pilot-xcode-build-claude-global.profile.yaml`
 - `docs/history/manager-pilot-xcode-build-claude-global.md`
+- `docs/history/manager-pilot-xcode-cloud-claude-global.profile.yaml`
+- `docs/history/manager-pilot-xcode-cloud-claude-global.md`
 - `docs/history/skill-registry-drift-report-2026-06-26.md`
 
 New managed targets should be introduced one target at a time through the
