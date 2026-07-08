@@ -72,7 +72,9 @@ upstream_dir="$tmp_dir/upstreams"
 mkdir -p "$fixture_dir" "$upstream_dir/public-source/skills/external-copy"
 
 write_skill "$fixture_dir" "external-copy" "external-copy" "# External Copy"
+write_skill "$fixture_dir" "drifted-external-copy" "drifted-external-copy" "# Drifted Local Reviewed Copy"
 write_skill "$fixture_dir" "unregistered-copy" "unregistered-copy" "# Unregistered Copy"
+write_skill "$fixture_dir" "missing-upstream-copy" "missing-upstream-copy" "# Missing Upstream Copy"
 write_skill "$fixture_dir" "candidate-copy" "candidate-copy" "# Candidate Copy"
 write_skill "$fixture_dir" "local-fork-copy" "local-fork-copy" "# Local Fork Copy"
 write_skill "$fixture_dir" "local-owned" "local-owned" "# Local Owned"
@@ -80,7 +82,19 @@ write_skill "$fixture_dir" "duplicate-a" "duplicate-skill" "# Duplicate"
 mkdir -p "$fixture_dir/duplicate-b"
 cp "$fixture_dir/duplicate-a/SKILL.md" "$fixture_dir/duplicate-b/SKILL.md"
 
-cp "$fixture_dir/external-copy/SKILL.md" "$upstream_dir/public-source/skills/external-copy/SKILL.md"
+for skill_id in external-copy unregistered-copy candidate-copy local-fork-copy; do
+  mkdir -p "$upstream_dir/public-source/skills/$skill_id"
+  cp "$fixture_dir/$skill_id/SKILL.md" "$upstream_dir/public-source/skills/$skill_id/SKILL.md"
+done
+mkdir -p "$upstream_dir/public-source/skills/drifted-external-copy"
+cat >"$upstream_dir/public-source/skills/drifted-external-copy/SKILL.md" <<'SKILL'
+---
+name: drifted-external-copy
+description: Upstream copy rewritten with unrelated words.
+---
+
+# Upstream unrelated source text alpha beta gamma delta epsilon zeta eta theta
+SKILL
 
 cat >"$fixture_dir/skills.registry.yaml" <<'YAML'
 schema_version: 0.1
@@ -91,6 +105,16 @@ skills:
     source:
       type: registry-local
       path: external-copy
+  - id: drifted-external-copy
+    status: active
+    source:
+      type: registry-local
+      path: drifted-external-copy
+  - id: missing-registry-source
+    status: active
+    source:
+      type: registry-local
+      path: missing-registry-source
   - id: local-owned
     status: active
     source:
@@ -112,11 +136,23 @@ sources:
         confidence: high
         match: exact-observed
         recommended_registry_source: external-git
+      - local_id: drifted-external-copy
+        upstream_path: skills/drifted-external-copy
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
       - local_id: unregistered-copy
         upstream_path: skills/unregistered-copy
         status: derived
         confidence: high
         match: upstream-drift-observed
+        recommended_registry_source: external-git
+      - local_id: missing-upstream-copy
+        upstream_path: skills/missing-upstream-copy
+        status: confirmed
+        confidence: high
+        match: exact-observed
         recommended_registry_source: external-git
       - local_id: candidate-copy
         upstream_path: skills/candidate-copy
@@ -139,24 +175,34 @@ sources:
 YAML
 
 json_output="$(run_audit "$fixture_dir" --json --source-root "public-source=$upstream_dir/public-source")"
-assert_contains "$json_output" '"registry_provenance_conflicts": 1'
+assert_contains "$json_output" '"registry_provenance_conflicts": 2'
+assert_contains "$json_output" '"registry_local_source_missing": 1'
 assert_contains "$json_output" '"stale_provenance_entries": 1'
-assert_contains "$json_output" '"unregistered_external_imports": 1'
+assert_contains "$json_output" '"unregistered_external_imports": 2'
 assert_contains "$json_output" '"unregistered_local_fork_provenance": 1'
 assert_contains "$json_output" '"unregistered_provenance_candidates": 1'
+assert_contains "$json_output" '"source_root_missing": 1'
+assert_contains "$json_output" '"source_root_mismatches": 1'
 assert_contains "$json_output" '"duplicate_local_skill_content": 1'
 assert_contains "$json_output" '"duplicate_skill_names": 1'
 assert_contains "$json_output" '"status": "exact"'
 assert_contains "$json_output" '"path": "[source-root:public-source]/skills/external-copy/SKILL.md"'
+assert_contains "$json_output" '"message": "drifted-external-copy is registry-local but has reviewed external provenance"'
+assert_contains "$json_output" '"message": "drifted-external-copy no longer resembles the provided source-root copy"'
+assert_contains "$json_output" '"message": "missing-upstream-copy points at a missing source-root SKILL.md"'
+assert_contains "$json_output" '"message": "missing-registry-source points at missing local source path missing-registry-source"'
 assert_contains "$json_output" '"message": "missing-local-skill has checked-in provenance but no local skill folder"'
 assert_contains "$json_output" '"message": "local-fork-copy has reviewed local-fork provenance but is not registry-covered"'
 assert_not_contains "$json_output" "$tmp_dir"
 
-markdown_output="$(run_audit "$fixture_dir" --markdown)"
+markdown_output="$(run_audit "$fixture_dir" --markdown --source-root "public-source=$upstream_dir/public-source")"
 assert_contains "$markdown_output" "# Skills Provenance Audit"
 assert_contains "$markdown_output" "external-copy is registry-local but has reviewed external provenance"
+assert_contains "$markdown_output" "missing-registry-source points at missing local source path missing-registry-source"
 assert_contains "$markdown_output" "missing-local-skill has checked-in provenance but no local skill folder"
 assert_contains "$markdown_output" "unregistered-copy appears copied or derived from an external source"
+assert_contains "$markdown_output" "missing-upstream-copy points at a missing source-root SKILL.md"
+assert_contains "$markdown_output" "drifted-external-copy no longer resembles the provided source-root copy"
 assert_contains "$markdown_output" "local-fork-copy has reviewed local-fork provenance but is not registry-covered"
 assert_contains "$markdown_output" "candidate-copy has an unresolved public provenance candidate"
 assert_contains "$markdown_output" "duplicate-a, duplicate-b"
@@ -164,11 +210,28 @@ assert_not_contains "$markdown_output" "$tmp_dir"
 
 conflict_failure="$(expect_failure run_audit "$fixture_dir" --json --fail-on-registry-conflict)"
 assert_contains "$conflict_failure" "registry provenance conflicts found"
-assert_contains "$conflict_failure" '"registry_provenance_conflicts": 1'
+assert_contains "$conflict_failure" '"registry_provenance_conflicts": 2'
 
 import_failure="$(expect_failure run_audit "$fixture_dir" --json --fail-on-unregistered-import)"
 assert_contains "$import_failure" "unregistered external imports found"
-assert_contains "$import_failure" '"unregistered_external_imports": 1'
+assert_contains "$import_failure" '"unregistered_external_imports": 2'
+
+non_mapping_source_dir="$tmp_dir/non-mapping-source"
+mkdir -p "$non_mapping_source_dir"
+write_skill "$non_mapping_source_dir" "example-skill"
+cat >"$non_mapping_source_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+skills: []
+YAML
+cat >"$non_mapping_source_dir/provenance.sources.yaml" <<'YAML'
+schema_version: 0.1
+sources:
+  - not-a-mapping
+YAML
+
+non_mapping_source_output="$(expect_failure run_audit "$non_mapping_source_dir" --json)"
+assert_contains "$non_mapping_source_output" "source entry #1 must be a mapping"
+assert_not_contains "$non_mapping_source_output" "$tmp_dir"
 
 non_mapping_dir="$tmp_dir/non-mapping"
 mkdir -p "$non_mapping_dir"

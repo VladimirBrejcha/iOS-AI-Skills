@@ -12,10 +12,13 @@ This report is read-only. It records source-ownership risk; it does not update s
 | Registry-covered skills | 10 |
 | Known provenance entries | 41 |
 | Registry provenance conflicts | 4 |
+| Missing registry-local sources | 0 |
 | Stale provenance entries | 0 |
 | Unregistered external imports | 32 |
 | Unregistered local-fork provenance | 1 |
 | Unresolved provenance candidates | 4 |
+| Missing source-root paths | 0 |
+| Source-root mismatches | 0 |
 | Duplicate local SKILL.md groups | 1 |
 | Duplicate front matter names | 1 |
 | Unclassified local skills | 12 |

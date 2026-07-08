@@ -242,7 +242,14 @@ def load_provenance_entries(path, reporter)
     return []
   end
 
-  sources.each { |source| validate_provenance_source(source, reporter) if source.is_a?(Hash) }
+  sources.each_with_index do |source, index|
+    unless source.is_a?(Hash)
+      reporter.error("#{display_path(path)} source entry ##{index + 1} must be a mapping")
+      next
+    end
+
+    validate_provenance_source(source, reporter)
+  end
 
   sources.flat_map do |source|
     next [] unless source.is_a?(Hash)
@@ -377,13 +384,12 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
     end
 
     comparison = compare_source_root(local_skill, entry, source_roots, root)
-    confidence = comparison&.fetch("confidence", nil) || entry["confidence"]
+    reviewed_confidence = entry["confidence"]
     external_reviewed = entry["recommended_registry_source"] == "external-git" &&
                         entry["status"] != "candidate" &&
-                        %w[high medium].include?(confidence)
+                        %w[high medium].include?(reviewed_confidence)
 
-    details["confidence"] = confidence
-    details["match"] = comparison&.fetch("status", nil) || entry["match"]
+    details["confidence"] = reviewed_confidence
     details["source_root_comparison"] = comparison
 
     if external_reviewed && registry && registry["source_type"] == "registry-local"
@@ -418,13 +424,29 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
         message: "#{local_id} has an unresolved public provenance candidate",
         details: details
       )
+    end
+
+    if comparison && comparison["status"] == "missing-upstream-skill"
+      findings << finding(
+        severity: "warning",
+        kind: "source-root-missing",
+        skill_ids: local_id,
+        message: "#{local_id} points at a missing source-root SKILL.md",
+        details: details.merge(
+          "match" => comparison["status"],
+          "source_root_path" => comparison["path"]
+        )
+      )
     elsif comparison && comparison["status"] == "similarity" && comparison["confidence"] == "low"
       findings << finding(
         severity: "warning",
         kind: "source-root-mismatch",
         skill_ids: local_id,
         message: "#{local_id} no longer resembles the provided source-root copy",
-        details: details
+        details: details.merge(
+          "confidence" => comparison["confidence"],
+          "match" => comparison["status"]
+        )
       )
     end
   end
@@ -495,10 +517,13 @@ def summary_for(skills, registry_entries, provenance_entries, findings)
     "registry_covered_skills" => registry_entries.length,
     "known_provenance_entries" => provenance_entries.length,
     "registry_provenance_conflicts" => by_kind.fetch("registry-provenance-conflict", 0),
+    "registry_local_source_missing" => by_kind.fetch("registry-local-source-missing", 0),
     "stale_provenance_entries" => by_kind.fetch("stale-provenance-entry", 0),
     "unregistered_external_imports" => by_kind.fetch("unregistered-external-import", 0),
     "unregistered_local_fork_provenance" => by_kind.fetch("unregistered-local-fork-provenance", 0),
     "unregistered_provenance_candidates" => by_kind.fetch("unregistered-provenance-candidate", 0),
+    "source_root_missing" => by_kind.fetch("source-root-missing", 0),
+    "source_root_mismatches" => by_kind.fetch("source-root-mismatch", 0),
     "duplicate_local_skill_content" => by_kind.fetch("duplicate-local-skill-content", 0),
     "duplicate_skill_names" => by_kind.fetch("duplicate-skill-name", 0),
     "unclassified_local_skills" => by_kind.fetch("unclassified-local-skill", 0),
@@ -563,10 +588,13 @@ def format_markdown(payload)
       ["Registry-covered skills", summary.fetch("registry_covered_skills")],
       ["Known provenance entries", summary.fetch("known_provenance_entries")],
       ["Registry provenance conflicts", summary.fetch("registry_provenance_conflicts")],
+      ["Missing registry-local sources", summary.fetch("registry_local_source_missing")],
       ["Stale provenance entries", summary.fetch("stale_provenance_entries")],
       ["Unregistered external imports", summary.fetch("unregistered_external_imports")],
       ["Unregistered local-fork provenance", summary.fetch("unregistered_local_fork_provenance")],
       ["Unresolved provenance candidates", summary.fetch("unregistered_provenance_candidates")],
+      ["Missing source-root paths", summary.fetch("source_root_missing")],
+      ["Source-root mismatches", summary.fetch("source_root_mismatches")],
       ["Duplicate local SKILL.md groups", summary.fetch("duplicate_local_skill_content")],
       ["Duplicate front matter names", summary.fetch("duplicate_skill_names")],
       ["Unclassified local skills", summary.fetch("unclassified_local_skills")]
@@ -575,12 +603,14 @@ def format_markdown(payload)
 
   sections = {
     "Registry Provenance Conflicts" => "registry-provenance-conflict",
+    "Missing Registry-Local Sources" => "registry-local-source-missing",
     "Stale Provenance Entries" => "stale-provenance-entry",
     "Unregistered External Imports" => "unregistered-external-import",
     "Unregistered Local-Fork Provenance" => "unregistered-local-fork-provenance",
     "Unresolved Provenance Candidates" => "unregistered-provenance-candidate",
     "Duplicate Local Skills" => "duplicate-local-skill-content",
     "Duplicate Skill Names" => "duplicate-skill-name",
+    "Missing Source-Root Paths" => "source-root-missing",
     "Source Root Mismatches" => "source-root-mismatch",
     "Unclassified Local Skills" => "unclassified-local-skill"
   }
