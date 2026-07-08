@@ -52,9 +52,10 @@ same manager-owned `~/.agents/skills` root used by the pinned Codex command;
 verify it with `npx --yes skills@1.5.14 list --global --json` before treating a
 skill as installed for OpenCode. Claude Code support is currently proven for
 `code-review`, `harness-engineering`, `spec-creation-updating`, and
-`ios-xcodegen` through the separate `~/.claude/skills` root; other Claude Code
-skills remain manual-review until they move from `clients.claude: planned` to
-reviewed support in the registry and profile examples.
+`ios-xcodegen`, and `xcode-build` through the separate `~/.claude/skills` root;
+other Claude Code skills remain manual-review until they move from
+`clients.claude: planned` to reviewed support in the registry and profile
+examples.
 
 Install a reviewed Claude Code target:
 
@@ -85,6 +86,14 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills \
   --skill ios-xcodegen \
+  --agent claude-code \
+  --global \
+  --yes
+```
+
+```bash
+npx --yes skills@1.5.14 add fiveonecode/agent-skills \
+  --skill xcode-build \
   --agent claude-code \
   --global \
   --yes
