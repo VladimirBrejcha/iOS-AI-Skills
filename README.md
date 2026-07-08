@@ -13,11 +13,12 @@ coverage is currently partial: skills listed in `skills.registry.yaml` have one
 source owner, lock/version metadata, and registry-defined adapter coverage
 metadata. The shared `~/.agents/skills` manager path is the current reviewed
 baseline for Codex and OpenCode; `code-review`, `harness-engineering`,
-`spec-creation-updating`, `ios-xcodegen`, and `xcode-build` also have narrow
-reviewed Claude Code baselines through `~/.claude/skills`. Other Claude Code
-skills and repo-local consumers still include planned or manual-review coverage
-until follow-up profile and coverage PRs land. Other top-level `SKILL.md`
-folders remain unclassified backlog until follow-up coverage PRs register them.
+`spec-creation-updating`, `ios-xcodegen`, `xcode-build`, and `xcode-cloud` also
+have narrow reviewed Claude Code baselines through `~/.claude/skills`. Other
+Claude Code skills and repo-local consumers still include planned or
+manual-review coverage until follow-up profile and coverage PRs land. Other
+top-level `SKILL.md` folders remain unclassified backlog until follow-up
+coverage PRs register them.
 
 The contract is documented in:
 
