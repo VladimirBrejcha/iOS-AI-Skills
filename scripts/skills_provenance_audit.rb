@@ -64,7 +64,7 @@ def load_yaml_file(path, reporter)
   parsed = YAML.safe_load(File.read(path), aliases: false, filename: path)
   parsed.nil? ? {} : parsed
 rescue Psych::Exception => error
-  reporter.error("#{display_path(path)} is not valid YAML: #{error.message}")
+  reporter.error("#{display_path(path)} is not valid YAML: #{redact_local_paths(error.message)}")
   nil
 rescue Errno::ENOENT
   reporter.error("#{display_path(path)} does not exist")
@@ -111,7 +111,7 @@ def parse_frontmatter(path, reporter)
   metadata = YAML.safe_load(content, aliases: false, filename: path)
   metadata.is_a?(Hash) ? metadata : {}
 rescue Psych::Exception => error
-  reporter.warn("#{display_path(path)} front matter is not valid YAML: #{error.message}")
+  reporter.warn("#{display_path(path)} front matter is not valid YAML: #{redact_local_paths(error.message)}")
   {}
 rescue SystemCallError => error
   reporter.warn("#{display_path(path)} could not be read: #{redact_local_paths(error.message)}")
@@ -209,7 +209,12 @@ def validate_provenance_source(source, reporter)
     return
   end
 
-  skills.each do |skill|
+  skills.each_with_index do |skill, index|
+    unless skill.is_a?(Hash)
+      reporter.error("#{source_id}: skill entry ##{index + 1} must be a mapping")
+      next
+    end
+
     local_id = skill["local_id"]
     reporter.error("#{source_id}: skill local_id must be a non-empty string") unless valid_string?(local_id)
     unless safe_relative_path?(skill["upstream_path"])
@@ -348,27 +353,38 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
     local_id = entry["local_id"]
     known_ids << local_id
     local_skill = skills[local_id]
-    next unless local_skill
-
     registry = registry_entries[local_id]
+    details = {
+      "source" => provenance_label(entry),
+      "source_url" => entry["source_url"],
+      "source_observed_commit" => entry["source_observed_commit"],
+      "review_status" => entry["status"],
+      "match" => entry["match"],
+      "recommended_registry_source" => entry["recommended_registry_source"],
+      "registry_source_type" => registry&.fetch("source_type", nil),
+      "note" => entry["note"]
+    }
+
+    unless local_skill
+      findings << finding(
+        severity: "warning",
+        kind: "stale-provenance-entry",
+        skill_ids: local_id,
+        message: "#{local_id} has checked-in provenance but no local skill folder",
+        details: details
+      )
+      next
+    end
+
     comparison = compare_source_root(local_skill, entry, source_roots, root)
     confidence = comparison&.fetch("confidence", nil) || entry["confidence"]
     external_reviewed = entry["recommended_registry_source"] == "external-git" &&
                         entry["status"] != "candidate" &&
                         %w[high medium].include?(confidence)
 
-    details = {
-      "source" => provenance_label(entry),
-      "source_url" => entry["source_url"],
-      "source_observed_commit" => entry["source_observed_commit"],
-      "review_status" => entry["status"],
-      "confidence" => confidence,
-      "match" => comparison&.fetch("status", nil) || entry["match"],
-      "recommended_registry_source" => entry["recommended_registry_source"],
-      "registry_source_type" => registry&.fetch("source_type", nil),
-      "source_root_comparison" => comparison,
-      "note" => entry["note"]
-    }
+    details["confidence"] = confidence
+    details["match"] = comparison&.fetch("status", nil) || entry["match"]
+    details["source_root_comparison"] = comparison
 
     if external_reviewed && registry && registry["source_type"] == "registry-local"
       findings << finding(
@@ -376,6 +392,14 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
         kind: "registry-provenance-conflict",
         skill_ids: local_id,
         message: "#{local_id} is registry-local but has reviewed external provenance",
+        details: details
+      )
+    elsif entry["recommended_registry_source"] == "registry-local" && registry.nil?
+      findings << finding(
+        severity: "warning",
+        kind: "unregistered-local-fork-provenance",
+        skill_ids: local_id,
+        message: "#{local_id} has reviewed local-fork provenance but is not registry-covered",
         details: details
       )
     elsif external_reviewed && registry.nil?
@@ -471,7 +495,9 @@ def summary_for(skills, registry_entries, provenance_entries, findings)
     "registry_covered_skills" => registry_entries.length,
     "known_provenance_entries" => provenance_entries.length,
     "registry_provenance_conflicts" => by_kind.fetch("registry-provenance-conflict", 0),
+    "stale_provenance_entries" => by_kind.fetch("stale-provenance-entry", 0),
     "unregistered_external_imports" => by_kind.fetch("unregistered-external-import", 0),
+    "unregistered_local_fork_provenance" => by_kind.fetch("unregistered-local-fork-provenance", 0),
     "unregistered_provenance_candidates" => by_kind.fetch("unregistered-provenance-candidate", 0),
     "duplicate_local_skill_content" => by_kind.fetch("duplicate-local-skill-content", 0),
     "duplicate_skill_names" => by_kind.fetch("duplicate-skill-name", 0),
@@ -537,7 +563,9 @@ def format_markdown(payload)
       ["Registry-covered skills", summary.fetch("registry_covered_skills")],
       ["Known provenance entries", summary.fetch("known_provenance_entries")],
       ["Registry provenance conflicts", summary.fetch("registry_provenance_conflicts")],
+      ["Stale provenance entries", summary.fetch("stale_provenance_entries")],
       ["Unregistered external imports", summary.fetch("unregistered_external_imports")],
+      ["Unregistered local-fork provenance", summary.fetch("unregistered_local_fork_provenance")],
       ["Unresolved provenance candidates", summary.fetch("unregistered_provenance_candidates")],
       ["Duplicate local SKILL.md groups", summary.fetch("duplicate_local_skill_content")],
       ["Duplicate front matter names", summary.fetch("duplicate_skill_names")],
@@ -547,7 +575,9 @@ def format_markdown(payload)
 
   sections = {
     "Registry Provenance Conflicts" => "registry-provenance-conflict",
+    "Stale Provenance Entries" => "stale-provenance-entry",
     "Unregistered External Imports" => "unregistered-external-import",
+    "Unregistered Local-Fork Provenance" => "unregistered-local-fork-provenance",
     "Unresolved Provenance Candidates" => "unregistered-provenance-candidate",
     "Duplicate Local Skills" => "duplicate-local-skill-content",
     "Duplicate Skill Names" => "duplicate-skill-name",

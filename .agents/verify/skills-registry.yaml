@@ -257,16 +257,19 @@ required_artifacts:
   - skill-drift-snapshot.md
   - skills-catalog.md
   - skills.catalog.json
+  - skills-provenance-audit.json
   - skills-sync-plan.json
 required_pass_signals:
   - shell-syntax
   - ruby-syntax
   - skills-catalog-test
   - skills-doctor-test
+  - skills-provenance-audit-test
   - skills-registry-verify-test
   - skills-setup-workflow-docs-test
   - skills-sync-test
   - skills-upstream-updates-test
+  - provenance-audit
   - catalog-check
   - catalog-artifacts
   - sync-plan

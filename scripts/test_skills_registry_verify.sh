@@ -155,6 +155,21 @@ assert_contains "$ok_frontmatter_output" "validated 1 skill entrypoints"
 ok_output="$(run_public_safety "$ok_dir")"
 assert_contains "$ok_output" "public-safety scan ok"
 
+verify_requirements_output="$(
+  ruby -ryaml -e '
+    config = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
+    required_artifacts = config.fetch("required_artifacts")
+    required_pass_signals = config.fetch("required_pass_signals")
+    missing = []
+    missing << "required_artifact skills-provenance-audit.json" unless required_artifacts.include?("skills-provenance-audit.json")
+    missing << "required_pass_signal skills-provenance-audit-test" unless required_pass_signals.include?("skills-provenance-audit-test")
+    missing << "required_pass_signal provenance-audit" unless required_pass_signals.include?("provenance-audit")
+    abort(missing.join("\n")) unless missing.empty?
+    puts "verify requirements ok"
+  ' "$repo_root/.agents/verify/skills-registry.yaml"
+)"
+assert_contains "$verify_requirements_output" "verify requirements ok"
+
 unquoted_hash_dir="$tmp_dir/unquoted-hash"
 cp -R "$ok_dir/." "$unquoted_hash_dir/"
 ruby -e '

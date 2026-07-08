@@ -12,7 +12,9 @@ This report is read-only. It records source-ownership risk; it does not update s
 | Registry-covered skills | 10 |
 | Known provenance entries | 41 |
 | Registry provenance conflicts | 4 |
+| Stale provenance entries | 0 |
 | Unregistered external imports | 32 |
+| Unregistered local-fork provenance | 1 |
 | Unresolved provenance candidates | 4 |
 | Duplicate local SKILL.md groups | 1 |
 | Duplicate front matter names | 1 |
@@ -63,6 +65,12 @@ This report is read-only. It records source-ownership risk; it does not update s
 | swiftui-liquid-glass | warning | dimillian-skills:swiftui-liquid-glass | high | swiftui-liquid-glass appears copied or derived from an external source but is not registry-covered |
 | swiftui-performance-audit | warning | dimillian-skills:swiftui-performance-audit | medium | swiftui-performance-audit appears copied or derived from an external source but is not registry-covered |
 | threads-api | warning | rawveg-skillsforge-marketplace:skills/threads-api | high | threads-api appears copied or derived from an external source but is not registry-covered |
+
+## Unregistered Local-Fork Provenance
+
+| Skill | Severity | Source/Evidence | Confidence | Message |
+| --- | --- | --- | --- | --- |
+| replicate-cli | warning | rawveg-skillsforge-marketplace:skills/replicate-cli | high | replicate-cli has reviewed local-fork provenance but is not registry-covered |
 
 ## Unresolved Provenance Candidates
 
