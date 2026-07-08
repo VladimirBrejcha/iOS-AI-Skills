@@ -10,8 +10,8 @@ registry:
     Versioned source and policy registry for reusable agent skills with an
     active-partial reviewed shared-root baseline for Codex and OpenCode, a
     narrow proven Claude Code global baseline for code-review,
-    harness-engineering, spec-creation-updating, and ios-xcodegen, plus
-    planned/manual-review adapter coverage for repo-local and broader
+    harness-engineering, spec-creation-updating, ios-xcodegen, and xcode-build,
+    plus planned/manual-review adapter coverage for repo-local and broader
     machine-level consumers.
 
 rules:
@@ -138,7 +138,7 @@ skills:
     clients:
       codex: supported
       opencode: supported
-      claude: planned
+      claude: supported
     scopes:
       - machine
       - repo
@@ -146,6 +146,9 @@ skills:
     notes:
       - Native Xcode build, run, test, simulator, and UI automation workflow
         selected as the next managed profile expansion after ios-xcodegen.
+      - Claude Code support is proven through a pinned upstream manager write
+        to ~/.claude/skills for this skill; additional Claude Code targets stay
+        planned until separately promoted.
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 
