@@ -6,15 +6,17 @@ commands:
   - id: shell-syntax
     run: |
       set -e
-      for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
+      for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_provenance_audit.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
         bash -n "$file"
       done
   - id: ruby-syntax
-    run: ruby -c scripts/skills_catalog.rb && ruby -c scripts/skills_doctor.rb && ruby -c scripts/skills_sync.rb && ruby -c scripts/skills_upstream_updates.rb
+    run: ruby -c scripts/skills_catalog.rb && ruby -c scripts/skills_doctor.rb && ruby -c scripts/skills_provenance_audit.rb && ruby -c scripts/skills_sync.rb && ruby -c scripts/skills_upstream_updates.rb
   - id: skills-catalog-test
     run: scripts/test_skills_catalog.sh
   - id: skills-doctor-test
     run: scripts/test_skills_doctor.sh
+  - id: skills-provenance-audit-test
+    run: scripts/test_skills_provenance_audit.sh
   - id: skills-registry-verify-test
     run: scripts/test_skills_registry_verify.sh
   - id: skills-setup-workflow-docs-test
@@ -23,6 +25,8 @@ commands:
     run: scripts/test_skills_sync.sh
   - id: skills-upstream-updates-test
     run: scripts/test_skills_upstream_updates.sh
+  - id: provenance-audit
+    run: scripts/skills_provenance_audit.rb --json > "{artifactsDir}/skills-provenance-audit.json"
   - id: catalog-check
     run: scripts/skills_catalog.rb --check
   - id: catalog-artifacts
@@ -187,6 +191,10 @@ commands:
           "scripts/test_skills_catalog.sh" => {
             "file URL fixture" => %r{file:///Users/alice/private-skill},
             "macOS path fixture" => %r{/Users/alice/private}
+          },
+          "scripts/test_skills_provenance_audit.sh" => {
+            "file URL fixture" => %r{file:///Users/alice/private-source},
+            "macOS path fixture" => %r{/Users/alice}
           }
         }
         script_files = glob_all_files("scripts/**/*")
@@ -197,6 +205,7 @@ commands:
           ".gitignore",
           "AGENTS.md",
           "README.md",
+          "provenance.sources.yaml",
           "skills.catalog.json",
           "skills.lock.yaml",
           "skills.registry.yaml",

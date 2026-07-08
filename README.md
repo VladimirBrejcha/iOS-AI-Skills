@@ -40,6 +40,8 @@ The active-partial registry files are:
 - `skills.registry.yaml` - source ownership, upstream source, update policy,
   supported clients, and intended scopes.
 - `skills.lock.yaml` - reviewed resolved source digests and external pins.
+- `provenance.sources.yaml` - public-safe upstream provenance observations for
+  local skill folders that may be copied, derived, or unresolved.
 - `skills.catalog.json` - generated machine-readable public catalog for
   registry-covered skills.
 - `docs/skills-catalog.md` - generated human-readable public catalog.
@@ -49,6 +51,8 @@ The active-partial registry files are:
 - `scripts/skills_doctor.rb` - registry, profile, lock, upstream, manager, and
   adapter health checks.
 - `scripts/skills_sync.rb` - read-only adapter sync planner.
+- `scripts/skills_provenance_audit.rb` - read-only source-ownership and copied
+  skill provenance reporter.
 - `scripts/skills_upstream_updates.rb` - read-only stale external-pin reporter
   for third-party update PR preparation.
 - `scripts/test_skills_setup_workflow_docs.sh` - guardrail for public-safe,
@@ -84,6 +88,7 @@ scripts/skills_doctor.rb
 scripts/skills_doctor.rb --check-upstream
 scripts/skills_doctor.rb --check-manager
 scripts/skills_catalog.rb --check
+scripts/skills_provenance_audit.rb --markdown
 scripts/skills_upstream_updates.rb --markdown
 scripts/skills_sync.rb --plan --json
 ```
@@ -94,6 +99,39 @@ where supported and keep unsupported actions in manual review.
 
 For full workflows, see [Setup And Update Workflow](docs/setup-update-workflow.md)
 and [Usage](docs/usage.md).
+
+## Provenance Audit
+
+Run the read-only provenance audit before registering backlog skills,
+promoting copied skills into profiles, or deciding whether a local copy is an
+external pin or a maintained fork:
+
+```bash
+scripts/skills_provenance_audit.rb --markdown
+scripts/skills_provenance_audit.rb --json
+```
+
+The audit uses `provenance.sources.yaml` plus local `*/SKILL.md` inventory to
+flag registry-local skills with reviewed external provenance, unregistered
+external imports, unresolved public-source candidates, duplicate local skill
+content, and duplicate front matter names. It does not fetch from GitHub,
+update skill content, edit registry/lock files, or write consumer adapters.
+
+When you have a local clone of a candidate upstream, add fresh comparison
+evidence without enabling network access:
+
+```bash
+scripts/skills_provenance_audit.rb --markdown \
+  --source-root pzep1-xcode-build-skill=path/to/xcode-build-skill
+```
+
+The fail flags are available for cleanup gates after the known backlog is
+resolved:
+
+```bash
+scripts/skills_provenance_audit.rb --fail-on-registry-conflict
+scripts/skills_provenance_audit.rb --fail-on-unregistered-import
+```
 
 ## External Update Checks
 

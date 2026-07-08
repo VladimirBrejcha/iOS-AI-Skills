@@ -1,7 +1,7 @@
 # Setup And Update Workflow
 
 Status: active-partial
-Last updated: 2026-07-06
+Last updated: 2026-07-08
 
 Related: [README](../README.md), [Usage](usage.md),
 [Registry Contract](registry-contract.md), [Manager Boundary](manager-boundary.md),
@@ -29,6 +29,8 @@ Use this workflow when you need one of these outcomes:
   hidden fork.
 - A stale third-party pin turns into a reviewed registry update PR instead of a
   silent local update.
+- A copied or external-derived local skill is identified before it is promoted
+  as registry-local source.
 
 ## Preflight
 
@@ -66,6 +68,7 @@ Verify the approved source state:
 scripts/skills_catalog.rb --check
 scripts/skills_doctor.rb
 scripts/skills_doctor.rb --check-upstream
+scripts/skills_provenance_audit.rb --markdown
 scripts/skills_upstream_updates.rb --markdown
 scripts/skills_sync.rb --plan --json
 ```
@@ -142,6 +145,7 @@ Check source, upstream, manager, and adapter state:
 
 ```bash
 scripts/skills_catalog.rb --check
+scripts/skills_provenance_audit.rb --markdown
 scripts/skills_upstream_updates.rb --markdown
 scripts/skills_upstream_updates.rb --fail-on-stale
 scripts/skills_doctor.rb --check-upstream
@@ -230,6 +234,11 @@ Use these rules when setup or update output is not clean:
 - `none`: no manager write is needed for that action.
 - Stale external pin: open a registry/lock/catalog update PR after reviewing
   upstream diff, license state, and skill instructions.
+- Provenance conflict: reclassify the skill as external-git or record it as a
+  maintained registry-local fork before promoting it into more adapters.
+- Unregistered external import: do not install or profile-promote it until the
+  source owner, license state, update policy, scopes, clients, and lock
+  metadata are decided.
 - Missing manager state: rerun the exact reviewed `add` command for that skill
   and scope, then verify with `ls`, doctor, and sync plan.
 - Mixed global installs: do not run broad `update --global`; inspect the
@@ -251,6 +260,7 @@ Before merging setup/update workflow changes, confirm:
 - the workflow never recommends a local sync apply mode
 - the workflow never recommends experimental manager restore paths
 - source updates go through registry/lock/catalog PRs
+- provenance findings are handled before source ownership or profile promotion
 - consumer folders are described as adapter views, not source folders
 - expected outcomes are stated for every write or verification step
 - examples use placeholders such as `path/to/product-repo`, not personal paths

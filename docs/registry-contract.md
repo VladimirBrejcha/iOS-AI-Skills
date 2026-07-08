@@ -1,12 +1,13 @@
 # Registry Contract
 
 Status: active-partial
-Last updated: 2026-07-06
+Last updated: 2026-07-08
 
 Related: [README](../README.md), [Usage](usage.md),
 [Setup And Update Workflow](setup-update-workflow.md),
 [Contributing](contributing.md), [Manager Boundary](manager-boundary.md),
 [registry manifest](../skills.registry.yaml), [lock file](../skills.lock.yaml),
+[provenance source map](../provenance.sources.yaml),
 [generated catalog](../skills.catalog.json), [readable catalog](skills-catalog.md),
 [example machine profile](../profiles/machine/example-local-skills.yaml)
 
@@ -33,6 +34,9 @@ currently partial.
 - Other top-level `SKILL.md` folders are unclassified backlog until a follow-up
   PR assigns source ownership, update policy, supported clients, scopes, and
   lock/version metadata.
+- `provenance.sources.yaml` can record reviewed public-source observations and
+  unresolved candidates for backlog or misclassified skills before registry
+  ownership is changed.
 - Public docs and verification must not imply that unregistered folders already
   satisfy the reusable-skill contract.
 
@@ -53,6 +57,9 @@ In scope:
   commands where the upstream manager can own the write
 - setup/update workflows for new machines, existing machines, repo-local
   installs, verification, failure recovery, and restart expectations
+- read-only provenance audits that flag registry-local external-derived
+  skills, unregistered external imports, unresolved public-source candidates,
+  and duplicate local skill folders
 - public docs that let external users install skills without private 51Code
   context
 
@@ -83,6 +90,14 @@ If a PR modifies a third-party skill's content, it must either reclassify that
 maintained copy as `registry-local` and preserve upstream provenance in
 `notes` or adjacent docs, or move the customization into a separate
 registry-owned wrapper skill.
+
+If `scripts/skills_provenance_audit.rb` reports reviewed external provenance
+for a `registry-local` skill, the next source-ownership PR must either
+reclassify the skill as `external-git` or explicitly keep it `registry-local`
+as a maintained fork with upstream provenance and fork reason recorded.
+Unregistered external imports must not be promoted into profiles until the
+source owner, license review, update policy, supported clients, scopes, and
+lock/version metadata are decided.
 
 ## Version And Lock Policy
 
@@ -137,6 +152,13 @@ generated catalog artifacts, or consumer adapters. A human-reviewed update PR
 is still required to review upstream diff, license state, skill instructions,
 registry metadata, lock metadata, catalog impact, doctor proof, and sync-plan
 impact.
+
+`scripts/skills_provenance_audit.rb` is the complementary read-only reporter
+for skills that are not yet correctly represented as external pins. It reads
+`provenance.sources.yaml` and local `*/SKILL.md` inventory, can optionally
+compare against operator-supplied local upstream clones through `--source-root`,
+and must not fetch from the network or mutate source, registry, lock, catalog,
+or adapter files.
 
 ## Generated Public Catalog
 
@@ -220,6 +242,8 @@ tools must keep paths redacted by default.
 A registry-contract PR is ready only when:
 
 - source ownership remains unique for every registry-covered reusable skill
+- provenance audit findings are acknowledged when a PR registers backlog
+  skills, promotes copied skills, or edits source ownership
 - registry and lock/version metadata are consistent
 - generated public catalog artifacts are current and public-safe
 - stale external-pin reports identify whether third-party pins need review
@@ -237,13 +261,16 @@ A registry-contract PR is ready only when:
 Run these checks before opening or updating a PR:
 
 ```bash
-for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
+for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_provenance_audit.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
   bash -n "$file"
 done
 ruby -c scripts/skills_catalog.rb
 ruby -c scripts/skills_doctor.rb
+ruby -c scripts/skills_provenance_audit.rb
 ruby -c scripts/skills_sync.rb
 ruby -c scripts/skills_upstream_updates.rb
+scripts/test_skills_provenance_audit.sh
+scripts/skills_provenance_audit.rb --markdown
 scripts/test_skills_upstream_updates.sh
 scripts/skills_upstream_updates.rb --markdown
 scripts/test_skills_catalog.sh

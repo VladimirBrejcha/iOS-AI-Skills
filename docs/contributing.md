@@ -1,7 +1,7 @@
 # Contributing
 
 Status: active-partial
-Last updated: 2026-07-06
+Last updated: 2026-07-08
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Usage](usage.md), [Setup And Update Workflow](setup-update-workflow.md),
@@ -16,6 +16,8 @@ Related: [README](../README.md), [Registry Contract](registry-contract.md),
   changes.
 - Keep generated catalog artifacts current when registry-covered public
   metadata changes.
+- Run the provenance audit before classifying backlog skills, promoting copied
+  skills, or deciding whether an external-derived skill is a pin or fork.
 - Run the upstream update report before changing third-party pins.
 - Keep setup/update workflow docs pinned, public-safe, and explicit about
   expected outcomes and stop conditions.
@@ -49,16 +51,18 @@ covered by reviewed lock/version metadata in `skills.lock.yaml`.
 3. Add optional `references/`, `scripts/`, `assets/`, `templates/`, or
    `examples/` only when the skill needs them.
 4. Add the skill to `skills.registry.yaml` as `registry-local`.
-5. Regenerate or update `skills.lock.yaml` when the source set changes.
-6. Update the README skills table if top-level inventory changed.
-7. Regenerate the catalog:
+5. Run `scripts/skills_provenance_audit.rb --markdown` and confirm the new
+   folder does not duplicate or derive from an unrecorded public upstream.
+6. Regenerate or update `skills.lock.yaml` when the source set changes.
+7. Update the README skills table if top-level inventory changed.
+8. Regenerate the catalog:
 
    ```bash
    scripts/skills_catalog.rb --write
    scripts/skills_catalog.rb --check
    ```
 
-8. Run validation.
+9. Run validation.
 
 ## Edit A 51Code-Owned Skill
 
@@ -75,18 +79,21 @@ covered by reviewed lock/version metadata in `skills.lock.yaml`.
 
 Use this when the upstream author remains authoritative.
 
-1. Run `scripts/skills_upstream_updates.rb --markdown` to confirm whether the
+1. Run `scripts/skills_provenance_audit.rb --markdown` to confirm the local
+   folder is already represented with the intended upstream provenance and is
+   not hiding a fork decision.
+2. Run `scripts/skills_upstream_updates.rb --markdown` to confirm whether the
    pin is current, stale, missing upstream, or mismatched.
-2. Confirm the upstream exact tag and license. Commit-only pins are not yet
+3. Confirm the upstream exact tag and license. Commit-only pins are not yet
    supported by doctor/sync.
-3. Review the upstream diff for instruction changes, unexpected scripts, binary
+4. Review the upstream diff for instruction changes, unexpected scripts, binary
    assets, secret-like strings, and private data.
-4. Update `skills.registry.yaml` with the pinned upstream metadata:
+5. Update `skills.registry.yaml` with the pinned upstream metadata:
    `source.pinned_tag` and `source.observed_commit`. Record the reviewed date
    in `source.observed_at` or in the PR body until doctor/sync/lock
    enforcement supports it end-to-end. Keep the current license review result
    in `notes` or the PR body until the registry schema has a dedicated field.
-5. Regenerate `skills.lock.yaml` with upstream checking:
+6. Regenerate `skills.lock.yaml` with upstream checking:
 
    ```bash
    tmp_lock="$(mktemp "${TMPDIR:-/tmp}/skills.lock.yaml.XXXXXX")"
@@ -94,9 +101,9 @@ Use this when the upstream author remains authoritative.
      mv "$tmp_lock" skills.lock.yaml
    ```
 
-6. Regenerate the catalog and review the catalog diff.
-7. Run doctor and sync-plan checks.
-8. Open a PR that states the old pin, new pin, observed commit/date, upstream
+7. Regenerate the catalog and review the catalog diff.
+8. Run doctor and sync-plan checks.
+9. Open a PR that states the old pin, new pin, observed commit/date, upstream
    diff source, license review result, catalog impact, and validation results.
 
 Do not silently auto-update third-party skills on `main`.
@@ -116,6 +123,10 @@ Choose one path:
 
 The PR must record upstream origin, license/history, fork reason, exported
 names, supported clients, scopes, and lock metadata.
+
+If a provenance audit finding is the reason for the fork decision, keep the
+finding in `provenance.sources.yaml` until registry notes or a dedicated schema
+field preserve the upstream origin and fork reason.
 
 ## Adapter/Profile Changes
 
@@ -154,13 +165,16 @@ Use generic examples such as `path/to/product-repo`.
 Run the checks that match the change:
 
 ```bash
-for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
+for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_provenance_audit.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
   bash -n "$file"
 done
 ruby -c scripts/skills_catalog.rb
 ruby -c scripts/skills_doctor.rb
+ruby -c scripts/skills_provenance_audit.rb
 ruby -c scripts/skills_sync.rb
 ruby -c scripts/skills_upstream_updates.rb
+scripts/test_skills_provenance_audit.sh
+scripts/skills_provenance_audit.rb --markdown
 scripts/test_skills_upstream_updates.sh
 scripts/skills_upstream_updates.rb --markdown
 scripts/test_skills_catalog.sh
