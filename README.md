@@ -12,13 +12,11 @@ agent skills. The registry is active as the source and policy layer, but
 coverage is currently partial: skills listed in `skills.registry.yaml` have one
 source owner, lock/version metadata, and registry-defined adapter coverage
 metadata. The shared `~/.agents/skills` manager path is the current reviewed
-baseline for Codex and OpenCode; `code-review`, `harness-engineering`,
-`spec-creation-updating`, `ios-xcodegen`, `xcode-build`, and `xcode-cloud` also
-have narrow reviewed Claude Code baselines through `~/.claude/skills`. Other
-Claude Code skills and repo-local consumers still include planned or
-manual-review coverage until follow-up profile and coverage PRs land. Other
-top-level `SKILL.md` folders remain unclassified backlog until follow-up
-coverage PRs register them.
+baseline for Codex and OpenCode; every active registry-local skill also has a
+reviewed Claude Code baseline through `~/.claude/skills`. Repo-local
+consumers, `swiftui-pro`, and unclassified top-level `SKILL.md` folders still
+include planned or manual-review coverage until follow-up profile and coverage
+PRs land.
 
 The contract is documented in:
 

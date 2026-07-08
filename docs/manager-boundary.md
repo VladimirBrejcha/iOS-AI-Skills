@@ -108,8 +108,8 @@ folder owned by the upstream manager and verifies the copy by digest instead of
 expecting a symlink.
 
 OpenCode support uses the same reviewed shared `~/.agents/skills` manager root
-where the upstream global list reports OpenCode visibility. Claude Code stays
-manual-review in this registry until the relevant skills move from
+where the upstream global list reports OpenCode visibility. Claude Code targets
+stay manual-review unless the relevant skills move from
 `clients.claude: planned` to reviewed support in the registry and example
 profiles.
 
@@ -137,11 +137,10 @@ a primary source or reproducible failure.
 Nine shared global manager-copy targets are already proven on the default
 example profile. The command currently uses `--agent codex` because that is the
 reviewed manager write path for `~/.agents/skills`; the upstream manager reports
-that same shared-root install as visible to OpenCode. Claude Code has six
-separate proven global targets, `code-review`, `harness-engineering`,
-`spec-creation-updating`, `ios-xcodegen`, `xcode-build`, and `xcode-cloud`,
-through `~/.claude/skills`; other Claude Code targets remain
-planned/manual-review until equivalent proof exists.
+that same shared-root install as visible to OpenCode. Claude Code has nine
+separate proven global targets through `~/.claude/skills`, matching the active
+registry-local set. `swiftui-pro`, repo-local consumers, and unclassified
+top-level skills remain planned/manual-review until equivalent proof exists.
 
 | Skill | Manager command | Adapter target | Lock key |
 | --- | --- | --- | --- |
@@ -155,7 +154,7 @@ planned/manual-review until equivalent proof exists.
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes` | `~/.agents/skills/swift-testing` | `skills.swift-testing` |
 | `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent codex --global --yes` | `~/.agents/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
 
-Six separate Claude Code global manager-copy targets are proven on the default
+Nine separate Claude Code global manager-copy targets are proven on the default
 example profile:
 
 | Skill | Manager command | Adapter target | Lock key |
@@ -166,6 +165,9 @@ example profile:
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent claude-code --global --yes` | `~/.claude/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent claude-code --global --yes` | `~/.claude/skills/xcode-build` | `skills.xcode-build` |
 | `xcode-cloud` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent claude-code --global --yes` | `~/.claude/skills/xcode-cloud` | `skills.xcode-cloud` |
+| `swift-concurrency` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent claude-code --global --yes` | `~/.claude/skills/swift-concurrency` | `skills.swift-concurrency` |
+| `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent claude-code --global --yes` | `~/.claude/skills/swift-testing` | `skills.swift-testing` |
+| `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent claude-code --global --yes` | `~/.claude/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
 
 The Claude Code proofs use the same standard as the shared-root proofs:
 pre-write sync emitted the exact pinned manager command, the command created a
@@ -190,12 +192,13 @@ under `docs/history/`:
 - `docs/history/manager-pilot-xcode-build-claude-global.md`
 - `docs/history/manager-pilot-xcode-cloud-claude-global.profile.yaml`
 - `docs/history/manager-pilot-xcode-cloud-claude-global.md`
+- `docs/history/manager-pilot-remaining-claude-global.profile.yaml`
+- `docs/history/manager-pilot-remaining-claude-global.md`
 - `docs/history/skill-registry-drift-report-2026-06-26.md`
 
-New managed targets should be introduced one target at a time through the
-setup/update workflow, with the pre-write sync plan showing an exact pinned
-manager command and the post-write doctor/sync plan proving a matching
-manager-owned copy.
+New managed targets should be introduced through the setup/update workflow,
+with the pre-write sync plan showing exact pinned manager commands and the
+post-write doctor/sync plan proving matching manager-owned copies.
 
 ## Current Upstream Limits To Respect
 
@@ -234,10 +237,10 @@ Known limits that should keep local automation conservative:
 
 ## Next Local Slices
 
-1. Continue managed-profile expansion one registry-local target at a time only
-   when the pre-write sync plan emits an exact pinned manager command.
-2. Continue Claude Code expansion one registry-local target at a time only when
-   the target has equivalent manager and doctor/sync evidence. Keep legacy
-   Codex symlink roots, repo-local updates, and external-git imports in manual
-   review until their own evidence exists. Keep OpenCode tied to proven
-   shared-root manager evidence rather than adding a separate local writer.
+1. Continue managed-profile expansion only when the pre-write sync plan emits
+   exact pinned manager commands and the post-write proof can verify manager
+   ownership by digest.
+2. Keep legacy Codex symlink roots, repo-local updates, unclassified skills,
+   and external-git imports in manual review until their own evidence exists.
+   Keep OpenCode tied to proven shared-root manager evidence rather than adding
+   a separate local writer.
