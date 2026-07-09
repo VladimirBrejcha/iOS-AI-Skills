@@ -57,7 +57,7 @@ skills:
 - id: xcode-build
   source_type: registry-local
   path: xcode-build
-  digest_sha256: fcc1b4b8d9e0164e7c1e028ce9bff9ab70ecbaa8372af674f8eda40bb2e51d7f
+  digest_sha256: 90e020bfd3b2c83422ac2d5d86d2c7641f042b739112f52e952a34cb9924c6ac
   exported_names:
   - xcode-build
 - id: xcode-cloud

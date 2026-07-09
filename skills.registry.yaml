@@ -145,6 +145,14 @@ skills:
     notes:
       - Native Xcode build, run, test, simulator, and UI automation workflow
         selected as the next managed profile expansion after ios-xcodegen.
+      - Maintained registry-local mirror of pzep1/xcode-build-skill
+        skills/xcode-build at observed commit
+        9b5c31392971116b207f79525eeb8a3e57fbf227. The upstream content matched
+        this local skill and references during provenance review.
+      - Upstream repository license reviewed as MIT.
+      - Keep registry-local ownership until the upstream publishes an exact
+        release tag or this registry supports commit-only external pins
+        end-to-end.
       - Claude Code support is proven through a pinned upstream manager write
         to ~/.claude/skills for this skill; additional Claude Code targets stay
         planned until separately promoted.

@@ -16,8 +16,12 @@ sources:
         status: confirmed
         confidence: high
         match: exact-observed
-        recommended_registry_source: external-git
-        note: Local SKILL.md and references matched the public upstream during provenance review.
+        recommended_registry_source: registry-local
+        note: >
+          Local SKILL.md and references matched the public upstream during
+          provenance review. Keep this as a registry-local maintained mirror
+          because the upstream repository has no exact release tag and this
+          registry does not support commit-only external pins end-to-end.
   - id: jamesrochabrun-skills
     url: https://github.com/jamesrochabrun/skills.git
     license: MIT

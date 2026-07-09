@@ -1,12 +1,14 @@
 ---
 name: xcode-build
-description: Build and run iOS/macOS apps using xcodebuild and xcrun simctl directly. Use when building Xcode projects, running iOS simulators, managing devices, compiling Swift code, running UI tests, or automating iOS app interactions. Replaces XcodeBuildMCP with native CLI tools.
+description: Build and run iOS/macOS apps using xcodebuild and xcrun simctl directly. Use when building Xcode projects, running iOS simulators, managing devices, compiling Swift code, running UI tests, or automating iOS app interactions with a zero-dependency CLI baseline.
 allowed-tools: Bash, Read, Grep, Glob
 ---
 
 # Xcode Build Direct
 
-Build and manage iOS/macOS projects using native Xcode CLI tools instead of MCP servers.
+Build and manage iOS/macOS projects using native Xcode CLI tools. This is a
+zero-dependency baseline for environments where richer tooling is unavailable or
+where direct command evidence is preferred.
 
 ## When to Use This Skill
 
@@ -19,7 +21,10 @@ Use this skill when:
 - Running tests (unit or UI)
 - Automating UI interactions (tap, type, swipe)
 
-**Preference**: Always use direct CLI commands (`xcodebuild`, `xcrun simctl`) instead of XcodeBuildMCP tools.
+**Preference**: Use direct CLI commands (`xcodebuild`, `xcrun simctl`) when you
+need portable, inspectable build evidence. If a project has a proven richer
+tooling path, such as XcodeBuildMCP, simulator automation, or a repo-local
+harness, follow that project-specific path.
 
 ## Quick Start
 
@@ -137,8 +142,8 @@ xcodebuild -workspace App.xcworkspace -scheme App \
 
 For tapping, typing, and UI element queries, use **XCUITest** (Apple's native UI testing framework).
 
-This is more powerful than MCP-based automation because:
-- Native to iOS, always up-to-date
+This is useful as a portable baseline because:
+- Native to iOS and maintained with Xcode
 - Full access to accessibility tree
 - Can wait for elements, handle animations
 - Integrates with Xcode test runner
@@ -173,7 +178,8 @@ xcodebuild -workspace App.xcworkspace -scheme AppUITests \
 
 ## Session Configuration
 
-Unlike MCP, CLI tools don't maintain session state. Use environment variables or a config file:
+Direct CLI tools don't maintain session state. Use environment variables or a
+config file:
 
 ```bash
 # Set up session variables
@@ -216,7 +222,13 @@ ls -la /tmp/build/Build/Products/Debug-iphonesimulator/
 ls ~/Library/Developer/Xcode/DerivedData/
 ```
 
-## Key Differences from XcodeBuildMCP
+## Direct CLI Baseline
+
+XcodeBuildMCP and simulator automation tools can provide richer agent
+interfaces, persistent session state, and higher-level interactions when they
+are configured for the current project. This skill keeps the direct command
+equivalents visible so agents can still build, run, test, and capture evidence
+without depending on an MCP server.
 
 | Feature | XcodeBuildMCP | This Skill |
 |---------|---------------|------------|
