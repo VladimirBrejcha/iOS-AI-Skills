@@ -15,6 +15,7 @@ DEFAULT_PROVENANCE_PATH = ROOT.join("provenance.sources.yaml").freeze
 VALID_CONFIDENCE = %w[high medium low].freeze
 VALID_REVIEW_STATUS = %w[confirmed derived candidate].freeze
 VALID_RECOMMENDED_SOURCE = %w[external-git registry-local unknown].freeze
+SAFE_ID_PATTERN = /\A[A-Za-z0-9][A-Za-z0-9_.-]*\z/
 
 class Reporter
   attr_reader :errors, :warnings
@@ -56,6 +57,8 @@ def redact_local_paths(text)
 
   text
     .to_s
+    .gsub(%r{\((?:/|[a-z]:[\\/]|\\\\)[^)]*\)}i, "(<absolute-path>)")
+    .gsub(%r{(?<![[:alnum:]_.-])/(?:[^\r\n)]*)}, "<absolute-path>")
     .gsub(%r{(?<![[:alnum:]_.-])/(?:[^[:space:]]+)}, "<absolute-path>")
     .gsub(%r{(?<![[:alnum:]_.-])(?:[a-z]:[\\/]|\\\\[^\\/\s]+[\\/]|//[^/\s]+/)(?:[^[:space:]]+)}i, "<absolute-path>")
 end
@@ -80,6 +83,10 @@ end
 
 def valid_string?(value)
   value.is_a?(String) && !value.strip.empty? && !value.match?(/[\x00-\x1F\x7F]/)
+end
+
+def safe_top_level_id?(value)
+  valid_string?(value) && value.match?(SAFE_ID_PATTERN)
 end
 
 def safe_relative_path?(value)
@@ -199,39 +206,43 @@ end
 
 def validate_provenance_source(source, reporter)
   source_id = source["id"]
-  reporter.error("provenance source id must be a non-empty string") unless valid_string?(source_id)
-  reporter.error("#{source_id}: source url must be a public https URL") unless public_https_url?(source["url"])
+  safe_source_id = safe_top_level_id?(source_id)
+  source_label = safe_source_id ? source_id : "provenance source"
+  reporter.error("provenance source id must be a safe path segment") unless safe_source_id
+  reporter.error("#{source_label}: source url must be a public https URL") unless public_https_url?(source["url"])
 
   observed_commit = source["observed_commit"]
   if observed_commit && (!observed_commit.is_a?(String) || !observed_commit.match?(/\A[0-9a-f]{40}\z/i))
-    reporter.error("#{source_id}: observed_commit must be a full 40-character git commit hash")
+    reporter.error("#{source_label}: observed_commit must be a full 40-character git commit hash")
   end
 
   skills = source["skills"]
   unless skills.is_a?(Array)
-    reporter.error("#{source_id}: skills must be a list")
+    reporter.error("#{source_label}: skills must be a list")
     return
   end
 
   skills.each_with_index do |skill, index|
     unless skill.is_a?(Hash)
-      reporter.error("#{source_id}: skill entry ##{index + 1} must be a mapping")
+      reporter.error("#{source_label}: skill entry ##{index + 1} must be a mapping")
       next
     end
 
     local_id = skill["local_id"]
-    reporter.error("#{source_id}: skill local_id must be a non-empty string") unless valid_string?(local_id)
+    safe_local_id = safe_top_level_id?(local_id)
+    skill_label = safe_local_id ? local_id : "skill entry ##{index + 1}"
+    reporter.error("#{source_label}: skill local_id must be a safe top-level skill id") unless safe_local_id
     unless safe_relative_path?(skill["upstream_path"])
-      reporter.error("#{source_id}: #{local_id}: upstream_path must be a safe relative path")
+      reporter.error("#{source_label}: #{skill_label}: upstream_path must be a safe relative path")
     end
     unless VALID_REVIEW_STATUS.include?(skill["status"])
-      reporter.error("#{source_id}: #{local_id}: status must be one of #{VALID_REVIEW_STATUS.join(", ")}")
+      reporter.error("#{source_label}: #{skill_label}: status must be one of #{VALID_REVIEW_STATUS.join(", ")}")
     end
     unless VALID_CONFIDENCE.include?(skill["confidence"])
-      reporter.error("#{source_id}: #{local_id}: confidence must be one of #{VALID_CONFIDENCE.join(", ")}")
+      reporter.error("#{source_label}: #{skill_label}: confidence must be one of #{VALID_CONFIDENCE.join(", ")}")
     end
     unless VALID_RECOMMENDED_SOURCE.include?(skill.fetch("recommended_registry_source", "unknown"))
-      reporter.error("#{source_id}: #{local_id}: recommended_registry_source must be external-git, registry-local, or unknown")
+      reporter.error("#{source_label}: #{skill_label}: recommended_registry_source must be external-git, registry-local, or unknown")
     end
   end
 end
@@ -534,7 +545,22 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
     )
   end
 
-  registry_covered_skill_ids = registry_entries.keys + registry_by_source_path.keys
+  external_git_local_ids = []
+  registry_entries.each do |id, entry|
+    next unless entry["source_type"] == "external-git"
+    next unless skills.key?(id)
+
+    external_git_local_ids << id
+    findings << finding(
+      severity: "warning",
+      kind: "registry-external-local-folder",
+      skill_ids: id,
+      message: "#{id} has a local skill folder but registry source is external-git",
+      details: { "registry_source_path" => entry["source_path"] }
+    )
+  end
+
+  registry_covered_skill_ids = registry_by_source_path.keys + external_git_local_ids
   unclassified = skills.keys.sort - registry_covered_skill_ids - known_ids.to_a
   unclassified.each do |id|
     findings << finding(
@@ -557,6 +583,7 @@ def summary_for(skills, registry_entries, provenance_entries, findings)
     "known_provenance_entries" => provenance_entries.length,
     "registry_provenance_conflicts" => by_kind.fetch("registry-provenance-conflict", 0),
     "registry_external_local_fork_conflicts" => by_kind.fetch("registry-external-local-fork-conflict", 0),
+    "registry_external_local_folders" => by_kind.fetch("registry-external-local-folder", 0),
     "registry_local_source_missing" => by_kind.fetch("registry-local-source-missing", 0),
     "stale_provenance_entries" => by_kind.fetch("stale-provenance-entry", 0),
     "unregistered_external_imports" => by_kind.fetch("unregistered-external-import", 0),
@@ -575,13 +602,14 @@ def summary_for(skills, registry_entries, provenance_entries, findings)
 end
 
 def report_payload(skills:, registry_entries:, provenance_entries:, findings:)
+  registry_by_source_path = registry_entries_by_source_path(registry_entries)
   {
     "schema_version" => "0.1",
     "generated_by" => SCRIPT_NAME,
     "summary" => summary_for(skills, registry_entries, provenance_entries, findings),
     "findings" => findings.sort_by { |finding| [finding["severity"], finding["kind"], finding["skill_ids"].join(",")] },
     "skills" => skills.keys.sort.map do |id|
-      registry = registry_entries[id]
+      registry = registry_entry_for_local_id(registry_entries, registry_by_source_path, id)
       provenance = provenance_entries.select { |entry| entry["local_id"] == id }
       {
         "id" => id,
@@ -630,6 +658,7 @@ def format_markdown(payload)
       ["Known provenance entries", summary.fetch("known_provenance_entries")],
       ["Registry provenance conflicts", summary.fetch("registry_provenance_conflicts")],
       ["Registry external/local-fork conflicts", summary.fetch("registry_external_local_fork_conflicts")],
+      ["Registry external local folders", summary.fetch("registry_external_local_folders")],
       ["Missing registry-local sources", summary.fetch("registry_local_source_missing")],
       ["Stale provenance entries", summary.fetch("stale_provenance_entries")],
       ["Unregistered external imports", summary.fetch("unregistered_external_imports")],
@@ -647,6 +676,7 @@ def format_markdown(payload)
   sections = {
     "Registry Provenance Conflicts" => "registry-provenance-conflict",
     "Registry External Local-Fork Conflicts" => "registry-external-local-fork-conflict",
+    "Registry External Local Folders" => "registry-external-local-folder",
     "Missing Registry-Local Sources" => "registry-local-source-missing",
     "Stale Provenance Entries" => "stale-provenance-entry",
     "Unregistered External Imports" => "unregistered-external-import",
@@ -747,7 +777,7 @@ provenance_entries = load_provenance_entries(options[:provenance_path], reporter
 
 if options[:source_root_dir]
   provenance_entries.map { |entry| entry["source_id"] }.uniq.each do |source_id|
-    next unless valid_string?(source_id)
+    next unless safe_top_level_id?(source_id)
 
     candidate = options[:source_root_dir].join(source_id)
     options[:source_roots][source_id] = candidate if candidate.directory?

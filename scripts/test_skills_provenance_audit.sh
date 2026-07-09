@@ -207,6 +207,7 @@ YAML
 json_output="$(run_audit "$fixture_dir" --json --source-root "public-source=$upstream_dir/public-source")"
 assert_contains "$json_output" '"registry_provenance_conflicts": 3'
 assert_contains "$json_output" '"registry_external_local_fork_conflicts": 1'
+assert_contains "$json_output" '"registry_external_local_folders": 1'
 assert_contains "$json_output" '"registry_local_source_missing": 1'
 assert_contains "$json_output" '"stale_provenance_entries": 1'
 assert_contains "$json_output" '"unregistered_external_imports": 2'
@@ -223,6 +224,7 @@ assert_contains "$json_output" '"message": "alias-copy is registry-local but has
 assert_contains "$json_output" '"message": "drifted-external-copy is registry-local but has reviewed external provenance"'
 assert_contains "$json_output" '"message": "drifted-external-copy no longer resembles the provided source-root copy"'
 assert_contains "$json_output" '"message": "external-fork-copy is external-git but has reviewed local-fork provenance"'
+assert_contains "$json_output" '"message": "external-fork-copy has a local skill folder but registry source is external-git"'
 assert_contains "$json_output" '"message": "missing-upstream-copy points at a missing source-root SKILL.md"'
 assert_contains "$json_output" '"message": "missing-registry-source points at missing local source path missing-registry-source"'
 assert_contains "$json_output" '"message": "missing-local-skill has checked-in provenance but no local skill folder"'
@@ -232,11 +234,21 @@ assert_not_contains "$json_output" '"message": "alias-copy appears copied or der
 assert_not_contains "$json_output" '"message": "unknown-copy is not registry-covered and has no checked-in provenance candidate"'
 assert_not_contains "$json_output" "$tmp_dir"
 
+alias_registry_output="$(
+  JSON_INPUT="$json_output" ruby -rjson -e '
+    payload = JSON.parse(ENV.fetch("JSON_INPUT"))
+    skill = payload.fetch("skills").find { |entry| entry.fetch("id") == "alias-copy" }
+    puts [skill.fetch("registry_source_type"), skill.fetch("registry_source_path")].join(" ")
+  '
+)"
+assert_contains "$alias_registry_output" "registry-local alias-copy"
+
 markdown_output="$(run_audit "$fixture_dir" --markdown --source-root "public-source=$upstream_dir/public-source")"
 assert_contains "$markdown_output" "# Skills Provenance Audit"
 assert_contains "$markdown_output" "alias-copy is registry-local but has reviewed external provenance"
 assert_contains "$markdown_output" "external-copy is registry-local but has reviewed external provenance"
 assert_contains "$markdown_output" "external-fork-copy is external-git but has reviewed local-fork provenance"
+assert_contains "$markdown_output" "external-fork-copy has a local skill folder but registry source is external-git"
 assert_contains "$markdown_output" "missing-registry-source points at missing local source path missing-registry-source"
 assert_contains "$markdown_output" "missing-local-skill has checked-in provenance but no local skill folder"
 assert_contains "$markdown_output" "unregistered-copy appears copied or derived from an external source"
@@ -298,9 +310,36 @@ sources:
 YAML
 
 missing_source_id_output="$(expect_failure run_audit "$missing_source_id_dir" --json --source-root-dir "$missing_source_id_dir/source-roots")"
-assert_contains "$missing_source_id_output" "provenance source id must be a non-empty string"
+assert_contains "$missing_source_id_output" "provenance source id must be a safe path segment"
 assert_not_contains "$missing_source_id_output" "TypeError"
 assert_not_contains "$missing_source_id_output" "$tmp_dir"
+
+unsafe_source_id_dir="$tmp_dir/unsafe-source-id"
+mkdir -p "$unsafe_source_id_dir/source-roots" "$tmp_dir/other/skills/example-skill"
+write_skill "$unsafe_source_id_dir" "example-skill"
+cp "$unsafe_source_id_dir/example-skill/SKILL.md" "$tmp_dir/other/skills/example-skill/SKILL.md"
+cat >"$unsafe_source_id_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+skills: []
+YAML
+cat >"$unsafe_source_id_dir/provenance.sources.yaml" <<'YAML'
+schema_version: 0.1
+sources:
+  - id: ../other
+    url: https://github.com/example/public-source.git
+    skills:
+      - local_id: example-skill
+        upstream_path: skills/example-skill
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+YAML
+
+unsafe_source_id_output="$(expect_failure run_audit "$unsafe_source_id_dir" --json --source-root-dir "$unsafe_source_id_dir/source-roots")"
+assert_contains "$unsafe_source_id_output" "provenance source id must be a safe path segment"
+assert_not_contains "$unsafe_source_id_output" '"status": "exact"'
+assert_not_contains "$unsafe_source_id_output" "$tmp_dir"
 
 non_mapping_dir="$tmp_dir/non-mapping"
 mkdir -p "$non_mapping_dir"
@@ -341,6 +380,32 @@ non_list_skills_output="$(expect_failure run_audit "$non_list_skills_dir" --json
 assert_contains "$non_list_skills_output" "bad-source: skills must be a list"
 assert_not_contains "$non_list_skills_output" "undefined method"
 assert_not_contains "$non_list_skills_output" "$tmp_dir"
+
+path_like_local_id_dir="$tmp_dir/path-like-local-id"
+mkdir -p "$path_like_local_id_dir"
+write_skill "$path_like_local_id_dir" "example-skill"
+cat >"$path_like_local_id_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+skills: []
+YAML
+cat >"$path_like_local_id_dir/provenance.sources.yaml" <<'YAML'
+schema_version: 0.1
+sources:
+  - id: bad-source
+    url: https://github.com/example/public-source.git
+    skills:
+      - local_id: /tmp/private-skill
+        upstream_path: skills/example-skill
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+YAML
+
+path_like_local_id_output="$(expect_failure run_audit "$path_like_local_id_dir" --json)"
+assert_contains "$path_like_local_id_output" "bad-source: skill local_id must be a safe top-level skill id"
+assert_not_contains "$path_like_local_id_output" "/tmp/private-skill"
+assert_not_contains "$path_like_local_id_output" "$tmp_dir"
 
 top_level_registry_dir="$tmp_dir/top-level-registry"
 mkdir -p "$top_level_registry_dir"
@@ -388,6 +453,22 @@ YAML
 invalid_yaml_output="$(expect_failure run_audit "$invalid_yaml_dir" --json)"
 assert_contains "$invalid_yaml_output" "is not valid YAML"
 assert_not_contains "$invalid_yaml_output" "$tmp_dir"
+
+space_yaml_dir="$tmp_dir/path with space"
+mkdir -p "$space_yaml_dir"
+write_skill "$space_yaml_dir" "example-skill"
+cat >"$space_yaml_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+skills: []
+YAML
+cat >"$space_yaml_dir/provenance.sources.yaml" <<'YAML'
+sources: [
+YAML
+
+space_yaml_output="$(expect_failure run_audit "$space_yaml_dir" --json)"
+assert_contains "$space_yaml_output" "is not valid YAML"
+assert_not_contains "$space_yaml_output" "path with space"
+assert_not_contains "$space_yaml_output" "$tmp_dir"
 
 invalid_frontmatter_dir="$tmp_dir/invalid-frontmatter"
 mkdir -p "$invalid_frontmatter_dir"

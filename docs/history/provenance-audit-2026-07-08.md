@@ -13,6 +13,7 @@ This report is read-only. It records source-ownership risk; it does not update s
 | Known provenance entries | 41 |
 | Registry provenance conflicts | 4 |
 | Registry external/local-fork conflicts | 0 |
+| Registry external local folders | 0 |
 | Missing registry-local sources | 0 |
 | Stale provenance entries | 0 |
 | Unregistered external imports | 32 |
