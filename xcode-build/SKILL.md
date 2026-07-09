@@ -54,8 +54,9 @@ xcrun simctl list devices available
 
 ### 3. Build for Simulator
 ```bash
-# Get simulator UUID first
-UDID=$(xcrun simctl list devices --json | jq -r '.devices | .[].[] | select(.name=="iPhone 16 Pro") | .udid' | head -1)
+# List available simulators, then copy the UUID between parentheses.
+xcrun simctl list devices available
+UDID="PASTE-SIMULATOR-UUID-HERE"
 
 # Build
 xcodebuild \
