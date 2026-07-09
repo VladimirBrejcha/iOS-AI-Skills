@@ -1,14 +1,14 @@
 ---
 name: xcode-build
-description: Build and run iOS/macOS apps using xcodebuild and xcrun simctl directly. Use when building Xcode projects, running iOS simulators, managing devices, compiling Swift code, running UI tests, or automating iOS app interactions with a zero-dependency CLI baseline.
+description: Build and run iOS/macOS apps using xcodebuild and xcrun simctl directly. Use when building Xcode projects, running iOS simulators, managing devices, compiling Swift code, running UI tests, or automating iOS app interactions with a native Xcode/macOS CLI baseline.
 allowed-tools: Bash, Read, Grep, Glob
 ---
 
 # Xcode Build Direct
 
-Build and manage iOS/macOS projects using native Xcode CLI tools. This is a
-zero-dependency baseline for environments where richer tooling is unavailable or
-where direct command evidence is preferred.
+Build and manage iOS/macOS projects using native Xcode CLI tools. The core
+workflow uses Xcode/macOS command-line tools only; optional third-party helpers
+are called out separately when shown.
 
 ## When to Use This Skill
 

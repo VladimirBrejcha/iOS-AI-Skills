@@ -34,7 +34,7 @@ Future work can promote this skill to `external-git` after either:
 
 ## Product Positioning
 
-The skill stays active because it provides a portable, zero-dependency CLI
+The skill stays active because it provides a portable, native Xcode/macOS CLI
 baseline for Xcode builds, simulator control, tests, logs, and screenshots.
 Richer project-specific tooling, such as XcodeBuildMCP, simulator automation,
 or repo-local harnesses, can still be used when configured and proven for the

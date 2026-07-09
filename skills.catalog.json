@@ -156,7 +156,7 @@
     {
       "id": "xcode-build",
       "name": "xcode-build",
-      "description": "Build and run iOS/macOS apps using xcodebuild and xcrun simctl directly. Use when building Xcode projects, running iOS simulators, managing devices, compiling Swift code, running UI tests, or automating iOS app interactions with a zero-dependency CLI baseline.",
+      "description": "Build and run iOS/macOS apps using xcodebuild and xcrun simctl directly. Use when building Xcode projects, running iOS simulators, managing devices, compiling Swift code, running UI tests, or automating iOS app interactions with a native Xcode/macOS CLI baseline.",
       "status": "active",
       "source": {
         "type": "registry-local",
@@ -178,7 +178,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "xcode-build",
-        "digest_sha256": "af0698693d6fe91780ce9a77bfd3238033b8f4d00321a644166b4a16464e9ca1"
+        "digest_sha256": "4fbb9c243f14965f1e0f6a6f7d15938226ae332fb214a838491fa8dbc1220f0b"
       },
       "install": {
         "manager_package": "skills@1.5.14",
