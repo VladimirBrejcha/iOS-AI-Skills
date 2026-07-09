@@ -207,7 +207,12 @@ xcrun simctl list devicetypes
 xcrun simctl list runtimes
 ```
 
-### Extracting UDIDs with jq
+### Optional JSON Parsing with jq
+
+`jq` is not required for the baseline workflow. Without it, use
+`xcrun simctl list devices available` and copy the simulator UUID from the
+human-readable output. If `jq` is already available, these JSON helpers can make
+selection scriptable:
 
 ```bash
 # Get UDID of specific simulator
@@ -488,11 +493,11 @@ DERIVED_DATA="/tmp/build"
 
 # 1. Find simulator
 echo "Finding simulator..."
-UDID=$(xcrun simctl list devices --json | \
-  jq -r '.devices | .[].[] | select(.name=="iPhone 16 Pro" and .isAvailable==true) | .udid' | head -1)
+UDID="${SIM_UDID:-$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16 Pro/ {print $2; exit}')}"
 
 if [ -z "$UDID" ]; then
-  echo "Error: No simulator found"
+  echo "Error: No simulator found. Set SIM_UDID or choose one from:"
+  xcrun simctl list devices available
   exit 1
 fi
 echo "Using simulator: $UDID"

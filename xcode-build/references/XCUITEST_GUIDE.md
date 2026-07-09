@@ -1,6 +1,8 @@
 # XCUITest UI Automation Guide
 
-This guide covers UI automation using Apple's native XCUITest framework. XCUITest replaces MCP-based tools like `tap`, `type_text`, and `describe_ui` with more powerful, native capabilities.
+This guide covers UI automation using Apple's native XCUITest framework.
+XCUITest is a native alternative to coordinate-style tools like `tap`,
+`type_text`, and `describe_ui` when you want durable, element-based UI tests.
 
 ## Why XCUITest?
 
@@ -56,7 +58,7 @@ final class AppUITests: XCTestCase {
 
 ---
 
-## Finding Elements (replaces `describe_ui`)
+## Finding Elements (native alternative to `describe_ui`)
 
 ### Print Entire UI Hierarchy
 
@@ -146,7 +148,7 @@ XCTAssertTrue(button.isHittable)  // visible and tappable
 
 ---
 
-## Tapping Elements (replaces `tap`)
+## Tapping Elements (native alternative to `tap`)
 
 ### Tap by Element
 
@@ -200,7 +202,7 @@ app.cells["item"].press(forDuration: 1.0, thenDragTo: app.cells["target"])
 
 ---
 
-## Typing Text (replaces `type_text`)
+## Typing Text (native alternative to `type_text`)
 
 ### Type in Text Field
 
@@ -258,7 +260,7 @@ app.typeText("\t")
 
 ---
 
-## Gestures (replaces `gesture`)
+## Gestures (native alternative to `gesture`)
 
 ### Swipe
 
@@ -589,9 +591,9 @@ app.tap()  // Sometimes needed to trigger the handler
 
 ---
 
-## Migration from MCP Tools
+## Mapping From Coordinate-Style Tools
 
-| MCP Tool | XCUITest Equivalent |
+| Coordinate-Style Tool | XCUITest Equivalent |
 |----------|---------------------|
 | `describe_ui()` | `print(app.debugDescription)` |
 | `tap({x: 100, y: 200})` | `app.coordinate(withNormalizedOffset:).tap()` |
