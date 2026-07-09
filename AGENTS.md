@@ -1,9 +1,12 @@
 # Agent Guide
 
-This repo is a collection of Codex skills. Each skill lives in its own top-level directory and is defined by a `SKILL.md` file.
+This repo is a collection of Codex skills. Checked-in local skills live in
+top-level directories with `SKILL.md` files; registry-covered external skills
+point to their authoritative upstream sources through `skills.registry.yaml` and
+`skills.lock.yaml`.
 
 ## Structure
-- One folder per skill at repo root.
+- One folder per checked-in local skill at repo root.
 - Every skill folder must include `SKILL.md` with YAML front matter (`name`, `description`).
 - Optional folders: `assets/`, `scripts/`, `references/`.
 - `skills.registry.yaml` is the source-ownership and update-policy manifest for
@@ -44,7 +47,10 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
 Use local operator-provided context if available. Do not commit private/local context files, machine paths, credentials, internal task links, or company-only notes.
 
 ## How to work in this repo
-- If a task mentions a specific skill, open that skill's `SKILL.md` and follow its workflow.
+- If a task mentions a checked-in local skill, open that skill's `SKILL.md` and
+  follow its workflow. If it mentions a registry-covered external skill, use the
+  registry and lock metadata to find the reviewed upstream source instead of
+  assuming a local `SKILL.md` exists.
 - Use the front matter in `SKILL.md` as the source of truth for name/description.
 - Use `skills.registry.yaml` as the source of truth for ownership, upstream
   source, update policy, and intended consumer exposure.
@@ -124,6 +130,5 @@ Do not block on style nits, broad rewrites, or speculative skill packaging ideas
 ## New Skills
 - `apple-hig-designer`: Design iOS apps following Apple’s HIG, including native components, accessibility validation, and the clarity/deference/depth principles. Open `apple-hig-designer/SKILL.md` for the workflow.
 - `ios-xcodegen`: Manage XcodeGen projects—regenerate `project.yml`, wire assets, configure tests, and resolve packaging issues without editing the generated `.xcodeproj`. Read `ios-xcodegen/SKILL.md` before touching builds.
-- `swift-concurrency`: Review or build Swift 6+ concurrency code (async/await, Tasks, actors, MainActor, Sendable types) and follow the auditing/refactoring workflows in `swift-concurrency/SKILL.md`.
 - `xcode-build`: Run native `xcodebuild`/`xcrun simctl` commands to build, launch, and test iOS/macOS apps; the skill enforces command-line patterns defined in `xcode-build/SKILL.md`.
 - `xcode-cloud`: Configure and debug Xcode Cloud workflows, especially around XcodeGen projects and custom `ci_scripts`. Use the templates and guidance stored in `xcode-cloud/SKILL.md`.

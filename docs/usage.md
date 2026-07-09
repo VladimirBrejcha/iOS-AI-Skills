@@ -52,9 +52,9 @@ same manager-owned `~/.agents/skills` root used by the pinned Codex command;
 verify it with `npx --yes skills@1.5.14 list --global --json` before treating a
 skill as installed for OpenCode. Claude Code support is currently proven for
 every active registry-local skill through the separate `~/.claude/skills`
-root. `swiftui-pro`, repo-local consumers, and unclassified top-level skills
-remain manual-review until they move to reviewed support in the registry and
-profile examples.
+root. External-git entries such as `swift-concurrency` and `swiftui-pro`,
+repo-local consumers, and unclassified top-level skills remain manual-review
+until they move to reviewed support in the registry and profile examples.
 
 Install a reviewed Claude Code target:
 

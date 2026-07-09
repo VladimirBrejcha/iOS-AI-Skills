@@ -1,9 +1,10 @@
 # agent-skills
 
 A curated set of reusable agent skills for Apple platform development, mobile
-tooling, engineering harnesses, marketing workflows, and adjacent services. Each
-skill is self-contained in a top-level directory with a `SKILL.md` that defines
-when and how to use it.
+tooling, engineering harnesses, marketing workflows, and adjacent services.
+Checked-in local skills are self-contained in top-level directories with a
+`SKILL.md`; registry-covered external skills point at their authoritative
+upstream source and reviewed pin.
 
 ## Registry Contract
 
@@ -14,9 +15,9 @@ source owner, lock/version metadata, and registry-defined adapter coverage
 metadata. The shared `~/.agents/skills` manager path is the current reviewed
 baseline for Codex and OpenCode; every active registry-local skill also has a
 reviewed Claude Code baseline through `~/.claude/skills`. Repo-local
-consumers, `swiftui-pro`, and unclassified top-level `SKILL.md` folders still
-include planned or manual-review coverage until follow-up profile and coverage
-PRs land.
+consumers, external-git entries such as `swift-concurrency` and `swiftui-pro`,
+and unclassified top-level `SKILL.md` folders still include planned or
+manual-review coverage until follow-up profile and coverage PRs land.
 
 The contract is documented in:
 
@@ -217,7 +218,6 @@ scripts/skills_catalog.rb --check
 | `silent-pushes-setup` | `silent-pushes-setup` | Setup, debug, or validate iOS silent (background) push notifications with APNs, including entitlements, device token registration, backend APNs sending, and widget refresh. Use for silent push setup or troubleshooting (aps-environment errors, token registration, background delivery, APNs headers). |
 | `social-content` | `social-content` | When the user wants help creating, scheduling, or optimizing social media content for LinkedIn, Twitter/X, Instagram, TikTok, Facebook, or other platforms. Also use when the user mentions 'LinkedIn post,' 'Twitter thread,' 'social media,' 'content calendar,' 'social scheduling,' 'engagement,' or 'viral content.' This skill covers content creation, repurposing, and platform-specific strategies. |
 | `spec-creation-updating` | `spec-creation-updating` | Create, update, review, and improve technical specification documents so they are complete, testable, and implementation-ready. Use when defining new features/systems/APIs, updating existing specs, restructuring documents, auditing missing requirements, or converting vague plans into concrete, verifiable requirements and acceptance criteria. |
-| `swift-concurrency` | `swift-concurrency` | Guide for building, auditing, and refactoring Swift code using modern concurrency patterns (Swift 6+). This skill should be used when working with async/await, Tasks, actors, MainActor, Sendable types, isolation domains, or when migrating legacy callback/Combine code to structured concurrency. Covers Approachable Concurrency settings, isolated parameters, and common pitfalls. |
 | `swift-testing` | `swift-testing` | Use when writing tests with Swift Testing (@Test, #expect, #require), migrating from XCTest, implementing async tests, or parameterizing tests. |
 | `swiftui-animation` | `swiftui-animation` | This skill provides comprehensive guidance for implementing advanced SwiftUI animations, transitions, matched geometry effects, and Metal shader integration. Use when building animations, view transitions, hero animations, or GPU-accelerated effects in SwiftUI apps for iOS and macOS. |
 | `swiftui-expert-skill` | `swiftui-expert-skill` | Write, review, or improve SwiftUI code following best practices for state management, view composition, performance, modern APIs, Swift concurrency, and iOS 26+ Liquid Glass adoption. Use when building new SwiftUI features, refactoring existing views, reviewing code quality, or adopting modern SwiftUI patterns. |

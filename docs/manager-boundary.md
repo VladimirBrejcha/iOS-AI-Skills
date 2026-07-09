@@ -134,13 +134,14 @@ a primary source or reproducible failure.
 
 ## Proven Manager-Owned Targets
 
-Nine shared global manager-copy targets are already proven on the default
+Eight shared global manager-copy targets are already proven on the default
 example profile. The command currently uses `--agent codex` because that is the
 reviewed manager write path for `~/.agents/skills`; the upstream manager reports
-that same shared-root install as visible to OpenCode. Claude Code has nine
+that same shared-root install as visible to OpenCode. Claude Code has eight
 separate proven global targets through `~/.claude/skills`, matching the active
-registry-local set. `swiftui-pro`, repo-local consumers, and unclassified
-top-level skills remain planned/manual-review until equivalent proof exists.
+registry-local set. External-git entries such as `swift-concurrency` and
+`swiftui-pro`, repo-local consumers, and unclassified top-level skills remain
+planned/manual-review until equivalent proof exists.
 
 | Skill | Manager command | Adapter target | Lock key |
 | --- | --- | --- | --- |
@@ -150,11 +151,10 @@ top-level skills remain planned/manual-review until equivalent proof exists.
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes` | `~/.agents/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent codex --global --yes` | `~/.agents/skills/xcode-build` | `skills.xcode-build` |
 | `xcode-cloud` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent codex --global --yes` | `~/.agents/skills/xcode-cloud` | `skills.xcode-cloud` |
-| `swift-concurrency` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent codex --global --yes` | `~/.agents/skills/swift-concurrency` | `skills.swift-concurrency` |
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes` | `~/.agents/skills/swift-testing` | `skills.swift-testing` |
 | `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent codex --global --yes` | `~/.agents/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
 
-Nine separate Claude Code global manager-copy targets are proven on the default
+Eight separate Claude Code global manager-copy targets are proven on the default
 example profile:
 
 | Skill | Manager command | Adapter target | Lock key |
@@ -165,7 +165,6 @@ example profile:
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent claude-code --global --yes` | `~/.claude/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent claude-code --global --yes` | `~/.claude/skills/xcode-build` | `skills.xcode-build` |
 | `xcode-cloud` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent claude-code --global --yes` | `~/.claude/skills/xcode-cloud` | `skills.xcode-cloud` |
-| `swift-concurrency` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent claude-code --global --yes` | `~/.claude/skills/swift-concurrency` | `skills.swift-concurrency` |
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent claude-code --global --yes` | `~/.claude/skills/swift-testing` | `skills.swift-testing` |
 | `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent claude-code --global --yes` | `~/.claude/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
 

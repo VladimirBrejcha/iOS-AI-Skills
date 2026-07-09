@@ -229,33 +229,32 @@
       "description": "Guide for building, auditing, and refactoring Swift code using modern concurrency patterns (Swift 6+). This skill should be used when working with async/await, Tasks, actors, MainActor, Sendable types, isolation domains, or when migrating legacy callback/Combine code to structured concurrency. Covers Approachable Concurrency settings, isolated parameters, and common pitfalls.",
       "status": "active",
       "source": {
-        "type": "registry-local",
-        "path": "swift-concurrency"
+        "type": "external-git",
+        "url": "https://github.com/jamesrochabrun/skills.git",
+        "path": "skills/swift-concurrency",
+        "pinned_tag": "2.1.1",
+        "observed_commit": "2482c176372299c92af01f8414a67172f324e8db",
+        "observed_at": "2026-07-09"
       },
       "exported_names": [
         "swift-concurrency"
       ],
       "clients": {
-        "claude": "supported",
-        "codex": "supported",
-        "opencode": "supported"
+        "claude": "planned",
+        "codex": "planned",
+        "opencode": "planned"
       },
       "scopes": [
         "machine",
         "repo"
       ],
-      "update_policy": "internal-reviewed",
+      "update_policy": "external-reviewed",
       "lock": {
-        "source_type": "registry-local",
-        "path": "swift-concurrency",
-        "digest_sha256": "f23e7ef12daf167ef2a99be9860066c79ee0e63f51c0b423826575d0bf7c5ea9"
-      },
-      "install": {
-        "manager_package": "skills@1.5.14",
-        "registry_source": "fiveonecode/agent-skills",
-        "skill": "swift-concurrency",
-        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent codex --global --yes",
-        "claude_code_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-concurrency --agent claude-code --global --yes"
+        "source_type": "external-git",
+        "url": "https://github.com/jamesrochabrun/skills.git",
+        "path": "skills/swift-concurrency",
+        "pinned_tag": "2.1.1",
+        "observed_commit": "2482c176372299c92af01f8414a67172f324e8db"
       }
     },
     {
