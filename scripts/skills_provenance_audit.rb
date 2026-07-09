@@ -62,7 +62,11 @@ end
 
 def load_yaml_file(path, reporter)
   parsed = YAML.safe_load(File.read(path), aliases: false, filename: path)
-  parsed.nil? ? {} : parsed
+  return {} if parsed.nil?
+  return parsed if parsed.is_a?(Hash)
+
+  reporter.error("#{display_path(path)} top level must be a mapping")
+  nil
 rescue Psych::Exception => error
   reporter.error("#{display_path(path)} is not valid YAML: #{redact_local_paths(error.message)}")
   nil
@@ -254,7 +258,10 @@ def load_provenance_entries(path, reporter)
   sources.flat_map do |source|
     next [] unless source.is_a?(Hash)
 
-    source.fetch("skills", []).map do |skill|
+    skills = source.fetch("skills", [])
+    next [] unless skills.is_a?(Array)
+
+    skills.map do |skill|
       next nil unless skill.is_a?(Hash)
 
       {
@@ -400,6 +407,14 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
         message: "#{local_id} is registry-local but has reviewed external provenance",
         details: details
       )
+    elsif entry["recommended_registry_source"] == "registry-local" && registry && registry["source_type"] == "external-git"
+      findings << finding(
+        severity: "error",
+        kind: "registry-external-local-fork-conflict",
+        skill_ids: local_id,
+        message: "#{local_id} is external-git but has reviewed local-fork provenance",
+        details: details
+      )
     elsif entry["recommended_registry_source"] == "registry-local" && registry.nil?
       findings << finding(
         severity: "warning",
@@ -517,6 +532,7 @@ def summary_for(skills, registry_entries, provenance_entries, findings)
     "registry_covered_skills" => registry_entries.length,
     "known_provenance_entries" => provenance_entries.length,
     "registry_provenance_conflicts" => by_kind.fetch("registry-provenance-conflict", 0),
+    "registry_external_local_fork_conflicts" => by_kind.fetch("registry-external-local-fork-conflict", 0),
     "registry_local_source_missing" => by_kind.fetch("registry-local-source-missing", 0),
     "stale_provenance_entries" => by_kind.fetch("stale-provenance-entry", 0),
     "unregistered_external_imports" => by_kind.fetch("unregistered-external-import", 0),
@@ -588,6 +604,7 @@ def format_markdown(payload)
       ["Registry-covered skills", summary.fetch("registry_covered_skills")],
       ["Known provenance entries", summary.fetch("known_provenance_entries")],
       ["Registry provenance conflicts", summary.fetch("registry_provenance_conflicts")],
+      ["Registry external/local-fork conflicts", summary.fetch("registry_external_local_fork_conflicts")],
       ["Missing registry-local sources", summary.fetch("registry_local_source_missing")],
       ["Stale provenance entries", summary.fetch("stale_provenance_entries")],
       ["Unregistered external imports", summary.fetch("unregistered_external_imports")],
@@ -603,6 +620,7 @@ def format_markdown(payload)
 
   sections = {
     "Registry Provenance Conflicts" => "registry-provenance-conflict",
+    "Registry External Local-Fork Conflicts" => "registry-external-local-fork-conflict",
     "Missing Registry-Local Sources" => "registry-local-source-missing",
     "Stale Provenance Entries" => "stale-provenance-entry",
     "Unregistered External Imports" => "unregistered-external-import",
