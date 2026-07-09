@@ -18,6 +18,7 @@ This report is read-only. It records source-ownership risk; it does not update s
 | Unregistered external imports | 32 |
 | Unregistered local-fork provenance | 1 |
 | Unresolved provenance candidates | 4 |
+| Unresolved provenance recommendations | 0 |
 | Missing source-root paths | 0 |
 | Source-root mismatches | 0 |
 | Duplicate local SKILL.md groups | 1 |

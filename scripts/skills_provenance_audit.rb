@@ -359,15 +359,29 @@ def provenance_label(entry)
   "#{entry["source_id"]}:#{entry["upstream_path"]}"
 end
 
+def registry_entries_by_source_path(registry_entries)
+  registry_entries.values.each_with_object({}) do |entry, by_path|
+    next unless entry["source_type"] == "registry-local"
+    next unless valid_string?(entry["source_path"])
+
+    by_path[entry["source_path"]] ||= entry
+  end
+end
+
+def registry_entry_for_local_id(registry_entries, registry_by_source_path, local_id)
+  registry_entries[local_id] || registry_by_source_path[local_id]
+end
+
 def build_findings(skills:, registry_entries:, provenance_entries:, source_roots:, root:)
   findings = []
   known_ids = Set.new
+  registry_by_source_path = registry_entries_by_source_path(registry_entries)
 
   provenance_entries.each do |entry|
     local_id = entry["local_id"]
     known_ids << local_id
     local_skill = skills[local_id]
-    registry = registry_entries[local_id]
+    registry = registry_entry_for_local_id(registry_entries, registry_by_source_path, local_id)
     details = {
       "source" => provenance_label(entry),
       "source_url" => entry["source_url"],
@@ -376,6 +390,7 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
       "match" => entry["match"],
       "recommended_registry_source" => entry["recommended_registry_source"],
       "registry_source_type" => registry&.fetch("source_type", nil),
+      "registry_source_path" => registry&.fetch("source_path", nil),
       "note" => entry["note"]
     }
 
@@ -399,7 +414,15 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
     details["confidence"] = reviewed_confidence
     details["source_root_comparison"] = comparison
 
-    if external_reviewed && registry && registry["source_type"] == "registry-local"
+    if entry["recommended_registry_source"] == "unknown" && entry["status"] != "candidate"
+      findings << finding(
+        severity: "warning",
+        kind: "unresolved-provenance-recommendation",
+        skill_ids: local_id,
+        message: "#{local_id} has reviewed provenance without a registry source recommendation",
+        details: details
+      )
+    elsif external_reviewed && registry && registry["source_type"] == "registry-local"
       findings << finding(
         severity: "error",
         kind: "registry-provenance-conflict",
@@ -511,7 +534,8 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
     )
   end
 
-  unclassified = skills.keys.sort - registry_entries.keys - known_ids.to_a
+  registry_covered_skill_ids = registry_entries.keys + registry_by_source_path.keys
+  unclassified = skills.keys.sort - registry_covered_skill_ids - known_ids.to_a
   unclassified.each do |id|
     findings << finding(
       severity: "info",
@@ -538,6 +562,7 @@ def summary_for(skills, registry_entries, provenance_entries, findings)
     "unregistered_external_imports" => by_kind.fetch("unregistered-external-import", 0),
     "unregistered_local_fork_provenance" => by_kind.fetch("unregistered-local-fork-provenance", 0),
     "unregistered_provenance_candidates" => by_kind.fetch("unregistered-provenance-candidate", 0),
+    "unresolved_provenance_recommendations" => by_kind.fetch("unresolved-provenance-recommendation", 0),
     "source_root_missing" => by_kind.fetch("source-root-missing", 0),
     "source_root_mismatches" => by_kind.fetch("source-root-mismatch", 0),
     "duplicate_local_skill_content" => by_kind.fetch("duplicate-local-skill-content", 0),
@@ -610,6 +635,7 @@ def format_markdown(payload)
       ["Unregistered external imports", summary.fetch("unregistered_external_imports")],
       ["Unregistered local-fork provenance", summary.fetch("unregistered_local_fork_provenance")],
       ["Unresolved provenance candidates", summary.fetch("unregistered_provenance_candidates")],
+      ["Unresolved provenance recommendations", summary.fetch("unresolved_provenance_recommendations")],
       ["Missing source-root paths", summary.fetch("source_root_missing")],
       ["Source-root mismatches", summary.fetch("source_root_mismatches")],
       ["Duplicate local SKILL.md groups", summary.fetch("duplicate_local_skill_content")],
@@ -626,6 +652,7 @@ def format_markdown(payload)
     "Unregistered External Imports" => "unregistered-external-import",
     "Unregistered Local-Fork Provenance" => "unregistered-local-fork-provenance",
     "Unresolved Provenance Candidates" => "unregistered-provenance-candidate",
+    "Unresolved Provenance Recommendations" => "unresolved-provenance-recommendation",
     "Duplicate Local Skills" => "duplicate-local-skill-content",
     "Duplicate Skill Names" => "duplicate-skill-name",
     "Missing Source-Root Paths" => "source-root-missing",
@@ -698,10 +725,10 @@ parser = OptionParser.new do |opts|
   opts.on("--markdown", "Emit Markdown") do
     options[:format] = "markdown"
   end
-  opts.on("--fail-on-registry-conflict", "Exit non-zero when registry-local entries have reviewed external provenance") do
+  opts.on("--fail-on-registry-conflict", "Exit non-zero when registry entries have reviewed source-ownership conflicts") do
     options[:fail_on_registry_conflict] = true
   end
-  opts.on("--fail-on-unregistered-import", "Exit non-zero when unregistered skills have reviewed external provenance") do
+  opts.on("--fail-on-unregistered-import", "Exit non-zero when unregistered skills have reviewed external or local-fork provenance") do
     options[:fail_on_unregistered_import] = true
   end
 end
@@ -720,6 +747,8 @@ provenance_entries = load_provenance_entries(options[:provenance_path], reporter
 
 if options[:source_root_dir]
   provenance_entries.map { |entry| entry["source_id"] }.uniq.each do |source_id|
+    next unless valid_string?(source_id)
+
     candidate = options[:source_root_dir].join(source_id)
     options[:source_roots][source_id] = candidate if candidate.directory?
   end
@@ -756,11 +785,19 @@ else
 end
 
 failures = []
-if options[:fail_on_registry_conflict] && payload.fetch("summary").fetch("registry_provenance_conflicts").positive?
-  failures << "registry provenance conflicts found"
+if options[:fail_on_registry_conflict]
+  summary = payload.fetch("summary")
+  failures << "registry provenance conflicts found" if summary.fetch("registry_provenance_conflicts").positive?
+  if summary.fetch("registry_external_local_fork_conflicts").positive?
+    failures << "registry external/local-fork conflicts found"
+  end
 end
-if options[:fail_on_unregistered_import] && payload.fetch("summary").fetch("unregistered_external_imports").positive?
-  failures << "unregistered external imports found"
+if options[:fail_on_unregistered_import]
+  summary = payload.fetch("summary")
+  failures << "unregistered external imports found" if summary.fetch("unregistered_external_imports").positive?
+  if summary.fetch("unregistered_local_fork_provenance").positive?
+    failures << "unregistered local-fork provenance found"
+  end
 end
 
 unless failures.empty?
