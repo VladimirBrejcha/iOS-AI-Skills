@@ -178,8 +178,12 @@ skills:
   - id: swift-concurrency
     status: active
     source:
-      type: registry-local
-      path: swift-concurrency
+      type: external-git
+      url: https://github.com/jamesrochabrun/skills.git
+      path: skills/swift-concurrency
+      pinned_tag: 2.1.1
+      observed_commit: 2482c176372299c92af01f8414a67172f324e8db
+      observed_at: "2026-07-09"
     exported_names:
       - swift-concurrency
     clients:
@@ -189,15 +193,28 @@ skills:
     scopes:
       - machine
       - repo
-    update_policy: internal-reviewed
+    update_policy: external-reviewed
+    catalog:
+      description: >
+        Guide for building, auditing, and refactoring Swift code using modern
+        concurrency patterns (Swift 6+). This skill should be used when
+        working with async/await, Tasks, actors, MainActor, Sendable types,
+        isolation domains, or when migrating legacy callback/Combine code to
+        structured concurrency. Covers Approachable Concurrency settings,
+        isolated parameters, and common pitfalls.
     notes:
-      - Swift async/await, actors, Sendable, MainActor, and Swift 6+
-        concurrency guidance selected as the next managed profile expansion
-        after xcode-build.
-      - Claude Code support is proven through a pinned upstream manager write
-        to ~/.claude/skills for this skill.
-      - Repo-local usage remains manual review until project profile and
-        upstream manager behavior have equivalent proof.
+      - Source owner reviewed on 2026-07-09. The exact checked-in
+        swift-concurrency folder matched jamesrochabrun/skills tag 2.1.1 at
+        commit 2482c176372299c92af01f8414a67172f324e8db and path
+        skills/swift-concurrency.
+      - Upstream repository license reviewed as MIT.
+      - Deeper source-material review found
+        tuist/fuckingapproachableswiftconcurrency, but that upstream SKILL.md
+        is not an exact match for this packaged skill and has no exact tag;
+        keep this entry pinned to the tagged exact skill source.
+      - Example profile exposure is manual review until an upstream
+        manager/import path can materialize this external source across Codex,
+        OpenCode, and Claude Code without a local registry copy.
 
   - id: swift-testing
     status: active

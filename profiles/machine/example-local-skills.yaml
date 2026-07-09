@@ -117,7 +117,7 @@ selected_skills:
       - agents_user
       - codex_legacy_user
       - claude_user
-    state: active
+    state: manual-review
     consumer_overrides:
       agents_user:
         adapter: manager-copy

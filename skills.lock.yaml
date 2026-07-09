@@ -27,9 +27,11 @@ skills:
   exported_names:
   - spec-creation-updating
 - id: swift-concurrency
-  source_type: registry-local
-  path: swift-concurrency
-  digest_sha256: f23e7ef12daf167ef2a99be9860066c79ee0e63f51c0b423826575d0bf7c5ea9
+  source_type: external-git
+  path: skills/swift-concurrency
+  url: https://github.com/jamesrochabrun/skills.git
+  pinned_tag: 2.1.1
+  observed_commit: 2482c176372299c92af01f8414a67172f324e8db
   exported_names:
   - swift-concurrency
 - id: swift-testing

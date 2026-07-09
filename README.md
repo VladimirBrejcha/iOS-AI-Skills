@@ -1,9 +1,10 @@
 # agent-skills
 
 A curated set of reusable agent skills for Apple platform development, mobile
-tooling, engineering harnesses, marketing workflows, and adjacent services. Each
-skill is self-contained in a top-level directory with a `SKILL.md` that defines
-when and how to use it.
+tooling, engineering harnesses, marketing workflows, and adjacent services.
+Checked-in local skills are self-contained in top-level directories with a
+`SKILL.md`; registry-covered external skills point at their authoritative
+upstream source and reviewed pin.
 
 ## Registry Contract
 
@@ -14,9 +15,9 @@ source owner, lock/version metadata, and registry-defined adapter coverage
 metadata. The shared `~/.agents/skills` manager path is the current reviewed
 baseline for Codex and OpenCode; every active registry-local skill also has a
 reviewed Claude Code baseline through `~/.claude/skills`. Repo-local
-consumers, `swiftui-pro`, and unclassified top-level `SKILL.md` folders still
-include planned or manual-review coverage until follow-up profile and coverage
-PRs land.
+consumers, external-git entries such as `swift-concurrency` and `swiftui-pro`,
+and unclassified top-level `SKILL.md` folders still include planned or
+manual-review coverage until follow-up profile and coverage PRs land.
 
 The contract is documented in:
 

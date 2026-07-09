@@ -20,15 +20,9 @@ sources:
         note: Local SKILL.md and references matched the public upstream during provenance review.
   - id: jamesrochabrun-skills
     url: https://github.com/jamesrochabrun/skills.git
+    license: MIT
     observed_commit: 2482c176372299c92af01f8414a67172f324e8db
     skills:
-      - local_id: swift-concurrency
-        upstream_path: skills/swift-concurrency
-        status: confirmed
-        confidence: high
-        match: exact-observed
-        recommended_registry_source: external-git
-        note: Local folder matched the public upstream during provenance review.
       - local_id: apple-hig-designer
         upstream_path: skills/apple-hig-designer
         status: confirmed
