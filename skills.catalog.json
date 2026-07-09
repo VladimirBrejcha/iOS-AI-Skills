@@ -240,9 +240,9 @@
         "swift-concurrency"
       ],
       "clients": {
-        "claude": "supported",
-        "codex": "supported",
-        "opencode": "supported"
+        "claude": "planned",
+        "codex": "planned",
+        "opencode": "planned"
       },
       "scopes": [
         "machine",

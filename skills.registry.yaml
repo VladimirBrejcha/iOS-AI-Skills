@@ -187,9 +187,9 @@ skills:
     exported_names:
       - swift-concurrency
     clients:
-      codex: supported
-      opencode: supported
-      claude: supported
+      codex: planned
+      opencode: planned
+      claude: planned
     scopes:
       - machine
       - repo
