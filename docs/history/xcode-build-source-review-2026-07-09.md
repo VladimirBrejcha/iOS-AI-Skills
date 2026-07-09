@@ -5,7 +5,7 @@ Reviewed on 2026-07-09 while deciding whether `xcode-build` should move from
 
 ## Decision
 
-`xcode-build` remains a registry-local maintained mirror for now.
+`xcode-build` remains a registry-local maintained fork for now.
 
 - Source: `https://github.com/pzep1/xcode-build-skill.git`
 - Path: `skills/xcode-build`
@@ -14,9 +14,11 @@ Reviewed on 2026-07-09 while deciding whether `xcode-build` should move from
 - Upstream tag status: no exact release tag observed on 2026-07-09
 
 The local checked-in `SKILL.md` and `references/` content matched the public
-upstream folder during provenance review. The registry contract currently
-requires external-git skills to use an exact pinned tag plus observed commit,
-and commit-only external pins are not supported end-to-end.
+upstream folder before this PR applied local positioning edits. After those
+edits, the checked-in copy is treated as a maintained registry-local fork. The
+registry contract currently requires external-git skills to use an exact pinned
+tag plus observed commit, and commit-only external pins are not supported
+end-to-end.
 
 ## Registry Impact
 
