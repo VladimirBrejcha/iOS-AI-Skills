@@ -34,6 +34,10 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
   evidence needed for reviewed update PRs; it does not mutate registry, lock,
   catalog, or adapter files.
 
+## Local Operator Context
+
+Use local operator-provided context if available. Do not commit private/local context files, machine paths, credentials, internal task links, or company-only notes.
+
 ## How to work in this repo
 - If a task mentions a specific skill, open that skill's `SKILL.md` and follow its workflow.
 - Use the front matter in `SKILL.md` as the source of truth for name/description.
