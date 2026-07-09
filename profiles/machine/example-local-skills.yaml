@@ -122,6 +122,9 @@ selected_skills:
       agents_user:
         adapter: manager-copy
         status: proven-manager-copy
+      claude_user:
+        adapter: manager-copy
+        status: proven-manager-copy
   - skill_id: swift-testing
     expose_to:
       - agents_user
@@ -132,6 +135,9 @@ selected_skills:
       agents_user:
         adapter: manager-copy
         status: proven-manager-copy
+      claude_user:
+        adapter: manager-copy
+        status: proven-manager-copy
   - skill_id: swiftui-view-refactor
     expose_to:
       - agents_user
@@ -140,6 +146,9 @@ selected_skills:
     state: active
     consumer_overrides:
       agents_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+      claude_user:
         adapter: manager-copy
         status: proven-manager-copy
   - skill_id: swiftui-pro
