@@ -178,6 +178,7 @@ scripts/skills_doctor.rb
 scripts/skills_doctor.rb --check-upstream
 scripts/skills_doctor.rb --check-manager
 scripts/skills_catalog.rb --check
+scripts/skills_provenance_audit.rb --markdown
 scripts/skills_upstream_updates.rb --markdown
 ```
 
@@ -186,6 +187,14 @@ Generate a reviewable adapter plan:
 ```bash
 scripts/skills_sync.rb --plan
 scripts/skills_sync.rb --plan --json
+```
+
+Audit unregistered or copied-source backlog before promoting skills or
+changing source ownership:
+
+```bash
+scripts/skills_provenance_audit.rb --markdown
+scripts/skills_provenance_audit.rb --json
 ```
 
 Read `management.owner` before doing anything:

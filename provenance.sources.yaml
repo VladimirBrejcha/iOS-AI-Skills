@@ -1,0 +1,202 @@
+schema_version: 0.1
+observed_at: "2026-07-08"
+description: >
+  Public-safe provenance observations for top-level skills. This file records
+  reviewed candidate upstreams and known copied or derived sources so the
+  provenance audit can flag registry ownership drift without fetching from the
+  network.
+sources:
+  - id: pzep1-xcode-build-skill
+    url: https://github.com/pzep1/xcode-build-skill.git
+    license: MIT
+    observed_commit: 9b5c31392971116b207f79525eeb8a3e57fbf227
+    skills:
+      - local_id: xcode-build
+        upstream_path: skills/xcode-build
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+        note: Local SKILL.md and references matched the public upstream during provenance review.
+  - id: jamesrochabrun-skills
+    url: https://github.com/jamesrochabrun/skills.git
+    observed_commit: 2482c176372299c92af01f8414a67172f324e8db
+    skills:
+      - local_id: swift-concurrency
+        upstream_path: skills/swift-concurrency
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+        note: Local folder matched the public upstream during provenance review.
+      - local_id: apple-hig-designer
+        upstream_path: skills/apple-hig-designer
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+        note: Local SKILL.md matched the public upstream during provenance review.
+      - local_id: design-brief-generator
+        upstream_path: skills/design-brief-generator
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+        note: Local SKILL.md matched the public upstream during provenance review.
+      - local_id: swiftui-animation
+        upstream_path: skills/swiftui-animation
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+        note: Local SKILL.md matched the public upstream during provenance review.
+  - id: johnrogers-claude-swift-engineering
+    url: https://github.com/johnrogers/claude-swift-engineering.git
+    observed_commit: 1dc2cf4d020bd524168f20bec95104da6cb2888c
+    skills:
+      - local_id: swift-testing
+        upstream_path: plugins/swift-engineering/skills/swift-testing
+        status: confirmed
+        confidence: high
+        match: local-frontmatter-patch
+        recommended_registry_source: external-git
+        note: "Body matched upstream; local front matter keeps YAML-safe quoting for #expect/#require."
+  - id: dimillian-skills
+    url: https://github.com/Dimillian/Skills.git
+    observed_commit: 05ba982bfeb0d77d3c97d4542b0ee15034d05f84
+    skills:
+      - local_id: swiftui-liquid-glass
+        upstream_path: swiftui-liquid-glass
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+        note: Local SKILL.md and liquid-glass reference matched the public upstream during provenance review.
+      - local_id: swiftui-view-refactor
+        upstream_path: swiftui-view-refactor
+        status: derived
+        confidence: high
+        match: upstream-drift-observed
+        recommended_registry_source: external-git
+        note: Local skill appears external-derived but differs from current upstream and needs import review.
+      - local_id: swiftui-performance-audit
+        upstream_path: swiftui-performance-audit
+        status: derived
+        confidence: medium
+        match: partial-observed
+        recommended_registry_source: external-git
+        note: Shared reference files matched current upstream while SKILL.md differed.
+  - id: rawveg-skillsforge-marketplace
+    url: https://github.com/rawveg/skillsforge-marketplace.git
+    observed_commit: 9561ce20885bada1d6012d24d9b598d69c097ef2
+    skills:
+      - local_id: revenuecat
+        upstream_path: skills/revenuecat
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+        note: Local SKILL.md matched the public upstream during provenance review.
+      - local_id: threads-api
+        upstream_path: skills/threads-api
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
+        note: Local SKILL.md matched the public upstream during provenance review.
+      - local_id: replicate-cli
+        upstream_path: skills/replicate-cli
+        status: derived
+        confidence: high
+        match: local-overlay-observed
+        recommended_registry_source: registry-local
+        note: Local copy adds Seedance/Seedream notes and should be treated as a fork or wrapper before updates.
+  - id: rudrankriyam-app-store-connect-cli-skills
+    url: https://github.com/rudrankriyam/app-store-connect-cli-skills.git
+    observed_commit: 9f9dd2bfc10ba7a1c52d89d076919061e955fa76
+    skills:
+      - local_id: asc-metadata-sync
+        upstream_path: skills/asc-metadata-sync
+        status: derived
+        confidence: high
+        match: upstream-drift-observed
+        recommended_registry_source: external-git
+        note: Public upstream advanced after the local copy; review current asc workflow before updating.
+      - local_id: asc-ppp-pricing
+        upstream_path: skills/asc-ppp-pricing
+        status: derived
+        confidence: high
+        match: upstream-drift-observed
+        recommended_registry_source: external-git
+        note: Public upstream advanced after the local copy; review pricing workflow before updating.
+      - local_id: asc-shots-pipeline
+        upstream_path: skills/asc-shots-pipeline
+        status: derived
+        confidence: high
+        match: upstream-drift-observed
+        recommended_registry_source: external-git
+        note: Public upstream advanced after the local copy; review screenshot workflow before updating.
+      - local_id: asc-subscription-localization
+        upstream_path: skills/asc-subscription-localization
+        status: derived
+        confidence: high
+        match: upstream-drift-observed
+        recommended_registry_source: external-git
+        note: Public upstream advanced after the local copy; review subscription localization workflow before updating.
+  - id: coreyhaines31-marketingskills
+    url: https://github.com/coreyhaines31/marketingskills.git
+    observed_commit: 6c6017451dcd340f3aaab3e354e28eed8aa782aa
+    skills:
+      - { local_id: marketing-psychology, upstream_path: skills/marketing-psychology, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: programmatic-seo, upstream_path: skills/programmatic-seo, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: seo-audit, upstream_path: skills/seo-audit, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: copywriting, upstream_path: skills/copywriting, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: launch-strategy, upstream_path: skills/launch, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: social-content, upstream_path: skills/social, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: competitor-alternatives, upstream_path: skills/competitors, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: copy-editing, upstream_path: skills/copy-editing, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: marketing-ideas, upstream_path: skills/marketing-ideas, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: pricing-strategy, upstream_path: skills/pricing, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: free-tool-strategy, upstream_path: skills/free-tools, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: analytics-tracking, upstream_path: skills/analytics, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: paid-ads, upstream_path: skills/ads, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: page-cro, upstream_path: skills/cro, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: signup-flow-cro, upstream_path: skills/signup, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: onboarding-cro, upstream_path: skills/onboarding, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: paywall-upgrade-cro, upstream_path: skills/paywalls, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: schema-markup, upstream_path: skills/schema, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: popup-cro, upstream_path: skills/popups, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: email-sequence, upstream_path: skills/emails, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+      - { local_id: referral-program, upstream_path: skills/referrals, status: derived, confidence: high, match: upstream-drift-observed, recommended_registry_source: external-git }
+  - id: cloudflare-public-candidates
+    url: https://github.com/jezweb/claude-skills.git
+    observed_commit: e875a6bfff809e5d42c584104031e36e1f014f18
+    skills:
+      - local_id: cloudflare-d1
+        upstream_path: plugins/cloudflare
+        status: candidate
+        confidence: medium
+        match: public-catalog-candidate
+        recommended_registry_source: external-git
+        note: Public catalog matches exist, but the primary upstream path was not proven by clone diff.
+      - local_id: cloudflare-queues
+        upstream_path: plugins/cloudflare
+        status: candidate
+        confidence: medium
+        match: public-catalog-candidate
+        recommended_registry_source: external-git
+        note: Public catalog matches exist, but the primary upstream path was not proven by clone diff.
+      - local_id: cloudflare-worker-base
+        upstream_path: plugins/cloudflare
+        status: candidate
+        confidence: medium
+        match: public-catalog-candidate
+        recommended_registry_source: external-git
+        note: Public catalog matches exist, but the primary upstream path was not proven by clone diff.
+      - local_id: wrangler
+        upstream_path: skills/wrangler
+        status: candidate
+        confidence: medium
+        match: public-catalog-candidate
+        recommended_registry_source: external-git
+        note: Public catalog matches exist, but the primary upstream repository was not proven by clone diff.

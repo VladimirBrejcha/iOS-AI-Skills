@@ -9,6 +9,8 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
 - `skills.registry.yaml` is the source-ownership and update-policy manifest for
   reusable skills.
 - `skills.lock.yaml` is the reviewed lock/version metadata for reusable skills.
+- `provenance.sources.yaml` records public-safe upstream provenance
+  observations and unresolved candidates for local skill folders.
 - `skills.catalog.json` and `docs/skills-catalog.md` are generated public
   catalog views derived from registry, lock, the checked-in example profile,
   and `SKILL.md` metadata.
@@ -33,6 +35,9 @@ This repo is a collection of Codex skills. Each skill lives in its own top-level
 - `scripts/skills_upstream_updates.rb` reports stale external-git pins and the
   evidence needed for reviewed update PRs; it does not mutate registry, lock,
   catalog, or adapter files.
+- `scripts/skills_provenance_audit.rb` reports source-ownership drift,
+  unregistered external imports, unresolved provenance candidates, and local
+  duplicate skills; it does not fetch from the network or mutate sources.
 
 ## Local Operator Context
 
@@ -59,6 +64,10 @@ Use local operator-provided context if available. Do not commit private/local co
 - Use pinned upstream `npx skills` commands for normal install/update/remove
   behavior when supported. Keep local scripts focused on policy checks,
   planning, and post-write verification.
+- Run `scripts/skills_provenance_audit.rb --markdown` before classifying an
+  unregistered skill or promoting a copied skill into a profile. Treat
+  registry-local skills with reviewed external provenance as follow-up
+  reclassification or fork decisions, not as silent source ownership.
 - Use `scripts/skills_upstream_updates.rb --fail-on-stale` for scheduled or
   manual stale external-pin detection before preparing third-party update PRs.
 - Use `docs/setup-update-workflow.md` as the canonical setup/update runbook;
@@ -104,6 +113,8 @@ For Codex GitHub code review, flag only high-impact issues:
 - generated catalog drift or hand-edited catalog artifacts
 - edits to imported consumer copies instead of the owning skill source or registry
 - registry ownership, upstream source, update policy, or exposure profile drift
+- provenance source-map drift, missing upstream attribution, or external
+  copies marked as registry-local without a fork reason
 - committed secrets, private credentials, local machine paths that should be templated, or accidental binary/editor junk
 - scripts or assets that make skill usage non-reproducible
 - missing required registry verification evidence for `.agents`, `skills.registry.yaml`, `profiles`, `scripts`, `AGENTS.md`, or README changes
