@@ -241,6 +241,22 @@ skills:
       - repo
     update_policy: internal-reviewed
     notes:
+      - Source owner reviewed on 2026-07-10. This is a maintained
+        registry-local fork of johnrogers/claude-swift-engineering commit
+        1dc2cf4d020bd524168f20bec95104da6cb2888c at path
+        plugins/swift-engineering/skills/swift-testing.
+      - Upstream repository license reviewed as MIT.
+      - >
+        The local body matches upstream, with a local front-matter quoting
+        patch so YAML preserves #expect and #require in the description.
+      - Keep registry-local ownership until the upstream publishes an exact
+        release tag for the reviewed content or the registry supports
+        commit-only external pins across doctor, catalog, sync, and profile
+        generation.
+      - Tagged alternatives from twostraws/Swift-Testing-Agent-Skill and
+        AvdLee/Swift-Testing-Agent-Skill were reviewed on 2026-07-10, but they
+        are broader replacement candidates rather than the exact source owner
+        for this checked-in swift-testing baseline.
       - Swift Testing framework guidance selected as the next managed profile
         expansion after the front-matter description was quoted and verified.
       - Claude Code support is proven through a pinned upstream manager write
@@ -264,6 +280,20 @@ skills:
       - repo
     update_policy: internal-reviewed
     notes:
+      - Source owner reviewed on 2026-07-10. This is a maintained
+        registry-local fork of Dimillian/Skills commit
+        05ba982bfeb0d77d3c97d4542b0ee15034d05f84 at path
+        swiftui-view-refactor.
+      - Upstream repository license reviewed as MIT.
+      - The checked-in folder was refreshed from current upstream and keeps a
+        small public wording cleanup in references/mv-patterns.md.
+      - The previous local folder matched older Dimillian/Skills commit
+        ad1bb92d3e9ce8f42c993164d1048e949f520dca before upstream refined the
+        SwiftUI refactor guidance and removed the long article-style reference.
+      - Keep registry-local ownership until the upstream publishes an exact
+        release tag for the reviewed content or the registry supports
+        commit-only external pins across doctor, catalog, sync, and profile
+        generation.
       - Narrow SwiftUI view-structure and dependency-pattern workflow selected
         as the next managed profile expansion after the Swift testing and
         Xcode Cloud slices.
