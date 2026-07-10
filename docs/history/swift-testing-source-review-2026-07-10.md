@@ -1,54 +1,55 @@
 # Swift Testing Source Review
 
-Reviewed on 2026-07-10 while resolving the remaining registry provenance
-conflicts.
+Reviewed and superseded on 2026-07-10 while resolving the Swift Testing source
+decision.
 
 ## Decision
 
-`swift-testing` remains a registry-local maintained fork for now.
+`swift-testing` now uses the TwoStraws Swift Testing package as the reviewed
+source owner, stored as a registry-local maintained fork to preserve the
+existing exported skill name.
 
-- Source: `https://github.com/johnrogers/claude-swift-engineering.git`
-- Path: `plugins/swift-engineering/skills/swift-testing`
-- Observed commit: `1dc2cf4d020bd524168f20bec95104da6cb2888c`
-- Content-introducing commit reviewed: `798c5366070b7f0633765483f61ffbbd76a2d194`
+- Source: `https://github.com/twostraws/Swift-Testing-Agent-Skill.git`
+- Upstream package path: `swift-testing-pro`
+- Reviewed release: `1.0.0`
+- Reviewed commit: `29921fb187f1165cb8975791c7e11fbb23d03398`
 - License: MIT
-- Upstream tag status: no exact release tag observed on 2026-07-10
+- Upstream author metadata: Paul Hudson
 
-The checked-in skill body matches the public upstream at the observed commit.
-The local fork keeps one intentional front-matter patch: the description is
-quoted so YAML preserves `#expect` and `#require` instead of treating them as
-comments.
+The previous johnrogers-derived single-file baseline was removed rather than
+patched in place. The imported package keeps the richer TwoStraws structure:
+`SKILL.md`, `references/`, `agents/openai.yaml`, and icon assets.
+
+## Local Adaptations
+
+The local fork intentionally differs from upstream only where the registry
+contract requires it:
+
+- `SKILL.md` front matter uses `name: swift-testing` so the manager-selected
+  skill name remains stable for existing consumers.
+- `SKILL.md` front matter contains only `name` and `description`, matching the
+  local skill authoring contract.
+- `agents/openai.yaml` uses `$swift-testing` in `default_prompt`.
+- The source remains `registry-local` until external-git aliases and manager
+  installs can preserve the public `swift-testing` surface end-to-end.
 
 ## Alternative Review
 
-Better Swift Testing skill packages exist, but they are replacement candidates,
-not the exact source owner for this checked-in baseline:
-
-- `https://github.com/twostraws/Swift-Testing-Agent-Skill.git` has a tagged
-  `1.0.0` package with broader Swift 6.2-oriented guidance and multi-file
-  references.
-- `https://github.com/AvdLee/Swift-Testing-Agent-Skill.git` has tagged
-  releases through `1.2.0` with strong migration, traits, parallelism, and
-  Xcode workflow references.
-
-Those packages should be evaluated in a separate skill replacement PR if the
-registry wants a richer Swift Testing source. This PR does not silently replace
-the exported `swift-testing` baseline with a different third-party package.
+`https://github.com/AvdLee/Swift-Testing-Agent-Skill.git` remains a strong
+alternative and had tags through `1.2.0` during review. It was not selected for
+this replacement because the chosen direction is to standardize on the
+TwoStraws package while preserving the existing `swift-testing` export.
 
 ## Registry Impact
 
-Because the exact source owner has no release tag, this PR does not convert the
-skill to `external-git`. Instead, registry metadata keeps `swift-testing` as
-`registry-local`, records upstream provenance, and explains the fork reason.
-
-Future work can promote this skill to `external-git` after either:
-
-- the upstream publishes an exact release tag for the reviewed content, or
-- the registry contract supports commit-only external pins across doctor,
-  catalog, sync, and profile generation.
+The registry keeps `swift-testing` active for Codex, Claude Code, OpenCode,
+machine, and repo-local consumers. After merge, managed global Codex and Claude
+Code copies should be refreshed from `fiveonecode/agent-skills` so installed
+roots match the new lock digest.
 
 ## Product Need
 
-The skill stays active because Swift Testing is the default unit/integration
-test direction for modern Swift projects, while XCTest remains necessary for
-UI automation, performance metrics, and Objective-C-only test code.
+The skill stays active because Swift Testing is the default unit and
+integration test direction for modern Swift projects, while XCTest remains
+necessary for UI automation, performance metrics, and Objective-C-only test
+code.
