@@ -295,7 +295,7 @@
     {
       "id": "swiftui-view-refactor",
       "name": "swiftui-view-refactor",
-      "description": "Refactor and review SwiftUI view files for consistent structure, dependency injection, and Observation usage. Use when asked to clean up a SwiftUI view’s layout/ordering, handle view models safely (non-optional when possible), or standardize how dependencies and @Observable state are initialized and passed.",
+      "description": "Refactor and review SwiftUI view files with strong defaults for small dedicated subviews, MV-over-MVVM data flow, stable view trees, explicit dependency injection, and correct Observation usage. Use when cleaning up a SwiftUI view, splitting long bodies, removing inline actions or side effects, reducing computed `some View` helpers, or standardizing `@Observable` and view model initialization patterns.",
       "status": "active",
       "source": {
         "type": "registry-local",
@@ -317,7 +317,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "swiftui-view-refactor",
-        "digest_sha256": "26b824f6fca3a4d564706c06162a0948e3e51cb7b0fb4b0a45fd3e5eef73ec76"
+        "digest_sha256": "8af5a825439822071ee8a046d67057a964c16357cda5611b59137a46430660bf"
       },
       "install": {
         "manager_package": "skills@1.5.14",
