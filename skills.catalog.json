@@ -260,7 +260,7 @@
     {
       "id": "swift-testing",
       "name": "swift-testing",
-      "description": "Use when writing tests with Swift Testing (@Test, #expect, #require), migrating from XCTest, implementing async tests, or parameterizing tests.",
+      "description": "Writes, reviews, and improves Swift Testing code using modern APIs and best practices. Use when reading, writing, or reviewing projects that use Swift Testing, including @Test, #expect, #require, async tests, XCTest migration, traits, confirmations, exit tests, and Swift 6.2+ testing features.",
       "status": "active",
       "source": {
         "type": "registry-local",
@@ -282,7 +282,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "swift-testing",
-        "digest_sha256": "f9a582f50e47013b378c48434bdfb5eaee1a269d912601cee60de34c705ac04a"
+        "digest_sha256": "bc042b209e73647523a300ebb7219afd2f22de3987b9291710d58436f0c52ba2"
       },
       "install": {
         "manager_package": "skills@1.5.14",
