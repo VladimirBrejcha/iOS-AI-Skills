@@ -51,7 +51,7 @@ skills:
 - id: swiftui-view-refactor
   source_type: registry-local
   path: swiftui-view-refactor
-  digest_sha256: 26b824f6fca3a4d564706c06162a0948e3e51cb7b0fb4b0a45fd3e5eef73ec76
+  digest_sha256: 8af5a825439822071ee8a046d67057a964c16357cda5611b59137a46430660bf
   exported_names:
   - swiftui-view-refactor
 - id: xcode-build

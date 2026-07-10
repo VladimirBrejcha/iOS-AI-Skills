@@ -51,6 +51,7 @@ sources:
         note: Local SKILL.md matched the public upstream during provenance review.
   - id: johnrogers-claude-swift-engineering
     url: https://github.com/johnrogers/claude-swift-engineering.git
+    license: MIT
     observed_commit: 1dc2cf4d020bd524168f20bec95104da6cb2888c
     skills:
       - local_id: swift-testing
@@ -58,10 +59,15 @@ sources:
         status: confirmed
         confidence: high
         match: local-frontmatter-patch
-        recommended_registry_source: external-git
-        note: "Body matched upstream; local front matter keeps YAML-safe quoting for #expect/#require."
+        recommended_registry_source: registry-local
+        note: >
+          Body matched upstream; local front matter keeps YAML-safe quoting for
+          #expect/#require. Treat as a maintained registry-local fork because
+          the upstream repository has no exact release tag and this registry
+          does not support commit-only external pins end-to-end.
   - id: dimillian-skills
     url: https://github.com/Dimillian/Skills.git
+    license: MIT
     observed_commit: 05ba982bfeb0d77d3c97d4542b0ee15034d05f84
     skills:
       - local_id: swiftui-liquid-glass
@@ -75,9 +81,14 @@ sources:
         upstream_path: swiftui-view-refactor
         status: derived
         confidence: high
-        match: upstream-drift-observed
-        recommended_registry_source: external-git
-        note: Local skill appears external-derived but differs from current upstream and needs import review.
+        match: local-wording-patch
+        recommended_registry_source: registry-local
+        note: >
+          Local skill was refreshed from current upstream and keeps a small
+          public wording cleanup in references/mv-patterns.md. Treat as a
+          maintained registry-local fork because the upstream repository has no
+          exact release tag and this registry does not support commit-only
+          external pins end-to-end.
       - local_id: swiftui-performance-audit
         upstream_path: swiftui-performance-audit
         status: derived
