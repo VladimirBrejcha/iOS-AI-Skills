@@ -918,6 +918,11 @@ def validate_registry(registry_path, registry, options, reporter)
     if status == "needs-import-review" && source_type != "external-git"
       reporter.error("#{skill_id}: needs-import-review status requires source.type external-git")
     end
+    if source_type == "unresolved-local"
+      %w[exported_names clients scopes].each do |field|
+        reporter.error("#{skill_id}: unresolved-local entries must not define #{field}") if skill.key?(field)
+      end
+    end
 
     if skill_id.strip.empty?
       reporter.error("skill entry is missing id")

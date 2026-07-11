@@ -471,6 +471,22 @@ YAML
 ruby "$repo_root/scripts/skills_doctor.rb" --registry "$missing_lock_entry_dir/skills.registry.yaml" --print-lock >"$missing_lock_entry_dir/good.lock.yaml"
 assert_not_contains "$(cat "$missing_lock_entry_dir/good.lock.yaml")" "new-skill"
 
+unresolved_exposure_dir="$tmp_dir/unresolved-exposure"
+cp -R "$missing_lock_entry_dir/." "$unresolved_exposure_dir/"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  skill = data.fetch("skills").find { |entry| entry.fetch("id") == "new-skill" }
+  skill["exported_names"] = ["new-skill"]
+  skill["clients"] = { "codex" => "planned" }
+  skill["scopes"] = ["machine"]
+  File.write(path, data.to_yaml)
+' "$unresolved_exposure_dir/skills.registry.yaml"
+unresolved_exposure_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$unresolved_exposure_dir/skills.registry.yaml" --print-lock)"
+assert_contains "$unresolved_exposure_output" "new-skill: unresolved-local entries must not define exported_names"
+assert_contains "$unresolved_exposure_output" "new-skill: unresolved-local entries must not define clients"
+assert_contains "$unresolved_exposure_output" "new-skill: unresolved-local entries must not define scopes"
+
 ruby -ryaml -e '
   path = ARGV.fetch(0)
   data = YAML.safe_load(File.read(path), aliases: false)

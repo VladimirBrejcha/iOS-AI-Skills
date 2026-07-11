@@ -266,6 +266,7 @@ required_pass_signals:
   - ruby-syntax
   - skills-catalog-test
   - skills-doctor-test
+  - registry-dispositions
   - skills-provenance-audit-test
   - skills-registry-verify-test
   - skills-setup-workflow-docs-test

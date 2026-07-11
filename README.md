@@ -10,9 +10,10 @@ upstream source and reviewed pin.
 
 This repository is the public source, disposition, and policy registry for
 reusable 51Code agent skills. Every top-level `SKILL.md` has exactly one entry
-in `skills.registry.yaml`; only `active` entries have reviewed source ownership,
-lock/version metadata, adapter coverage, and install eligibility. Unreviewed and
-legacy folders remain visible as non-installable inventory. The shared
+in `skills.registry.yaml`; every non-legacy resolved-source entry has reviewed
+source ownership and lock/version metadata, while only `active` entries have
+approved adapter coverage and install eligibility. Unreviewed and legacy folders
+remain visible as non-installable inventory. The shared
 `~/.agents/skills` manager path is the current reviewed
 baseline for Codex and OpenCode; every active registry-local skill also has a
 reviewed Claude Code baseline through `~/.claude/skills`. Repo-local

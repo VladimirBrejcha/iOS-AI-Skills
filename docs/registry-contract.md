@@ -120,7 +120,7 @@ lock/version metadata are decided.
 `skills.lock.yaml` records the reviewed resolved state used by doctor and sync
 planning.
 
-Every resolved-source entry must be backed by lock/version metadata:
+Every non-legacy resolved-source entry must be backed by lock/version metadata:
 
 - registry-local skills require a digest of the source folder
 - external-git skills require an exact pinned tag plus observed commit
