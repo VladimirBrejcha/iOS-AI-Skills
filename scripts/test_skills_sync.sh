@@ -4776,6 +4776,44 @@ assert_contains "$legacy_stale_copy_output" "manual-review | blocked | codex_use
 assert_contains "$legacy_stale_copy_output" "manager-owned copy has non-active registry status legacy and is not selected by the profile"
 assert_not_contains "$legacy_stale_copy_output" "no adapter actions"
 
+unresolved_stale_adapter_dir="$tmp_dir/unresolved-stale-adapter"
+write_skill "$unresolved_stale_adapter_dir/unresolved-skill" "unresolved-skill" "Unresolved stale adapter fixture."
+mkdir -p "$unresolved_stale_adapter_dir/profiles/machine" "$unresolved_stale_adapter_dir/symlink-root" "$unresolved_stale_adapter_dir/copy-root"
+ln -s "$unresolved_stale_adapter_dir/unresolved-skill" "$unresolved_stale_adapter_dir/symlink-root/unresolved-skill"
+cp -R "$unresolved_stale_adapter_dir/unresolved-skill" "$unresolved_stale_adapter_dir/copy-root/unresolved-skill"
+cat >"$unresolved_stale_adapter_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: unresolved-stale-adapter
+  name: Unresolved Stale Adapter
+skills:
+  - id: unresolved-skill
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: unresolved-skill
+YAML
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$unresolved_stale_adapter_dir/skills.registry.yaml" --print-lock >"$unresolved_stale_adapter_dir/skills.lock.yaml"
+cat >"$unresolved_stale_adapter_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: unresolved-stale-adapter-profile
+consumer_roots:
+  codex_user:
+    path: ../../symlink-root
+    adapter: symlink
+  claude_user:
+    path: ../../copy-root
+    adapter: manager-copy
+YAML
+unresolved_stale_adapter_output="$(ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$unresolved_stale_adapter_dir/skills.registry.yaml" --lock "$unresolved_stale_adapter_dir/skills.lock.yaml" --profile "$unresolved_stale_adapter_dir/profiles/machine/example.yaml")"
+assert_contains "$unresolved_stale_adapter_output" "manual-review | blocked | codex_user/unresolved-skill"
+assert_contains "$unresolved_stale_adapter_output" "manual-review | blocked | claude_user/unresolved-skill"
+assert_contains "$unresolved_stale_adapter_output" "unresolved-local source with status needs-source-review and requires manual review"
+assert_not_contains "$unresolved_stale_adapter_output" "no adapter actions"
+
 json_output="$(
   ruby "$repo_root/scripts/skills_sync.rb" \
     --plan \

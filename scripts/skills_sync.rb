@@ -1949,6 +1949,11 @@ def plan_stale_adapters(profile, registry_by_id, registry_root, registry_metadat
   exported_names = registry_by_id.values.each_with_object({}) do |skill, memo|
     skill[:exported_names].each { |name| memo[name] = skill }
   end
+  unresolved_source_names = registry_by_id.values.each_with_object({}) do |skill, memo|
+    next unless skill[:source_type] == "unresolved-local"
+
+    memo[skill[:path]] = skill
+  end
   selected_states_by_consumer_and_skill = profile[:selected_skills].each_with_object({}) do |selection, memo|
     state = selection["state"]
     next unless selected_state_blocked?(state)
@@ -2034,7 +2039,7 @@ def plan_stale_adapters(profile, registry_by_id, registry_root, registry_metadat
         next
       end
 
-      skill = exported_names[entry_name]
+      skill = exported_names[entry_name] || unresolved_source_names[entry_name]
       entry_adapter = adapter
       matched_manager_copy_source = nil
       if skill.nil? && File.directory?(target) && !File.symlink?(target) && !manager_copy_source_entries.empty?
@@ -2074,7 +2079,12 @@ def plan_stale_adapters(profile, registry_by_id, registry_root, registry_metadat
         append_operation.call(
           action: "manual-review",
           status: "blocked",
-          reason: "registry-named entry maps to an external-git source and is not managed by the report-only sync planner"
+          reason:
+            if skill[:source_type] == "unresolved-local"
+              "registry-named entry maps to an unresolved-local source with status #{skill[:status]} and requires manual review"
+            else
+              "registry-named entry maps to an external-git source and is not managed by the report-only sync planner"
+            end
         )
         next
       end

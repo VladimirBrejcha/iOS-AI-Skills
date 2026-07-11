@@ -2179,7 +2179,7 @@ def validate_global_manager_lock(path, reporter)
   { entries: entries, usable_entries: usable_entries }
 end
 
-def validate_project_manager_lock(path, registry_names, expected_sources, reporter)
+def validate_project_manager_lock(path, registry_names, expected_sources, resolved, reporter)
   label = display_path(path)
   lock = load_json_file(path, reporter, label: "project skills lock #{label}", warning_only: true)
   unless lock.is_a?(Hash)
@@ -2237,6 +2237,10 @@ def validate_project_manager_lock(path, registry_names, expected_sources, report
   skills.keys.sort.each do |name|
     skill_id = registry_names[name]
     next unless skill_id
+    if resolved.dig(skill_id, "status") != "active"
+      reporter.warn("project skills lock #{label} tracks non-installable registry skill #{skill_id} as #{name} with status #{resolved.dig(skill_id, "status")}")
+      next
+    end
     expected = expected_sources[skill_id]
 
     unless usable_entries.key?(name)
@@ -2279,6 +2283,10 @@ def check_manager_state(options, resolved, reporter)
   if manager_list_state[:available]
     (list_names & registry_names.keys).sort.each do |name|
       skill_id = registry_names[name]
+      if resolved.dig(skill_id, "status") != "active"
+        reporter.warn("npx global list sees non-installable registry skill #{skill_id} as #{name} with status #{resolved.dig(skill_id, "status")}")
+        next
+      end
       expected = expected_sources[skill_id]
       entry = manager_list.find { |item| item["name"] == name } || {}
       agents = Array(entry["agents"]).join(", ")
@@ -2299,6 +2307,10 @@ def check_manager_state(options, resolved, reporter)
 
   (lock_names & registry_names.keys).sort.each do |name|
     skill_id = registry_names[name]
+    if resolved.dig(skill_id, "status") != "active"
+      reporter.warn("global skills lock tracks non-installable registry skill #{skill_id} as #{name} with status #{resolved.dig(skill_id, "status")}")
+      next
+    end
     expected = expected_sources[skill_id]
     reporter.warn("global skills lock tracks registry-related #{name}, but npx global list does not report it") if manager_list_state[:available] && !list_names.include?(name)
     unless usable_lock_names.include?(name)
@@ -2318,7 +2330,7 @@ def check_manager_state(options, resolved, reporter)
   else
     reporter.ok("found #{project_lock_paths.length} project skills-lock.json file(s)")
     project_lock_paths.each do |path|
-      validate_project_manager_lock(path, registry_names, expected_sources, reporter)
+      validate_project_manager_lock(path, registry_names, expected_sources, resolved, reporter)
     end
   end
 end
