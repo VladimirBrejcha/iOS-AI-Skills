@@ -1,7 +1,7 @@
 # Registry Contract
 
-Status: active-partial
-Last updated: 2026-07-08
+Status: inventory-complete-review-pending
+Last updated: 2026-07-11
 
 Related: [README](../README.md), [Usage](usage.md),
 [Setup And Update Workflow](setup-update-workflow.md),
@@ -19,26 +19,31 @@ can be exposed into multiple agent surfaces without copied-source drift.
 
 The non-negotiable contract is:
 
-- registry-covered reusable skills have one source owner
-- registry-covered reusable skills have lock/version metadata
-- registry-covered reusable skills have generated adapter views for Codex,
+- active reusable skills have one source owner
+- active reusable skills have lock/version metadata
+- active reusable skills have generated adapter views for Codex,
   OpenCode, Claude Code, and repo-local consumers
+- every checked-in top-level skill has exactly one registry disposition, even
+  before source ownership is resolved or after it becomes legacy
 
 ## Coverage State
 
-The registry is active as the source and policy layer, but coverage is
-currently partial.
+The registry is the complete disposition inventory. Source review and
+installation coverage are intentionally narrower than inventory coverage.
 
-- Skills listed in `skills.registry.yaml` and `skills.lock.yaml` are the
-  current registry-covered set.
-- Other top-level `SKILL.md` folders are unclassified backlog until a follow-up
-  PR assigns source ownership, update policy, supported clients, scopes, and
-  lock/version metadata.
+- Every top-level `*/SKILL.md` folder must appear exactly once in
+  `skills.registry.yaml` as `registry-local` or `unresolved-local`.
+- Only `active` entries are installable. `needs-source-review`,
+  `needs-import-review`, and `legacy` entries remain visible but cannot emit
+  manager install commands.
+- `unresolved-local` entries do not claim source ownership and do not receive
+  lock records, exported adapter names, client support, scopes, or installable
+  profile exposure.
 - `provenance.sources.yaml` can record reviewed public-source observations and
-  unresolved candidates for backlog or misclassified skills before registry
-  ownership is changed.
-- Public docs and verification must not imply that unregistered folders already
-  satisfy the reusable-skill contract.
+  unresolved candidates as supporting evidence; it is not a competing
+  disposition manifest.
+- The doctor and catalog verifier fail when a top-level skill has no registry
+  disposition or when an inventory-only entry leaks into the lock/install path.
 
 ## Scope
 
@@ -58,7 +63,7 @@ In scope:
 - setup/update workflows for new machines, existing machines, repo-local
   installs, verification, failure recovery, and restart expectations
 - read-only provenance audits that flag registry-local external-derived
-  skills, unregistered external imports, unresolved public-source candidates,
+  skills, unresolved external imports, unresolved public-source candidates,
   and duplicate local skill folders
 - public docs that let external users install skills without private 51Code
   context
@@ -81,6 +86,16 @@ Each registry-covered reusable skill must have exactly one active source owner.
 | --- | --- | --- |
 | `registry-local` | 51Code owns and edits the skill in this repository, including maintained local forks of upstream skills. | `source.path`, exported names, supported clients, scopes, update policy, lock digest. Preserve upstream provenance and fork reason in `notes` or adjacent docs when relevant. |
 | `external-git` | A third-party upstream remains authoritative. | Upstream URL, path, exact pinned tag, observed commit, observed date, update policy, lock digest. Record current license review status in `notes` or the PR body until the registry schema grows a dedicated field. |
+| `unresolved-local` | A checked-in folder exists, but source ownership, license, alternatives, or lifecycle has not been reviewed, or the folder is retained as legacy. This is a disposition, not an ownership claim. | Top-level `source.path` and status `needs-source-review` or `legacy`. No lock, exports, clients, scopes, or install metadata. |
+
+Allowed lifecycle statuses are:
+
+| Status | Installable | Meaning |
+| --- | --- | --- |
+| `active` | Yes, when source/client/profile requirements also pass. | Reviewed source ownership and supported reusable-skill contract. |
+| `needs-import-review` | No. | A resolved external source is pinned, but import or adapter exposure is not approved. |
+| `needs-source-review` | No. | Checked-in content still needs origin, license, alternatives, and keep/replace/fork review. |
+| `legacy` | No. | Retained for history or compatibility but excluded from new installs. |
 
 Do not edit consumer copies as source. Consumer roots such as
 `~/.codex/skills`, `~/.agents/skills`, `~/.claude/skills`, `.agents/skills`,
@@ -105,10 +120,11 @@ lock/version metadata are decided.
 `skills.lock.yaml` records the reviewed resolved state used by doctor and sync
 planning.
 
-Every registry-covered reusable skill must be backed by lock/version metadata:
+Every resolved-source entry must be backed by lock/version metadata:
 
 - registry-local skills require a digest of the source folder
 - external-git skills require an exact pinned tag plus observed commit
+- unresolved-local entries must not appear in `skills.lock.yaml`
 - external-git update PRs must keep `source.observed_commit` aligned with the
   reviewed tag
 - `source.observed_at` is review evidence for that tag and should stay aligned
@@ -171,13 +187,13 @@ The generator reads:
 - `skills.registry.yaml` for source ownership, status, clients, scopes, update
   policy, external pins, and external catalog descriptions
 - `skills.lock.yaml` for reviewed resolved lock metadata
-- registered local `SKILL.md` front matter for public names and descriptions
+- checked-in local `SKILL.md` front matter for public names and descriptions
 
 External skills without a local `SKILL.md` must include a non-empty
 catalog-facing description in registry metadata before they can appear in the
 catalog. The generator fails on stale catalog artifacts, private paths, missing
-descriptions, missing lock entries, stale locks, and unpinned external source
-metadata.
+descriptions, missing dispositions, missing lock entries for resolved sources,
+locks for unresolved sources, stale locks, and unpinned external metadata.
 
 Do not edit generated catalog artifacts by hand:
 

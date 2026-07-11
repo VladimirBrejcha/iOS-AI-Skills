@@ -9,9 +9,10 @@ point to their authoritative upstream sources through `skills.registry.yaml` and
 - One folder per checked-in local skill at repo root.
 - Every skill folder must include `SKILL.md` with YAML front matter (`name`, `description`).
 - Optional folders: `assets/`, `scripts/`, `references/`.
-- `skills.registry.yaml` is the source-ownership and update-policy manifest for
-  reusable skills.
-- `skills.lock.yaml` is the reviewed lock/version metadata for reusable skills.
+- `skills.registry.yaml` is the sole disposition, source-ownership, and
+  update-policy manifest. Every top-level `SKILL.md` must appear exactly once.
+- `skills.lock.yaml` is reviewed lock/version metadata for resolved sources;
+  unresolved and legacy inventory-only entries must not appear there.
 - `provenance.sources.yaml` records public-safe upstream provenance
   observations and unresolved candidates for local skill folders.
 - `skills.catalog.json` and `docs/skills-catalog.md` are generated public
@@ -58,9 +59,12 @@ Use local operator-provided context if available. Do not commit private/local co
 - Do not edit generated catalog artifacts by hand. Update registry, lock, the
   checked-in example profile, or skill front matter, then run
   `scripts/skills_catalog.rb --write`.
-- Reusable skills must have one source owner, lock/version metadata, and
+- Active reusable skills must have one source owner, lock/version metadata, and
   generated adapter views for Codex, Claude Code, OpenCode, and repo-local
   consumers.
+- Only active entries may emit install commands. Use `unresolved-local` with
+  `needs-source-review` or `legacy` to record checked-in non-installable folders
+  without making an ownership claim.
 - Keep edits scoped to the requested skill(s); avoid cross-skill changes unless asked.
 - When adding/removing a skill, update the README skills list and regenerate
   the catalog if registry-covered metadata changed.
@@ -70,8 +74,8 @@ Use local operator-provided context if available. Do not commit private/local co
 - Use pinned upstream `npx skills` commands for normal install/update/remove
   behavior when supported. Keep local scripts focused on policy checks,
   planning, and post-write verification.
-- Run `scripts/skills_provenance_audit.rb --markdown` before classifying an
-  unregistered skill or promoting a copied skill into a profile. Treat
+- Run `scripts/skills_provenance_audit.rb --markdown` before resolving an
+  unreviewed skill disposition or promoting a copied skill into a profile. Treat
   registry-local skills with reviewed external provenance as follow-up
   reclassification or fork decisions, not as silent source ownership.
 - Use `scripts/skills_upstream_updates.rb --fail-on-stale` for scheduled or

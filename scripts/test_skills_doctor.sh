@@ -450,9 +450,15 @@ skills:
       path: example-skill
     exported_names:
       - example-skill
+  - id: new-skill
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: new-skill
 YAML
 
 ruby "$repo_root/scripts/skills_doctor.rb" --registry "$missing_lock_entry_dir/skills.registry.yaml" --print-lock >"$missing_lock_entry_dir/good.lock.yaml"
+assert_not_contains "$(cat "$missing_lock_entry_dir/good.lock.yaml")" "new-skill"
 
 cat >"$missing_lock_entry_dir/skills.registry.yaml" <<'YAML'
 schema_version: 0.1

@@ -372,7 +372,7 @@ end
 
 def registry_entries_by_source_path(registry_entries)
   registry_entries.values.each_with_object({}) do |entry, by_path|
-    next unless entry["source_type"] == "registry-local"
+    next unless %w[registry-local unresolved-local].include?(entry["source_type"])
     next unless valid_string?(entry["source_path"])
 
     by_path[entry["source_path"]] ||= entry

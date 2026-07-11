@@ -15,6 +15,8 @@ DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
 DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
+SKILL_STATUSES = %w[active needs-import-review needs-source-review legacy].freeze
+UNRESOLVED_LOCAL_STATUSES = %w[needs-source-review legacy].freeze
 DEFAULT_MANAGER_SOURCE_BY_REGISTRY_ID = {
   "agent-skills" => "fiveonecode/agent-skills"
 }.freeze
@@ -799,9 +801,20 @@ def load_registry(path, reporter)
     end
 
     source = mapping(skill["source"], reporter, "#{skill_id}: source")
-    exported_names = string_array(skill["exported_names"], reporter, "#{skill_id}: exported_names")
+    exported_names = source["type"] == "unresolved-local" && skill["exported_names"].nil? ? [] :
+      string_array(skill["exported_names"], reporter, "#{skill_id}: exported_names")
     clients = mapping(skill["clients"], reporter, "#{skill_id}: clients", allow_nil: true)
-    reporter.error("#{skill_id}: exported_names must not be empty") if exported_names.empty?
+    status = skill["status"]
+    unless status.is_a?(String) && SKILL_STATUSES.include?(status)
+      reporter.error("#{skill_id}: status must be one of #{SKILL_STATUSES.join(', ')}")
+    end
+    if status == "needs-source-review" && source["type"] != "unresolved-local"
+      reporter.error("#{skill_id}: needs-source-review status requires source.type unresolved-local")
+    end
+    if status == "needs-import-review" && source["type"] != "external-git"
+      reporter.error("#{skill_id}: needs-import-review status requires source.type external-git")
+    end
+    reporter.error("#{skill_id}: exported_names must not be empty") if source["type"] != "unresolved-local" && exported_names.empty?
 
     exported_names.each do |name|
       unless safe_adapter_name?(name)
@@ -884,7 +897,7 @@ def load_registry(path, reporter)
       end
       by_id[skill_id] = {
         id: skill_id,
-        status: skill["status"].to_s,
+        status: status.to_s,
         source_type: source_type,
         path: source_path,
         source_absolute: source_absolute.to_s,
@@ -1003,7 +1016,7 @@ def load_registry(path, reporter)
 
       by_id[skill_id] = {
         id: skill_id,
-        status: skill["status"].to_s,
+        status: status.to_s,
         source_type: source_type,
         url: url,
         path: source_path,
@@ -1012,9 +1025,55 @@ def load_registry(path, reporter)
         exported_names: exported_names,
         clients: normalized_clients
       }
+    when "unresolved-local"
+      unless UNRESOLVED_LOCAL_STATUSES.include?(status)
+        reporter.error("#{skill_id}: unresolved-local source requires status needs-source-review or legacy")
+      end
+      source_path = source["path"]
+      unless safe_adapter_name?(source_path)
+        reporter.error("#{skill_id}: unresolved-local source.path must name a top-level skill directory")
+        next
+      end
+      if registry_local_source_owner.key?(source_path)
+        reporter.error("#{skill_id}: local source.path #{source_path} is already declared by #{registry_local_source_owner[source_path]}")
+        next
+      end
+      registry_local_source_owner[source_path] = skill_id
+      source_absolute = registry_root.join(source_path).cleanpath
+      skill_file = source_absolute.join("SKILL.md")
+      if !source_absolute.directory?
+        reporter.error("#{skill_id}: unresolved-local source.path #{source_path} is missing")
+      elsif source_absolute.symlink?
+        reporter.error("#{skill_id}: unresolved-local source.path must not be a symlink")
+      elsif !path_within?(source_absolute.realpath, registry_root_real)
+        reporter.error("#{skill_id}: unresolved-local source.path must stay inside the registry root")
+      elsif !skill_file.file?
+        reporter.error("#{skill_id}: #{source_path}/SKILL.md is missing")
+      else
+        metadata = frontmatter(skill_file.to_s, reporter)
+        reporter.error("#{skill_id}: SKILL.md front matter name is required") unless metadata["name"].is_a?(String) && !metadata["name"].strip.empty?
+        reporter.error("#{skill_id}: SKILL.md front matter description is required") unless metadata["description"].is_a?(String) && !metadata["description"].strip.empty?
+      end
+      by_id[skill_id] = {
+        id: skill_id,
+        status: status.to_s,
+        source_type: source_type,
+        path: source_path,
+        source_absolute: source_absolute.to_s,
+        exported_names: [],
+        clients: {},
+        lockable: false
+      }
     else
       reporter.error("#{skill_id}: unsupported source.type")
     end
+  end
+
+  top_level_skill_paths = Dir.glob(registry_root.join("*/SKILL.md").to_s).map do |skill_file|
+    Pathname.new(skill_file).dirname.basename.to_s
+  end.sort
+  (top_level_skill_paths - registry_local_source_owner.keys).each do |source_path|
+    reporter.error("#{source_path}/SKILL.md has no registry disposition")
   end
 
   [by_id, registry_root, { id: registry_id, name: registry_name, manager_source: manager_source }]
@@ -1046,7 +1105,8 @@ def load_lock(path, registry_root, registry_by_id, reporter)
     by_id[skill_id] = entry
   end
 
-  registry_by_id.each do |skill_id, skill|
+  lockable_registry = registry_by_id.reject { |_skill_id, skill| skill[:lockable] == false }
+  lockable_registry.each do |skill_id, skill|
     locked = by_id[skill_id]
     if locked.nil?
       reporter.error("#{display_path(path, root: registry_root)} missing lock entry for #{skill_id}")
@@ -1093,8 +1153,12 @@ def load_lock(path, registry_root, registry_by_id, reporter)
     end
   end
 
-  (by_id.keys - registry_by_id.keys).sort.each do |skill_id|
-    reporter.error("#{display_path(path, root: registry_root)} stale lock entry #{skill_id} is not present in the registry")
+  (by_id.keys - lockable_registry.keys).sort.each do |skill_id|
+    if registry_by_id.key?(skill_id)
+      reporter.error("#{display_path(path, root: registry_root)} stale lock entry #{skill_id} is not lockable in the registry")
+    else
+      reporter.error("#{display_path(path, root: registry_root)} stale lock entry #{skill_id} is not present in the registry")
+    end
   end
 
   by_id
@@ -1594,6 +1658,7 @@ end
 def desired_manager_recommendation(skill:, exported_name:, consumer:, root_path:, action:, status:, reason:, adapter:, selection_state:, registry_metadata:)
   return no_management_action("adapter already matches the reviewed plan") if status == "ok"
   return manual_review_management("selected skill state is #{selection_state}") if selected_state_blocked?(selection_state)
+  return manual_review_management("registry skill status is #{skill[:status]}") if skill && skill[:status] != "active"
   return manual_review_management(reason || "planner action requires manual review") unless status == "planned"
   unless skill && skill[:source_type] == "registry-local"
     return manual_review_management("non-registry-local skills need source review before manager command generation")

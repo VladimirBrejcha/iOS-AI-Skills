@@ -8,16 +8,17 @@ upstream source and reviewed pin.
 
 ## Registry Contract
 
-This repository is the public source and policy registry for reusable 51Code
-agent skills. The registry is active as the source and policy layer, but
-coverage is currently partial: skills listed in `skills.registry.yaml` have one
-source owner, lock/version metadata, and registry-defined adapter coverage
-metadata. The shared `~/.agents/skills` manager path is the current reviewed
+This repository is the public source, disposition, and policy registry for
+reusable 51Code agent skills. Every top-level `SKILL.md` has exactly one entry
+in `skills.registry.yaml`; only `active` entries have reviewed source ownership,
+lock/version metadata, adapter coverage, and install eligibility. Unreviewed and
+legacy folders remain visible as non-installable inventory. The shared
+`~/.agents/skills` manager path is the current reviewed
 baseline for Codex and OpenCode; every active registry-local skill also has a
 reviewed Claude Code baseline through `~/.claude/skills`. Repo-local
 consumers, external-git entries such as `swift-concurrency` and `swiftui-pro`,
-and unclassified top-level `SKILL.md` folders still include planned or
-manual-review coverage until follow-up profile and coverage PRs land.
+and non-active entries remain manual-review until their registry disposition is
+promoted through a reviewed source decision.
 
 The contract is documented in:
 
@@ -34,15 +35,16 @@ The contract is documented in:
 - [Manager Boundary](docs/manager-boundary.md) - the accepted split between
   this registry and the upstream `skills` CLI.
 
-The active-partial registry files are:
+The registry files are:
 
-- `skills.registry.yaml` - source ownership, upstream source, update policy,
-  supported clients, and intended scopes.
+- `skills.registry.yaml` - complete top-level disposition inventory plus source
+  ownership, upstream source, update policy, supported clients, and scopes for
+  reviewed entries.
 - `skills.lock.yaml` - reviewed resolved source digests and external pins.
 - `provenance.sources.yaml` - public-safe upstream provenance observations for
   local skill folders that may be copied, derived, or unresolved.
-- `skills.catalog.json` - generated machine-readable public catalog for
-  registry-covered skills.
+- `skills.catalog.json` - generated machine-readable public inventory and
+  install catalog.
 - `docs/skills-catalog.md` - generated human-readable public catalog.
 - `profiles/machine/example-local-skills.yaml` - example desired machine-level
   exposure profile.
@@ -111,7 +113,7 @@ scripts/skills_provenance_audit.rb --json
 ```
 
 The audit uses `provenance.sources.yaml` plus local `*/SKILL.md` inventory to
-flag registry-local skills with reviewed external provenance, unregistered
+flag registry-local skills with reviewed external provenance, unresolved
 external imports, unresolved public-source candidates, duplicate local skill
 content, and duplicate front matter names. It does not fetch from GitHub,
 update skill content, edit registry/lock files, or write consumer adapters.

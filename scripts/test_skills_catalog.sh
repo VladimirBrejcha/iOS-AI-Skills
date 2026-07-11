@@ -17,6 +17,18 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local haystack="$1"
+  local needle="$2"
+
+  if printf '%s\n' "$haystack" | grep -F -q -- "$needle"; then
+    echo "expected output not to contain: $needle" >&2
+    echo "actual output:" >&2
+    printf '%s\n' "$haystack" >&2
+    exit 1
+  fi
+}
+
 expect_failure() {
   local output
   if output="$("$@" 2>&1)"; then
@@ -1814,5 +1826,46 @@ ruby -ryaml -e '
 ' "$unsafe_registry_id_dir/skills.registry.yaml"
 unsafe_registry_id_output="$(expect_failure run_catalog "$unsafe_registry_id_dir" --json)"
 assert_contains "$unsafe_registry_id_output" "registry.id must be a safe non-path identifier"
+
+disposition_dir="$tmp_dir/dispositions"
+write_ok_fixture "$disposition_dir"
+write_skill "$disposition_dir/legacy-skill" "legacy-skill" "Legacy inventory fixture."
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills") << {
+    "id" => "legacy-skill",
+    "status" => "legacy",
+    "source" => { "type" => "unresolved-local", "path" => "legacy-skill" }
+  }
+  File.write(path, data.to_yaml)
+' "$disposition_dir/skills.registry.yaml"
+disposition_json="$(run_catalog "$disposition_dir" --json)"
+ruby -rjson -e '
+  skill = JSON.parse(ARGF.read).fetch("skills").find { |entry| entry.fetch("id") == "legacy-skill" }
+  raise "missing legacy disposition" unless skill
+  raise "legacy skill emitted install metadata" if skill.key?("install")
+  raise "legacy skill emitted lock metadata" if skill.key?("lock")
+  raise "legacy skill exported adapter metadata" if skill.key?("exported_names")
+' <<<"$disposition_json"
+assert_not_contains "$(cat "$disposition_dir/skills.lock.yaml")" "legacy-skill"
+
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |entry| entry.fetch("id") == "legacy-skill" }["status"] = "active"
+  File.write(path, data.to_yaml)
+' "$disposition_dir/skills.registry.yaml"
+active_unresolved_output="$(expect_failure run_catalog "$disposition_dir" --json)"
+assert_contains "$active_unresolved_output" "legacy-skill: unresolved-local source requires status needs-source-review or legacy"
+
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").reject! { |entry| entry.fetch("id") == "legacy-skill" }
+  File.write(path, data.to_yaml)
+' "$disposition_dir/skills.registry.yaml"
+missing_disposition_output="$(expect_failure run_catalog "$disposition_dir" --json)"
+assert_contains "$missing_disposition_output" "legacy-skill/SKILL.md has no registry disposition"
 
 echo "skills_catalog test ok"

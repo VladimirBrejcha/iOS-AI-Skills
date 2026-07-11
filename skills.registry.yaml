@@ -1,5 +1,5 @@
 schema_version: 0.1
-status: active-partial
+status: inventory-complete-review-pending
 registry:
   id: agent-skills
   name: Agent Skills
@@ -8,7 +8,7 @@ registry:
   repo_path_hint: .
   purpose: >
     Versioned source and policy registry for reusable agent skills with an
-    active-partial reviewed shared-root baseline for Codex and OpenCode, a
+    complete skill inventory with a reviewed shared-root baseline for Codex and OpenCode, a
     proven Claude Code global baseline for all active registry-local skills,
     plus planned/manual-review adapter coverage for repo-local and broader
     machine-level consumers.
@@ -26,12 +26,13 @@ rules:
     - Adapter copies must carry or verify against a source digest and be
       replaced by the upstream manager, not edited by hand.
   rollout:
-    - This manifest is the registry policy source, not a full installed-skill
-      inventory.
-    - Only the skills listed here are registry-covered in the current
-      active-partial phase; other top-level SKILL.md folders remain
-      unclassified backlog until follow-up coverage PRs assign ownership and
-      lock metadata.
+    - This manifest is both the registry policy source and the complete
+      disposition inventory for every top-level SKILL.md folder.
+    - Active entries have reviewed source ownership and lock metadata.
+      Needs-source-review and legacy entries are inventory-only and cannot be
+      locked, exported, or installed.
+    - Unresolved-local records describe checked-in content without claiming
+      that this repository owns or can redistribute it as an active skill.
     - Sync planning must stay report-only; adapter writes use the upstream
       skills manager where supported.
 
@@ -338,3 +339,297 @@ skills:
       - Local repo copies observed at version 1.0 are stale against upstream
         1.1.0. Import or adapter conversion should happen in a dedicated
         follow-up after reviewing upstream license and client compatibility.
+
+  - id: ab-test-setup
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: ab-test-setup
+
+  - id: analytics-tracking
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: analytics-tracking
+
+  - id: app-store-optimisation
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: app-store-optimisation
+
+  - id: app-store-optimisation-codex
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: app-store-optimisation-codex
+
+  - id: apple-doc-research
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: apple-doc-research
+
+  - id: apple-docs-research
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: apple-docs-research
+
+  - id: apple-hig-designer
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: apple-hig-designer
+
+  - id: asc-metadata-sync
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: asc-metadata-sync
+
+  - id: asc-ppp-pricing
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: asc-ppp-pricing
+
+  - id: asc-shots-pipeline
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: asc-shots-pipeline
+
+  - id: asc-subscription-localization
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: asc-subscription-localization
+
+  - id: cloudflare-d1
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: cloudflare-d1
+
+  - id: cloudflare-queues
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: cloudflare-queues
+
+  - id: cloudflare-worker-base
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: cloudflare-worker-base
+
+  - id: competitor-alternatives
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: competitor-alternatives
+
+  - id: copy-editing
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: copy-editing
+
+  - id: copywriting
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: copywriting
+
+  - id: design-brief-generator
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: design-brief-generator
+
+  - id: email-sequence
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: email-sequence
+
+  - id: form-cro
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: form-cro
+
+  - id: free-tool-strategy
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: free-tool-strategy
+
+  - id: launch-strategy
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: launch-strategy
+
+  - id: marketing-ideas
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: marketing-ideas
+
+  - id: marketing-psychology
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: marketing-psychology
+
+  - id: mechanism-audit
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: mechanism-audit
+
+  - id: onboarding-cro
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: onboarding-cro
+
+  - id: page-cro
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: page-cro
+
+  - id: paid-ads
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: paid-ads
+
+  - id: paywall-upgrade-cro
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: paywall-upgrade-cro
+
+  - id: popup-cro
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: popup-cro
+
+  - id: pricing-strategy
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: pricing-strategy
+
+  - id: programmatic-seo
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: programmatic-seo
+
+  - id: referral-program
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: referral-program
+
+  - id: replicate-cli
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: replicate-cli
+
+  - id: revenuecat
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: revenuecat
+
+  - id: schema-markup
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: schema-markup
+
+  - id: screenshot-analyze-verification
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: screenshot-analyze-verification
+
+  - id: seo-audit
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: seo-audit
+
+  - id: signup-flow-cro
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: signup-flow-cro
+
+  - id: silent-pushes-setup
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: silent-pushes-setup
+
+  - id: social-content
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: social-content
+
+  - id: swiftui-animation
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: swiftui-animation
+
+  - id: swiftui-expert-skill
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: swiftui-expert-skill
+
+  - id: swiftui-liquid-glass
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: swiftui-liquid-glass
+
+  - id: swiftui-performance-audit
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: swiftui-performance-audit
+
+  - id: swiftui-simulator-ui
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: swiftui-simulator-ui
+
+  - id: threads-api
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: threads-api
+
+  - id: typescript
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: typescript
+
+  - id: wrangler
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: wrangler

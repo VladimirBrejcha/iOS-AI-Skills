@@ -1636,7 +1636,11 @@ skills:
       - skill-b
 YAML
 
-write_lock_from_registry "$duplicate_source_owner_dir"
+cat >"$duplicate_source_owner_dir/skills.lock.yaml" <<'YAML'
+schema_version: 0.1
+generated_by: duplicate-source-owner-fixture
+skills: []
+YAML
 
 cat >"$duplicate_source_owner_dir/profiles/machine/example.yaml" <<'YAML'
 schema_version: 0.1
@@ -4681,6 +4685,48 @@ YAML
 bad_lock_shape_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$bad_lock_shape_dir/skills.registry.yaml" --lock "$bad_lock_shape_dir/skills.lock.yaml" --profile "$bad_lock_shape_dir/profiles/machine/example.yaml")"
 assert_contains "$bad_lock_shape_output" "lock exported_names must be an array of strings"
 assert_contains "$bad_lock_shape_output" "stale lock entry stale-skill is not present in the registry"
+
+legacy_install_dir="$tmp_dir/legacy-install"
+write_skill "$legacy_install_dir/legacy-skill" "legacy-skill" "Legacy install guard fixture."
+mkdir -p "$legacy_install_dir/profiles/machine" "$legacy_install_dir/consumer-root"
+cat >"$legacy_install_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: legacy-install
+  name: Legacy Install
+  manager_source: fiveonecode/agent-skills
+skills:
+  - id: legacy-skill
+    status: legacy
+    source:
+      type: registry-local
+      path: legacy-skill
+    exported_names:
+      - legacy-skill
+    clients:
+      codex: supported
+YAML
+write_lock_from_registry "$legacy_install_dir"
+cat >"$legacy_install_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: legacy-install-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: manager-copy
+    status: proven-manager-copy
+selected_skills:
+  - skill_id: legacy-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+legacy_install_output="$(ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$legacy_install_dir/skills.registry.yaml" --lock "$legacy_install_dir/skills.lock.yaml" --profile "$legacy_install_dir/profiles/machine/example.yaml")"
+assert_contains "$legacy_install_output" "registry skill status is legacy"
+assert_not_contains "$legacy_install_output" "npx --yes"
 
 json_output="$(
   ruby "$repo_root/scripts/skills_sync.rb" \

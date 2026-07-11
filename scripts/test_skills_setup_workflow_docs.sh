@@ -25,8 +25,8 @@ reject_regex() {
 
 [[ -f "$doc" ]] || fail "$doc is missing"
 
-require_text "Status: active-partial"
-require_text "Last updated: 2026-07-08"
+require_text "Status: inventory-complete-review-pending"
+require_text "Last updated: 2026-07-11"
 require_text "git clone https://github.com/fiveonecode/agent-skills.git"
 require_text "git pull --ff-only"
 require_text "npx --yes skills@1.5.14 --version"

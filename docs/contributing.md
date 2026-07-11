@@ -1,7 +1,7 @@
 # Contributing
 
-Status: active-partial
-Last updated: 2026-07-08
+Status: inventory-complete-review-pending
+Last updated: 2026-07-11
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Usage](usage.md), [Setup And Update Workflow](setup-update-workflow.md),
@@ -25,9 +25,11 @@ Related: [README](../README.md), [Registry Contract](registry-contract.md),
 - Keep `scripts/skills_sync.rb` plan-only; do not add local write fallbacks.
 - Keep changes small enough for focused review.
 
-The registry is currently active-partial. A top-level skill folder is not a
-registry-backed reusable skill until it is added to `skills.registry.yaml` and
-covered by reviewed lock/version metadata in `skills.lock.yaml`.
+Every top-level skill folder must have one disposition in
+`skills.registry.yaml`. Use `unresolved-local` with `needs-source-review` when
+origin or ownership is not yet reviewed, and `legacy` when retained but no
+longer offered. Only active resolved-source entries receive lock metadata,
+profile selection, and install commands.
 
 ## Add A New 51Code-Owned Skill
 
