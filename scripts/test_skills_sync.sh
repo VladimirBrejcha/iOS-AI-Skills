@@ -4741,6 +4741,41 @@ assert_contains "$legacy_install_output" "selected skill unresolved-skill has no
 assert_not_contains "$legacy_install_output" "create | planned"
 assert_not_contains "$legacy_install_output" "npx --yes"
 
+legacy_stale_copy_dir="$tmp_dir/legacy-stale-copy"
+write_skill "$legacy_stale_copy_dir/legacy-skill" "legacy-skill" "Legacy stale manager copy fixture."
+mkdir -p "$legacy_stale_copy_dir/profiles/machine" "$legacy_stale_copy_dir/consumer-root"
+cp -R "$legacy_stale_copy_dir/legacy-skill" "$legacy_stale_copy_dir/consumer-root/legacy-skill"
+cat >"$legacy_stale_copy_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: legacy-stale-copy
+  name: Legacy Stale Copy
+skills:
+  - id: legacy-skill
+    status: legacy
+    source:
+      type: registry-local
+      path: legacy-skill
+    exported_names:
+      - legacy-skill
+YAML
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$legacy_stale_copy_dir/skills.registry.yaml" --print-lock >"$legacy_stale_copy_dir/skills.lock.yaml"
+cat >"$legacy_stale_copy_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: legacy-stale-copy-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: manager-copy
+YAML
+legacy_stale_copy_output="$(ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$legacy_stale_copy_dir/skills.registry.yaml" --lock "$legacy_stale_copy_dir/skills.lock.yaml" --profile "$legacy_stale_copy_dir/profiles/machine/example.yaml")"
+assert_contains "$legacy_stale_copy_output" "manual-review | blocked | codex_user/legacy-skill"
+assert_contains "$legacy_stale_copy_output" "manager-owned copy has non-active registry status legacy and is not selected by the profile"
+assert_not_contains "$legacy_stale_copy_output" "no adapter actions"
+
 json_output="$(
   ruby "$repo_root/scripts/skills_sync.rb" \
     --plan \

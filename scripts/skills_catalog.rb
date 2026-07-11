@@ -1341,21 +1341,23 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       if skill_file&.file? && !valid_text_string?(metadata["description"])
         reporter.error("#{skill_id}: registry-local SKILL.md front matter description is required")
       end
-      digest = require_lock_field(lock_entry, skill_id, "digest_sha256", reporter)
-      reporter.error("#{skill_id}: lock digest_sha256 must be a 64-character SHA-256") unless digest.empty? || valid_sha256_hex?(digest)
-      current_digest = directory_digest(skill_root.to_s, reporter) if skill_root&.directory?
-      if valid_sha256_hex?(digest) && current_digest && digest != current_digest
-        reporter.error("#{skill_id}: lock digest_sha256 differs from registry-local source contents")
+      if lockable
+        digest = require_lock_field(lock_entry, skill_id, "digest_sha256", reporter)
+        reporter.error("#{skill_id}: lock digest_sha256 must be a 64-character SHA-256") unless digest.empty? || valid_sha256_hex?(digest)
+        current_digest = directory_digest(skill_root.to_s, reporter) if skill_root&.directory?
+        if valid_sha256_hex?(digest) && current_digest && digest != current_digest
+          reporter.error("#{skill_id}: lock digest_sha256 differs from registry-local source contents")
+        end
+        compare_lock_field(lock_entry, skill_id, "path", source_path, reporter)
+        lock_catalog = {
+          "source_type" => "registry-local",
+          "path" => lock_entry["path"],
+          "digest_sha256" => digest
+        }
       end
-      compare_lock_field(lock_entry, skill_id, "path", source_path, reporter)
       source_catalog = {
         "type" => "registry-local",
         "path" => source_path
-      }
-      lock_catalog = {
-        "source_type" => "registry-local",
-        "path" => lock_entry["path"],
-        "digest_sha256" => digest
       }
     when "external-git"
       url = source["url"]
@@ -1377,12 +1379,21 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
         reporter.error("#{skill_id}: external-git source.observed_at must be an ISO date (YYYY-MM-DD)")
       end
 
-      %w[url path pinned_tag observed_commit].each do |field|
-        require_lock_field(lock_entry, skill_id, field, reporter)
-        compare_lock_field(lock_entry, skill_id, field, source[field], reporter)
-      end
-      if valid_string?(lock_entry["pinned_tag"]) && !valid_git_tag_name?(lock_entry["pinned_tag"])
-        reporter.error("#{skill_id}: lock pinned_tag must be an exact tag name")
+      if lockable
+        %w[url path pinned_tag observed_commit].each do |field|
+          require_lock_field(lock_entry, skill_id, field, reporter)
+          compare_lock_field(lock_entry, skill_id, field, source[field], reporter)
+        end
+        if valid_string?(lock_entry["pinned_tag"]) && !valid_git_tag_name?(lock_entry["pinned_tag"])
+          reporter.error("#{skill_id}: lock pinned_tag must be an exact tag name")
+        end
+        lock_catalog = {
+          "source_type" => "external-git",
+          "url" => lock_entry["url"],
+          "path" => lock_entry["path"],
+          "pinned_tag" => lock_entry["pinned_tag"],
+          "observed_commit" => lock_entry["observed_commit"]
+        }
       end
 
       source_catalog = {
@@ -1392,13 +1403,6 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
         "pinned_tag" => pinned_tag,
         "observed_commit" => observed_commit,
         "observed_at" => observed_at
-      }
-      lock_catalog = {
-        "source_type" => "external-git",
-        "url" => lock_entry["url"],
-        "path" => lock_entry["path"],
-        "pinned_tag" => lock_entry["pinned_tag"],
-        "observed_commit" => lock_entry["observed_commit"]
       }
     when "unresolved-local"
       unless UNRESOLVED_LOCAL_STATUSES.include?(status)
@@ -1423,6 +1427,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
         reporter.error("#{skill_id}: #{source_path}/SKILL.md is missing") if source_valid
       else
         metadata = frontmatter(skill_file.to_s, reporter)
+        reporter.error("#{skill_id}: unresolved-local SKILL.md front matter name is required") unless valid_string?(metadata["name"])
       end
       source_catalog = {
         "type" => "unresolved-local",

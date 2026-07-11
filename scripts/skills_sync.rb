@@ -2187,6 +2187,14 @@ def plan_stale_adapters(profile, registry_by_id, registry_root, registry_metadat
       elsif skill && File.exist?(target)
         stale_export_name = !exported_names.key?(entry_name)
         if manager_copy_adapter?(entry_adapter)
+          if skill[:status] != "active"
+            append_operation.call(
+              action: "manual-review",
+              status: "blocked",
+              reason: "registry-named manager-owned copy has non-active registry status #{skill[:status]} and is not selected by the profile"
+            )
+            next
+          end
           manager_action, manager_reason = inspect_manager_copy_entry(target, skill[:source_digest_sha256])
           if manager_action == :keep && !stale_export_name
             next

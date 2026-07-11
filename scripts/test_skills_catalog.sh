@@ -1830,6 +1830,7 @@ assert_contains "$unsafe_registry_id_output" "registry.id must be a safe non-pat
 disposition_dir="$tmp_dir/dispositions"
 write_ok_fixture "$disposition_dir"
 write_skill "$disposition_dir/legacy-skill" "legacy-skill" "Legacy inventory fixture."
+write_skill "$disposition_dir/legacy-local-skill" "legacy-local-skill" "Legacy resolved local fixture."
 ruby -ryaml -e '
   path = ARGV.fetch(0)
   data = YAML.safe_load(File.read(path), aliases: false)
@@ -1839,18 +1840,71 @@ ruby -ryaml -e '
     "source" => { "type" => "unresolved-local", "path" => "legacy-skill" },
     "update_policy" => "internal-reviewed"
   }
+  data.fetch("skills") << {
+    "id" => "legacy-local-skill",
+    "status" => "legacy",
+    "source" => { "type" => "registry-local", "path" => "legacy-local-skill" },
+    "exported_names" => ["legacy-local-skill"],
+    "scopes" => ["machine"],
+    "update_policy" => "internal-reviewed"
+  }
+  data.fetch("skills") << {
+    "id" => "legacy-external-skill",
+    "status" => "legacy",
+    "source" => {
+      "type" => "external-git",
+      "url" => "https://github.com/example/legacy-skill.git",
+      "path" => "legacy-skill",
+      "pinned_tag" => "1.0.0",
+      "observed_commit" => "2222222222222222222222222222222222222222",
+      "observed_at" => "2026-07-02"
+    },
+    "exported_names" => ["legacy-external-skill"],
+    "scopes" => ["machine"],
+    "update_policy" => "external-reviewed",
+    "catalog" => { "name" => "Legacy external skill", "description" => "Legacy resolved external fixture." }
+  }
   File.write(path, data.to_yaml)
 ' "$disposition_dir/skills.registry.yaml"
 disposition_json="$(run_catalog "$disposition_dir" --json)"
 ruby -rjson -e '
-  skill = JSON.parse(ARGF.read).fetch("skills").find { |entry| entry.fetch("id") == "legacy-skill" }
-  raise "missing legacy disposition" unless skill
-  raise "legacy skill emitted install metadata" if skill.key?("install")
-  raise "legacy skill emitted lock metadata" if skill.key?("lock")
-  raise "legacy skill exported adapter metadata" if skill.key?("exported_names")
-  raise "legacy skill did not keep a review-required update policy" unless skill.fetch("update_policy") == "review-required"
+  skills = JSON.parse(ARGF.read).fetch("skills")
+  unresolved = skills.find { |entry| entry.fetch("id") == "legacy-skill" }
+  raise "missing legacy disposition" unless unresolved
+  raise "legacy skill emitted install metadata" if unresolved.key?("install")
+  raise "legacy skill emitted lock metadata" if unresolved.key?("lock")
+  raise "legacy skill exported adapter metadata" if unresolved.key?("exported_names")
+  raise "legacy skill did not keep a review-required update policy" unless unresolved.fetch("update_policy") == "review-required"
+  %w[legacy-local-skill legacy-external-skill].each do |id|
+    skill = skills.find { |entry| entry.fetch("id") == id }
+    raise "missing resolved legacy disposition #{id}" unless skill
+    raise "resolved legacy skill emitted lock metadata #{id}" if skill.key?("lock")
+  end
 ' <<<"$disposition_json"
 assert_not_contains "$(cat "$disposition_dir/skills.lock.yaml")" "legacy-skill"
+
+missing_unresolved_name_dir="$tmp_dir/missing-unresolved-name"
+write_ok_fixture "$missing_unresolved_name_dir"
+mkdir -p "$missing_unresolved_name_dir/unresolved-skill"
+cat >"$missing_unresolved_name_dir/unresolved-skill/SKILL.md" <<'SKILL'
+---
+description: Missing unresolved name fixture.
+---
+
+# Missing unresolved name
+SKILL
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills") << {
+    "id" => "unresolved-skill",
+    "status" => "needs-source-review",
+    "source" => { "type" => "unresolved-local", "path" => "unresolved-skill" }
+  }
+  File.write(path, data.to_yaml)
+' "$missing_unresolved_name_dir/skills.registry.yaml"
+missing_unresolved_name_output="$(expect_failure run_catalog "$missing_unresolved_name_dir" --json)"
+assert_contains "$missing_unresolved_name_output" "unresolved-skill: unresolved-local SKILL.md front matter name is required"
 
 ruby -ryaml -e '
   path = ARGV.fetch(0)
