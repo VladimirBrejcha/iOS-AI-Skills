@@ -84,6 +84,41 @@
       }
     },
     {
+      "id": "meeting-transcription",
+      "name": "meeting-transcription",
+      "description": "Transcribe long local meeting audio into a validated rough transcript with bounded chunking, repetition and output-limit detection, targeted retries, optional stronger-model rescue, and auditable token usage. Use when a user provides an audio recording or asks for reliable multilingual meeting transcription.",
+      "status": "active",
+      "source": {
+        "type": "registry-local",
+        "path": "meeting-transcription"
+      },
+      "exported_names": [
+        "meeting-transcription"
+      ],
+      "clients": {
+        "claude": "supported",
+        "codex": "supported",
+        "opencode": "supported"
+      },
+      "scopes": [
+        "machine",
+        "repo"
+      ],
+      "update_policy": "internal-reviewed",
+      "lock": {
+        "source_type": "registry-local",
+        "path": "meeting-transcription",
+        "digest_sha256": "3a2c849b74814105326b5c8e5fcb7794e4eba7d291c3aabd573fc80f7ec52955"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "meeting-transcription",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill meeting-transcription --agent codex --global --yes",
+        "claude_code_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill meeting-transcription --agent claude-code --global --yes"
+      }
+    },
+    {
       "id": "spec-creation-updating",
       "name": "spec-creation-updating",
       "description": "Create, update, review, and improve technical specification documents so they are complete, testable, and implementation-ready. Use when defining new features/systems/APIs, updating existing specs, restructuring documents, auditing missing requirements, or converting vague plans into concrete, verifiable requirements and acceptance criteria.",

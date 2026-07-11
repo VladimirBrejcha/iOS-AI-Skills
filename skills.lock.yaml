@@ -20,6 +20,12 @@ skills:
   digest_sha256: 8cb369d77201d30bdd79cba8cdb8886675a6cfc3962d34469203d76f590fdec9
   exported_names:
   - ios-xcodegen
+- id: meeting-transcription
+  source_type: registry-local
+  path: meeting-transcription
+  digest_sha256: 3a2c849b74814105326b5c8e5fcb7794e4eba7d291c3aabd573fc80f7ec52955
+  exported_names:
+  - meeting-transcription
 - id: spec-creation-updating
   source_type: registry-local
   path: spec-creation-updating
