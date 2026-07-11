@@ -185,6 +185,9 @@ under `docs/history/`:
 - `docs/history/manager-pilot-harness-engineering-codex-global.profile.yaml`
 - `docs/history/manager-pilot-harness-engineering-claude-global.profile.yaml`
 - `docs/history/manager-pilot-harness-engineering-claude-global.md`
+- `docs/history/manager-pilot-meeting-transcription-codex-global.profile.yaml`
+- `docs/history/manager-pilot-meeting-transcription-claude-global.profile.yaml`
+- `docs/history/manager-pilot-meeting-transcription-global.md`
 - `docs/history/manager-pilot-ios-xcodegen-claude-global.profile.yaml`
 - `docs/history/manager-pilot-ios-xcodegen-claude-global.md`
 - `docs/history/manager-pilot-spec-creation-updating-claude-global.profile.yaml`

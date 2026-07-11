@@ -1,0 +1,31 @@
+schema_version: 0.1
+status: historical-proof-target
+profile:
+  id: manager-pilot-meeting-transcription-codex-global
+  owner: maintainers
+  purpose: >
+    Historical proof target for the reviewed Codex and shared-agents
+    manager-owned meeting-transcription write. This profile is not auto-loaded
+    by default and is retained for audit context.
+
+registry:
+  path_hint: ../..
+  manifest: ../../skills.registry.yaml
+
+consumer_roots:
+  codex_global_manager:
+    path: ~/.agents/skills
+    adapter: manager-copy
+    status: historical-proof-target
+
+selected_skills:
+  - skill_id: meeting-transcription
+    expose_to:
+      - codex_global_manager
+    state: active
+
+non_goals:
+  - installing more than meeting-transcription
+  - changing ~/.codex/skills
+  - changing ~/.claude/skills
+  - stale cleanup

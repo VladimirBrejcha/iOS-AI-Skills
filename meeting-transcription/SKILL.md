@@ -19,7 +19,12 @@ Turn long local meeting audio into a validated transcript body without treating 
 The script resolves the Gemini wrapper from:
 
 1. `GEMINI_MM`, when set;
-2. `${HOME}/.codex/skills/gemini-files-api/scripts/gemini-mm.mjs`.
+2. `${HOME}/.agents/skills/gemini-files-api/scripts/gemini-mm.mjs`;
+3. `${HOME}/.claude/skills/gemini-files-api/scripts/gemini-mm.mjs`;
+4. `${HOME}/.codex/skills/gemini-files-api/scripts/gemini-mm.mjs` for legacy installs.
+
+The bootstrap script follows the same root order and can be overridden with
+`GEMINI_MM_BOOTSTRAP`.
 
 The wrapper must support `--model`, `--temperature`, `--thinking-level`, `--max-output-tokens`, `--json`, `--prompt`, and `--file`, and return JSON containing `text` plus `usageMetadata`.
 
@@ -42,7 +47,7 @@ Defaults:
 - temperature `0` and minimal thinking;
 - no persistent Gemini file retention.
 
-Use `--prepare-only` to verify source metadata, hashing, and chunking without API calls. Use `--resume` after an interrupted run. Add `--rescue-model <model>` only when one-minute retries still fail validation.
+Use `--prepare-only` to verify source metadata, hashing, and chunking without API calls. Use `--resume` after an interrupted run; chunk sets are reused only when their completion marker matches the files on disk. Add `--rescue-model <model>` only when one-minute retries still fail validation.
 
 ## Validation Contract
 
@@ -83,4 +88,8 @@ Pricing is intentionally not hardcoded. Compare `usage.json` with current first-
 - `validation.tsv` and retry/rescue reports were reviewed.
 - `assembled-transcript-body.md`, `usage.json`, and `run-manifest.json` exist.
 - `bash -n scripts/transcribe_meeting_audio.sh` passes.
-- A short spoken fixture passes the normal path and an injected repetition/output-limit fixture reaches the retry path.
+- `scripts/test_transcribe_meeting_audio.sh` passes, including managed-root
+  dependency discovery, interrupted-split recovery, and malformed-response
+  retry coverage.
+- A short spoken fixture passes the normal path and an injected
+  repetition/output-limit fixture reaches the retry path.

@@ -168,6 +168,8 @@ Run the checks that match the change:
 for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_provenance_audit.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
   bash -n "$file"
 done
+bash -n meeting-transcription/scripts/transcribe_meeting_audio.sh
+bash -n meeting-transcription/scripts/test_transcribe_meeting_audio.sh
 ruby -c scripts/skills_catalog.rb
 ruby -c scripts/skills_doctor.rb
 ruby -c scripts/skills_provenance_audit.rb
@@ -182,6 +184,7 @@ scripts/test_skills_doctor.sh
 scripts/test_skills_registry_verify.sh
 scripts/test_skills_setup_workflow_docs.sh
 scripts/test_skills_sync.sh
+meeting-transcription/scripts/test_transcribe_meeting_audio.sh
 scripts/skills_catalog.rb --check
 scripts/skills_sync.rb --plan --json
 scripts/skills_doctor.rb --check-upstream

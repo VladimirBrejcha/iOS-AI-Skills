@@ -179,15 +179,26 @@ if test "$resume" -eq 1 && test -f "$work_dir/run-config.json" && ! cmp -s "$wor
 fi
 mv "$config_tmp" "$work_dir/run-config.json"
 
-if test "$resume" -ne 1 || ! find "$work_dir/chunks" -maxdepth 1 -name 'chunk_*.m4a' -print -quit | rg -q .; then
+chunks_complete="$work_dir/chunks/.complete"
+recorded_chunk_count=""
+actual_chunk_count="$(find "$work_dir/chunks" -maxdepth 1 -name 'chunk_*.m4a' | wc -l | tr -d ' ')"
+if test -f "$chunks_complete"; then
+  recorded_chunk_count="$(cat "$chunks_complete")"
+fi
+
+if test "$resume" -ne 1 || test -z "$recorded_chunk_count" || test "$recorded_chunk_count" != "$actual_chunk_count" || test "$actual_chunk_count" -eq 0; then
+  rm -f "$chunks_complete"
   rm -f "$work_dir/chunks"/chunk_*.m4a
   ffmpeg -hide_banner -loglevel error -i "$input" \
     -ac 1 -ar 16000 -c:a aac -b:a 48k \
     -f segment -segment_time "$chunk_seconds" -reset_timestamps 1 \
     "$work_dir/chunks/chunk_%03d.m4a"
+  actual_chunk_count="$(find "$work_dir/chunks" -maxdepth 1 -name 'chunk_*.m4a' | wc -l | tr -d ' ')"
+  test "$actual_chunk_count" -gt 0 || die "audio split produced no chunks"
+  printf '%s\n' "$actual_chunk_count" > "$chunks_complete"
 fi
 
-chunk_count="$(find "$work_dir/chunks" -maxdepth 1 -name 'chunk_*.m4a' | wc -l | tr -d ' ')"
+chunk_count="$actual_chunk_count"
 test "$chunk_count" -gt 0 || die "audio split produced no chunks"
 
 if test "$prepare_only" -eq 1; then
@@ -196,8 +207,28 @@ if test "$prepare_only" -eq 1; then
   exit 0
 fi
 
-wrapper="${GEMINI_MM:-$HOME/.codex/skills/gemini-files-api/scripts/gemini-mm.mjs}"
-bootstrap="${GEMINI_MM_BOOTSTRAP:-$HOME/.codex/skills/gemini-files-api/scripts/bootstrap.sh}"
+resolve_dependency_file() {
+  relative_path="$1"
+  explicit_path="$2"
+  if test -n "$explicit_path"; then
+    printf '%s\n' "$explicit_path"
+    return
+  fi
+
+  for skill_root in \
+    "${HOME}/.agents/skills/gemini-files-api" \
+    "${HOME}/.claude/skills/gemini-files-api" \
+    "${HOME}/.codex/skills/gemini-files-api"; do
+    candidate="$skill_root/$relative_path"
+    if test -f "$candidate"; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+}
+
+wrapper="$(resolve_dependency_file scripts/gemini-mm.mjs "${GEMINI_MM:-}")"
+bootstrap="$(resolve_dependency_file scripts/bootstrap.sh "${GEMINI_MM_BOOTSTRAP:-}")"
 test -f "$wrapper" || die "Gemini wrapper not found: $wrapper"
 
 if test "$skip_bootstrap" -ne 1; then
@@ -221,26 +252,24 @@ run_request() {
   request_output="$5"
   request_tmp="$request_output.tmp"
 
-  node "$wrapper" \
+  if ! node "$wrapper" \
     --model "$request_model" \
     --temperature 0 \
     --thinking-level minimal \
     --max-output-tokens "$request_tokens" \
     --json \
     --prompt "$request_prompt" \
-    --file "$request_input" > "$request_tmp"
-
-  jq -e '.text | type == "string"' "$request_tmp" >/dev/null || {
+    --file "$request_input" > "$request_tmp"; then
     rm -f "$request_tmp"
-    die "Gemini response did not contain text: $request_input"
-  }
+    die "Gemini request failed: $request_input"
+  fi
   mv "$request_tmp" "$request_output"
 }
 
 for chunk in "$work_dir"/chunks/chunk_*.m4a; do
   chunk_name="$(basename "$chunk" .m4a)"
   output="$work_dir/raw/$chunk_name.json"
-  if test "$resume" -eq 1 && test -f "$output" && jq -e '.text | type == "string"' "$output" >/dev/null 2>&1; then
+  if test "$resume" -eq 1 && test -f "$output"; then
     echo "meeting-transcription: reuse $chunk_name"
     continue
   fi
@@ -316,15 +345,25 @@ if test -s "$work_dir/suspect-chunks.txt"; then
     test -n "$chunk_name" || continue
     retry_dir="$work_dir/retry/${chunk_name#chunk_}"
     mkdir -p "$retry_dir"
-    if test "$resume" -ne 1 || ! find "$retry_dir" -maxdepth 1 -name 'part_*.m4a' -print -quit | rg -q .; then
+    retry_complete="$retry_dir/.complete"
+    recorded_retry_count=""
+    actual_retry_count="$(find "$retry_dir" -maxdepth 1 -name 'part_*.m4a' | wc -l | tr -d ' ')"
+    if test -f "$retry_complete"; then
+      recorded_retry_count="$(cat "$retry_complete")"
+    fi
+    if test "$resume" -ne 1 || test -z "$recorded_retry_count" || test "$recorded_retry_count" != "$actual_retry_count" || test "$actual_retry_count" -eq 0; then
+      rm -f "$retry_complete"
       rm -f "$retry_dir"/part_*.m4a "$retry_dir"/part_*.json
       ffmpeg -hide_banner -loglevel error -i "$work_dir/chunks/$chunk_name.m4a" \
         -c copy -f segment -segment_time "$retry_seconds" -reset_timestamps 1 \
         "$retry_dir/part_%02d.m4a"
+      actual_retry_count="$(find "$retry_dir" -maxdepth 1 -name 'part_*.m4a' | wc -l | tr -d ' ')"
+      test "$actual_retry_count" -gt 0 || die "retry split produced no chunks: $chunk_name"
+      printf '%s\n' "$actual_retry_count" > "$retry_complete"
     fi
     for part in "$retry_dir"/part_*.m4a; do
       output="${part%.m4a}.json"
-      if test "$resume" -eq 1 && test -f "$output" && jq -e '.text | type == "string"' "$output" >/dev/null 2>&1; then
+      if test "$resume" -eq 1 && test -f "$output"; then
         continue
       fi
       echo "meeting-transcription: retry ${part#"$work_dir/"}"
@@ -430,6 +469,7 @@ function walk(dir) {
 
 const usage = {
   requests: 0,
+  malformedResponses: 0,
   audioInputTokens: 0,
   textInputTokens: 0,
   outputTokens: 0,
@@ -438,7 +478,13 @@ const usage = {
 };
 
 for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.json'))) {
-  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    usage.malformedResponses += 1;
+    continue;
+  }
   const metadata = data.usageMetadata || {};
   const model = data.modelVersion || data.model || 'unknown';
   usage.requests += 1;
