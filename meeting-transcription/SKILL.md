@@ -67,6 +67,8 @@ The work directory contains:
 - `source-metadata.json` and `source.sha256`;
 - `chunks/`, `raw/`, `retry/`, and optional `rescue/` evidence;
 - `validation.tsv`, `retry-validation.tsv`, and `unresolved-parts.txt`;
+- `accepted-rescue-parts.txt`, which limits assembly to rescue outputs accepted
+  by the current validation pass;
 - `assembled-transcript-body.md` with global chunk anchors;
 - `usage.json` with modality token counts;
 - `run-manifest.json` with source and output identity.
@@ -80,6 +82,8 @@ Pricing is intentionally not hardcoded. Compare `usage.json` with current first-
 - Use generic speaker labels unless identity is grounded independently.
 - Prefer `[unclear]`, `[inaudible]`, or `[overlapping speech]` over invented content.
 - Keep raw audio, chunks, and API envelopes outside downstream repositories unless the user explicitly requests approved retention.
+- Create temporary evidence with owner-only permissions and repair restrictive
+  permissions before resuming an existing work tree.
 - Reconcile names, numbers, dates, prices, and commitments against the source before downstream use.
 
 ## Completion Gate

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 usage() {
   cat <<'EOF'
@@ -153,30 +154,38 @@ if test -d "$work_dir" && test "$(find "$work_dir" -mindepth 1 -maxdepth 1 -prin
 fi
 
 mkdir -p "$work_dir" "$work_dir/chunks" "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
+chmod -R go-rwx "$work_dir"
 
 sha256="$(shasum -a 256 "$input" | awk '{print $1}')"
-printf '%s\n' "$sha256" > "$work_dir/source.sha256"
-ffprobe -v error \
-  -show_entries format=filename,duration,size,bit_rate:format_tags=creation_time \
-  -show_entries stream=codec_name,sample_rate,channels,channel_layout \
-  -of json "$input" > "$work_dir/source-metadata.json"
-
 config_tmp="$work_dir/run-config.json.tmp"
 jq -n \
   --arg input "$input" \
   --arg sha256 "$sha256" \
   --arg model "$model" \
+  --arg rescueModel "$rescue_model" \
   --argjson chunkSeconds "$chunk_seconds" \
   --argjson retrySeconds "$retry_seconds" \
   --argjson maxOutputTokens "$max_output_tokens" \
   --argjson retryOutputTokens "$retry_output_tokens" \
-  '{input:$input,sha256:$sha256,model:$model,chunkSeconds:$chunkSeconds,retrySeconds:$retrySeconds,maxOutputTokens:$maxOutputTokens,retryOutputTokens:$retryOutputTokens}' \
+  --argjson rescueOutputTokens "$rescue_output_tokens" \
+  '{input:$input,sha256:$sha256,model:$model,rescueModel:$rescueModel,chunkSeconds:$chunkSeconds,retrySeconds:$retrySeconds,maxOutputTokens:$maxOutputTokens,retryOutputTokens:$retryOutputTokens,rescueOutputTokens:$rescueOutputTokens}' \
   > "$config_tmp"
 
 if test "$resume" -eq 1 && test -f "$work_dir/run-config.json" && ! cmp -s "$work_dir/run-config.json" "$config_tmp"; then
   rm -f "$config_tmp"
   die "--resume configuration does not match the existing run-config.json"
 fi
+
+source_sha_tmp="$work_dir/source.sha256.tmp"
+source_metadata_tmp="$work_dir/source-metadata.json.tmp"
+printf '%s\n' "$sha256" > "$source_sha_tmp"
+ffprobe -v error \
+  -show_entries format=filename,duration,size,bit_rate:format_tags=creation_time \
+  -show_entries stream=codec_name,sample_rate,channels,channel_layout \
+  -of json "$input" > "$source_metadata_tmp"
+
+mv "$source_sha_tmp" "$work_dir/source.sha256"
+mv "$source_metadata_tmp" "$work_dir/source-metadata.json"
 mv "$config_tmp" "$work_dir/run-config.json"
 
 chunks_complete="$work_dir/chunks/.complete"
@@ -377,7 +386,14 @@ else
   : > "$work_dir/unresolved-parts.txt"
 fi
 
+accepted_rescue_parts="$work_dir/accepted-rescue-parts.txt"
+: > "$accepted_rescue_parts"
+rm -rf "$work_dir/rescue"
+mkdir -p "$work_dir/rescue"
+
 if test -s "$work_dir/unresolved-parts.txt" && test -n "$rescue_model"; then
+  rescue_requested_parts="$work_dir/rescue-requested-parts.txt"
+  cp "$work_dir/unresolved-parts.txt" "$rescue_requested_parts"
   while IFS= read -r relative; do
     test -n "$relative" || continue
     input_part="$work_dir/retry/$relative.m4a"
@@ -387,6 +403,10 @@ if test -s "$work_dir/unresolved-parts.txt" && test -n "$rescue_model"; then
     run_request "$rescue_model" "$rescue_output_tokens" "$retry_prompt" "$input_part" "$output_part"
   done < "$work_dir/unresolved-parts.txt"
   validate_json_dir "$work_dir/rescue" "$rescue_output_tokens" "$work_dir/rescue-validation.tsv" "$work_dir/still-unresolved-parts.txt"
+  comm -23 \
+    <(sort -u "$rescue_requested_parts") \
+    <(sort -u "$work_dir/still-unresolved-parts.txt") \
+    > "$accepted_rescue_parts"
   cp "$work_dir/still-unresolved-parts.txt" "$work_dir/unresolved-parts.txt"
 else
   printf 'file\toutput_tokens\ttext_chars\tstatus\n' > "$work_dir/rescue-validation.tsv"
@@ -410,6 +430,9 @@ const metadata = JSON.parse(fs.readFileSync(path.join(root, 'source-metadata.jso
 const duration = Number(metadata.format?.duration || chunkCount * chunkSeconds);
 const suspects = new Set(
   fs.readFileSync(path.join(root, 'suspect-chunks.txt'), 'utf8').split(/\n/).filter(Boolean)
+);
+const acceptedRescues = new Set(
+  fs.readFileSync(path.join(root, 'accepted-rescue-parts.txt'), 'utf8').split(/\n/).filter(Boolean)
 );
 
 function hms(value) {
@@ -444,7 +467,7 @@ for (let index = 0; index < chunkCount; index += 1) {
     const stem = part.replace(/\.m4a$/, '');
     const rescue = path.join(root, 'rescue', number, `${stem}.json`);
     const retry = path.join(retryDir, `${stem}.json`);
-    const selected = fs.existsSync(rescue) ? rescue : retry;
+    const selected = acceptedRescues.has(`${number}/${stem}`) ? rescue : retry;
     output.push(`### Retry part ${partIndex + 1} - ${hms(start + partIndex * retrySeconds)}\n\n${responseText(selected)}\n`);
   });
 }

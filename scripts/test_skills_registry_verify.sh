@@ -39,6 +39,14 @@ public_safety_cmd="$(
   ' "$repo_root/.agents/verify/skills-registry.yaml"
 )"
 
+shell_syntax_cmd="$(
+  ruby -ryaml -e '
+    config = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
+    command = config.fetch("commands").find { |entry| entry.fetch("id") == "shell-syntax" }
+    puts command.fetch("run")
+  ' "$repo_root/.agents/verify/skills-registry.yaml"
+)"
+
 registry_yaml_cmd="$(
   ruby -ryaml -e '
     config = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
@@ -164,11 +172,14 @@ verify_requirements_output="$(
     missing << "required_artifact skills-provenance-audit.json" unless required_artifacts.include?("skills-provenance-audit.json")
     missing << "required_pass_signal skills-provenance-audit-test" unless required_pass_signals.include?("skills-provenance-audit-test")
     missing << "required_pass_signal provenance-audit" unless required_pass_signals.include?("provenance-audit")
+    missing << "required_pass_signal meeting-transcription-test" unless required_pass_signals.include?("meeting-transcription-test")
     abort(missing.join("\n")) unless missing.empty?
     puts "verify requirements ok"
   ' "$repo_root/.agents/verify/skills-registry.yaml"
 )"
 assert_contains "$verify_requirements_output" "verify requirements ok"
+assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/transcribe_meeting_audio.sh"
+assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/test_transcribe_meeting_audio.sh"
 
 unquoted_hash_dir="$tmp_dir/unquoted-hash"
 cp -R "$ok_dir/." "$unquoted_hash_dir/"

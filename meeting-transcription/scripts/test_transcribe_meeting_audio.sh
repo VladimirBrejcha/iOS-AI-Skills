@@ -6,21 +6,50 @@ script="$repo_root/meeting-transcription/scripts/transcribe_meeting_audio.sh"
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/meeting-transcription-test.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
 
+mode_of() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+}
+
 audio="$tmp_dir/fixture.m4a"
 ffmpeg -hide_banner -loglevel error \
   -f lavfi -i 'sine=frequency=440:duration=5.2' \
   -c:a aac "$audio"
 
 prepare_dir="$tmp_dir/prepare"
-"$script" \
-  --input "$audio" \
-  --work-dir "$prepare_dir" \
-  --chunk-seconds 2 \
-  --prepare-only >/dev/null
+mkdir -p "$prepare_dir"
+chmod 755 "$prepare_dir"
+(
+  umask 022
+  "$script" \
+    --input "$audio" \
+    --work-dir "$prepare_dir" \
+    --chunk-seconds 2 \
+    --prepare-only >/dev/null
+)
 
 initial_count="$(find "$prepare_dir/chunks" -maxdepth 1 -name 'chunk_*.m4a' | wc -l | tr -d ' ')"
 test "$initial_count" -gt 1
 test "$(cat "$prepare_dir/chunks/.complete")" = "$initial_count"
+test "$(mode_of "$prepare_dir")" = "700"
+test "$(mode_of "$prepare_dir/source-metadata.json")" = "600"
+
+original_source_sha="$(cat "$prepare_dir/source.sha256")"
+original_metadata_sha="$(shasum -a 256 "$prepare_dir/source-metadata.json" | awk '{print $1}')"
+other_audio="$tmp_dir/other-fixture.m4a"
+ffmpeg -hide_banner -loglevel error \
+  -f lavfi -i 'sine=frequency=880:duration=3.1' \
+  -c:a aac "$other_audio"
+if "$script" \
+  --input "$other_audio" \
+  --work-dir "$prepare_dir" \
+  --chunk-seconds 2 \
+  --prepare-only \
+  --resume >/dev/null 2>&1; then
+  echo "expected mismatched resume to fail" >&2
+  exit 1
+fi
+test "$(cat "$prepare_dir/source.sha256")" = "$original_source_sha"
+test "$(shasum -a 256 "$prepare_dir/source-metadata.json" | awk '{print $1}')" = "$original_metadata_sha"
 
 first_chunk="$(find "$prepare_dir/chunks" -maxdepth 1 -name 'chunk_*.m4a' | sort | head -1)"
 for chunk in "$prepare_dir"/chunks/chunk_*.m4a; do
@@ -41,7 +70,8 @@ resumed_count="$(find "$prepare_dir/chunks" -maxdepth 1 -name 'chunk_*.m4a' | wc
 test "$resumed_count" = "$initial_count"
 test "$(cat "$prepare_dir/chunks/.complete")" = "$resumed_count"
 
-managed_root="$tmp_dir/home/.agents/skills/gemini-files-api/scripts"
+managed_home="$tmp_dir/managed-root"
+managed_root="$managed_home/.agents/skills/gemini-files-api/scripts"
 mkdir -p "$managed_root"
 
 cat > "$managed_root/bootstrap.sh" <<'BOOTSTRAP'
@@ -78,7 +108,7 @@ WRAPPER
 export FAKE_GEMINI_COUNTER="$tmp_dir/gemini-counter"
 export FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/bootstrap-marker"
 run_dir="$tmp_dir/run"
-HOME="$tmp_dir/home" "$script" \
+HOME="$managed_home" "$script" \
   --input "$audio" \
   --work-dir "$run_dir" \
   --chunk-seconds 10 \
@@ -90,5 +120,18 @@ rg -n $'chunk_000.json\t0\t0\tinvalid_json' "$run_dir/validation.tsv" >/dev/null
 test ! -s "$run_dir/unresolved-parts.txt"
 rg -n 'Managed wrapper retry transcript' "$run_dir/assembled-transcript-body.md" >/dev/null
 test "$(jq -r '.malformedResponses' "$run_dir/usage.json")" = "1"
+
+mkdir -p "$run_dir/rescue/000"
+printf '{stale rescue response\n' > "$run_dir/rescue/000/part_00.json"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+test ! -s "$run_dir/accepted-rescue-parts.txt"
+test ! -e "$run_dir/rescue/000/part_00.json"
+rg -n 'Managed wrapper retry transcript' "$run_dir/assembled-transcript-body.md" >/dev/null
 
 echo "meeting transcription test ok"
