@@ -76,6 +76,14 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
 
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills \
+  --skill meeting-transcription \
+  --agent claude-code \
+  --global \
+  --yes
+```
+
+```bash
+npx --yes skills@1.5.14 add fiveonecode/agent-skills \
   --skill spec-creation-updating \
   --agent claude-code \
   --global \

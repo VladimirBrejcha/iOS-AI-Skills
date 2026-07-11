@@ -134,10 +134,10 @@ a primary source or reproducible failure.
 
 ## Proven Manager-Owned Targets
 
-Eight shared global manager-copy targets are already proven on the default
+Nine shared global manager-copy targets are already proven on the default
 example profile. The command currently uses `--agent codex` because that is the
 reviewed manager write path for `~/.agents/skills`; the upstream manager reports
-that same shared-root install as visible to OpenCode. Claude Code has eight
+that same shared-root install as visible to OpenCode. Claude Code has nine
 separate proven global targets through `~/.claude/skills`, matching the active
 registry-local set. External-git entries such as `swift-concurrency` and
 `swiftui-pro`, repo-local consumers, and unclassified top-level skills remain
@@ -147,6 +147,7 @@ planned/manual-review until equivalent proof exists.
 | --- | --- | --- | --- |
 | `code-review` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill code-review --agent codex --global --yes` | `~/.agents/skills/code-review` | `skills.code-review` |
 | `harness-engineering` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes` | `~/.agents/skills/harness-engineering` | `skills.harness-engineering` |
+| `meeting-transcription` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill meeting-transcription --agent codex --global --yes` | `~/.agents/skills/meeting-transcription` | `skills.meeting-transcription` |
 | `spec-creation-updating` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes` | `~/.agents/skills/spec-creation-updating` | `skills.spec-creation-updating` |
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes` | `~/.agents/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent codex --global --yes` | `~/.agents/skills/xcode-build` | `skills.xcode-build` |
@@ -154,13 +155,14 @@ planned/manual-review until equivalent proof exists.
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes` | `~/.agents/skills/swift-testing` | `skills.swift-testing` |
 | `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent codex --global --yes` | `~/.agents/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
 
-Eight separate Claude Code global manager-copy targets are proven on the default
+Nine separate Claude Code global manager-copy targets are proven on the default
 example profile:
 
 | Skill | Manager command | Adapter target | Lock key |
 | --- | --- | --- | --- |
 | `code-review` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill code-review --agent claude-code --global --yes` | `~/.claude/skills/code-review` | `skills.code-review` |
 | `harness-engineering` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent claude-code --global --yes` | `~/.claude/skills/harness-engineering` | `skills.harness-engineering` |
+| `meeting-transcription` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill meeting-transcription --agent claude-code --global --yes` | `~/.claude/skills/meeting-transcription` | `skills.meeting-transcription` |
 | `spec-creation-updating` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent claude-code --global --yes` | `~/.claude/skills/spec-creation-updating` | `skills.spec-creation-updating` |
 | `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent claude-code --global --yes` | `~/.claude/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent claude-code --global --yes` | `~/.claude/skills/xcode-build` | `skills.xcode-build` |
