@@ -163,6 +163,22 @@ assert_contains "$current_json" '"status": "current"'
 assert_contains "$current_json" '"update_required": false'
 assert_contains "$current_json" '"update_required": 0'
 
+legacy_dir="$tmp_dir/legacy"
+mkdir -p "$legacy_dir"
+write_fixture_registry "$legacy_dir" "1.1.0" "$commit_110"
+ruby -ryaml -e '
+  registry_path, lock_path = ARGV
+  registry = YAML.safe_load(File.read(registry_path), aliases: false)
+  registry.fetch("skills").first["status"] = "legacy"
+  File.write(registry_path, registry.to_yaml)
+  lock = YAML.safe_load(File.read(lock_path), aliases: false)
+  lock["skills"] = []
+  File.write(lock_path, lock.to_yaml)
+' "$legacy_dir/skills.registry.yaml" "$legacy_dir/skills.lock.yaml"
+legacy_json="$(run_report "$legacy_dir" --json --fail-on-stale)"
+assert_contains "$legacy_json" '"external_skills": 0'
+assert_not_contains "$legacy_json" '"id": "external-skill"'
+
 git -C "$upstream_dir" tag -f 1.0.0 "$commit_110" >/dev/null 2>&1
 write_fixture_registry "$fixture_dir" "1.0.0" "$commit_100"
 moved_pin_json="$(run_report "$fixture_dir" --json)"

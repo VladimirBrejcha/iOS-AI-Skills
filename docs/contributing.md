@@ -28,8 +28,9 @@ Related: [README](../README.md), [Registry Contract](registry-contract.md),
 Every top-level skill folder must have one disposition in
 `skills.registry.yaml`. Use `unresolved-local` with `needs-source-review` when
 origin or ownership is not yet reviewed, and `legacy` when retained but no
-longer offered. Only active resolved-source entries receive lock metadata,
-profile selection, and install commands.
+longer offered. Resolved-source entries that are not legacy receive lock
+metadata. Only active resolved-source entries may appear in profiles or emit
+install commands.
 
 ## Add A New 51Code-Owned Skill
 

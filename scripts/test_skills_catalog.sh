@@ -553,6 +553,23 @@ ruby -ryaml -e '
 missing_selected_skill_output="$(expect_failure run_catalog "$missing_selected_skill_dir" --json)"
 assert_contains "$missing_selected_skill_output" "profiles/machine/example-local-skills.yaml selected skill missing-skill is not in registry"
 
+non_active_selected_skill_dir="$tmp_dir/non-active-selected-skill"
+write_ok_fixture "$non_active_selected_skill_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |entry| entry.fetch("id") == "manual-review-skill" }["status"] = "legacy"
+  File.write(path, data.to_yaml)
+' "$non_active_selected_skill_dir/skills.registry.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").reject! { |entry| entry.fetch("id") == "manual-review-skill" }
+  File.write(path, data.to_yaml)
+' "$non_active_selected_skill_dir/skills.lock.yaml"
+non_active_selected_skill_output="$(expect_failure run_catalog "$non_active_selected_skill_dir" --json)"
+assert_contains "$non_active_selected_skill_output" "profiles/machine/example-local-skills.yaml selected skill manual-review-skill has non-active registry status legacy"
+
 unshared_agents_root_validation_dir="$tmp_dir/unshared-agents-root-validation"
 write_ok_fixture "$unshared_agents_root_validation_dir"
 ruby -ryaml -e '
@@ -1882,6 +1899,22 @@ ruby -rjson -e '
   end
 ' <<<"$disposition_json"
 assert_not_contains "$(cat "$disposition_dir/skills.lock.yaml")" "legacy-skill"
+
+unresolved_exposure_dir="$tmp_dir/unresolved-exposure"
+cp -R "$disposition_dir" "$unresolved_exposure_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  skill = data.fetch("skills").find { |entry| entry.fetch("id") == "legacy-skill" }
+  skill["exported_names"] = ["legacy-skill"]
+  skill["clients"] = { "codex" => "planned" }
+  skill["scopes"] = ["machine"]
+  File.write(path, data.to_yaml)
+' "$unresolved_exposure_dir/skills.registry.yaml"
+unresolved_exposure_output="$(expect_failure run_catalog "$unresolved_exposure_dir" --json)"
+assert_contains "$unresolved_exposure_output" "legacy-skill: unresolved-local entries must not define exported_names"
+assert_contains "$unresolved_exposure_output" "legacy-skill: unresolved-local entries must not define clients"
+assert_contains "$unresolved_exposure_output" "legacy-skill: unresolved-local entries must not define scopes"
 
 missing_unresolved_name_dir="$tmp_dir/missing-unresolved-name"
 write_ok_fixture "$missing_unresolved_name_dir"

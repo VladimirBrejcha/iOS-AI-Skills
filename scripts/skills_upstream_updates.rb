@@ -590,6 +590,7 @@ def external_registry_skills(registry, reporter)
     next unless entry.is_a?(Hash)
     source = entry["source"]
     next unless source.is_a?(Hash) && source["type"] == "external-git"
+    next if entry["status"] == "legacy"
 
     memo << entry
   end

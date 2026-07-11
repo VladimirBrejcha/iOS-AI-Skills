@@ -785,6 +785,13 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
       reporter.error("#{display_path(profile_path)} selected skill #{entry["skill_id"]} is not in registry")
       next
     end
+    unless registry_skill_ids[entry["skill_id"]] == "active"
+      reporter.error(
+        "#{display_path(profile_path)} selected skill #{entry["skill_id"]} " \
+        "has non-active registry status #{registry_skill_ids[entry["skill_id"]]}"
+      )
+      next
+    end
 
     expose_to = string_array(entry["expose_to"], reporter, "#{display_path(profile_path)} #{entry["skill_id"]} expose_to")
     reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} expose_to must list at least one consumer") if expose_to.empty?
@@ -1286,6 +1293,11 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     end
     if status == "needs-import-review" && source_type != "external-git"
       reporter.error("#{skill_id}: needs-import-review status requires source.type external-git")
+    end
+    if source_type == "unresolved-local"
+      %w[exported_names clients scopes].each do |field|
+        reporter.error("#{skill_id}: unresolved-local entries must not define #{field}") if skill.key?(field)
+      end
     end
     exported_names = source_type == "unresolved-local" && skill["exported_names"].nil? ? [] :
       string_array(skill["exported_names"], reporter, "#{skill_id}: exported_names")
