@@ -37,7 +37,7 @@ skills:
 - id: swift-testing
   source_type: registry-local
   path: swift-testing
-  digest_sha256: f9a582f50e47013b378c48434bdfb5eaee1a269d912601cee60de34c705ac04a
+  digest_sha256: aec1fc0b032122fd08c04d35b5d42d6f95bed87e2c1340371c46c2c40d1a09b9
   exported_names:
   - swift-testing
 - id: swiftui-pro

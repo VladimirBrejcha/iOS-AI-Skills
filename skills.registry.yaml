@@ -241,26 +241,33 @@ skills:
       - repo
     update_policy: internal-reviewed
     notes:
-      - Source owner reviewed on 2026-07-10. This is a maintained
-        registry-local fork of johnrogers/claude-swift-engineering commit
-        1dc2cf4d020bd524168f20bec95104da6cb2888c at path
-        plugins/swift-engineering/skills/swift-testing.
-      - Upstream repository license reviewed as MIT.
+      - Source owner replaced on 2026-07-10. This is a maintained
+        registry-local fork of twostraws/Swift-Testing-Agent-Skill release
+        1.0.0 at commit 29921fb187f1165cb8975791c7e11fbb23d03398 and
+        upstream path swift-testing-pro.
+      - Upstream repository license reviewed as MIT; upstream author metadata
+        credits Paul Hudson.
       - >
-        The local body matches upstream, with a local front-matter quoting
-        patch so YAML preserves #expect and #require in the description.
-      - Keep registry-local ownership until the upstream publishes an exact
-        release tag for the reviewed content or the registry supports
-        commit-only external pins across doctor, catalog, sync, and profile
-        generation.
-      - Tagged alternatives from twostraws/Swift-Testing-Agent-Skill and
-        AvdLee/Swift-Testing-Agent-Skill were reviewed on 2026-07-10, but they
-        are broader replacement candidates rather than the exact source owner
-        for this checked-in swift-testing baseline.
-      - Swift Testing framework guidance selected as the next managed profile
-        expansion after the front-matter description was quoted and verified.
-      - Claude Code support is proven through a pinned upstream manager write
-        to ~/.claude/skills for this skill.
+        The local package replaces the previous johnrogers-derived single-file
+        baseline. Local adaptations are limited to preserving the exported
+        registry id and manager-selected name `swift-testing`, normalizing
+        SKILL.md front matter to the repository contract, and updating
+        agents/openai.yaml to invoke `$swift-testing`, plus reviewed correctness
+        fixes for Swift Testing and Foundation examples that were inaccurate in
+        upstream release 1.0.0.
+      - Keep registry-local ownership until external-git aliases and manager
+        installs can preserve the public `swift-testing` surface across
+        doctor, catalog, sync, managed global profiles, and repo-local
+        consumers without a local registry copy.
+      - AvdLee/Swift-Testing-Agent-Skill tags through 1.2.0 were reviewed on
+        2026-07-10 as a strong alternative, but this entry intentionally
+        follows the requested TwoStraws package replacement.
+      - Swift Testing framework guidance remains part of the managed profile
+        expansion. After merge, refresh managed Codex and Claude Code global
+        copies from fiveonecode/agent-skills so installed manager roots match
+        the new lock digest.
+      - Claude Code support uses the same proven manager install path for this
+        exported skill name.
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 

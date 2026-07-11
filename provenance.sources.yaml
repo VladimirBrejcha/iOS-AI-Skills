@@ -49,22 +49,26 @@ sources:
         match: exact-observed
         recommended_registry_source: external-git
         note: Local SKILL.md matched the public upstream during provenance review.
-  - id: johnrogers-claude-swift-engineering
-    url: https://github.com/johnrogers/claude-swift-engineering.git
+  - id: twostraws-swift-testing-agent-skill
+    url: https://github.com/twostraws/Swift-Testing-Agent-Skill.git
     license: MIT
-    observed_commit: 1dc2cf4d020bd524168f20bec95104da6cb2888c
+    observed_commit: 29921fb187f1165cb8975791c7e11fbb23d03398
     skills:
       - local_id: swift-testing
-        upstream_path: plugins/swift-engineering/skills/swift-testing
-        status: confirmed
+        upstream_path: swift-testing-pro
+        status: derived
         confidence: high
-        match: local-frontmatter-patch
+        match: renamed-local-fork
         recommended_registry_source: registry-local
         note: >
-          Body matched upstream; local front matter keeps YAML-safe quoting for
-          #expect/#require. Treat as a maintained registry-local fork because
-          the upstream repository has no exact release tag and this registry
-          does not support commit-only external pins end-to-end.
+          Local skill replaces the previous johnrogers-derived baseline with
+          the tagged TwoStraws Swift Testing package while preserving the
+          exported registry id and manager-selected name swift-testing for
+          existing Codex, Claude Code, OpenCode, machine, and repo consumers.
+          The maintained fork also carries reviewed API-correctness fixes for
+          examples that were inaccurate in upstream release 1.0.0.
+          Treat as a maintained registry-local fork until external-git aliases
+          and manager installs can preserve that public surface end-to-end.
   - id: dimillian-skills
     url: https://github.com/Dimillian/Skills.git
     license: MIT
