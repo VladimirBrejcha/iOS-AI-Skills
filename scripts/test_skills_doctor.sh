@@ -89,6 +89,17 @@ basic_output="$(
 assert_contains "$basic_output" "fixture-profile: 1 selected skills, 1 consumer roots"
 assert_contains "$basic_output" "example-skill: registry-local example-skill digest"
 
+non_active_profile_dir="$tmp_dir/non-active-profile"
+cp -R "$basic_dir/." "$non_active_profile_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").first["status"] = "legacy"
+  File.write(path, data.to_yaml)
+' "$non_active_profile_dir/skills.registry.yaml"
+non_active_profile_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$non_active_profile_dir/skills.registry.yaml" --profile "$non_active_profile_dir/profiles/machine/example.yaml" --projects-root "$non_active_profile_dir/projects")"
+assert_contains "$non_active_profile_output" "selected skill example-skill has non-active registry status legacy"
+
 lock_output="$(
   ruby "$repo_root/scripts/skills_doctor.rb" \
     --registry "$basic_dir/skills.registry.yaml" \
@@ -459,6 +470,16 @@ YAML
 
 ruby "$repo_root/scripts/skills_doctor.rb" --registry "$missing_lock_entry_dir/skills.registry.yaml" --print-lock >"$missing_lock_entry_dir/good.lock.yaml"
 assert_not_contains "$(cat "$missing_lock_entry_dir/good.lock.yaml")" "new-skill"
+
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  skill = data.fetch("skills").find { |entry| entry.fetch("id") == "example-skill" }
+  skill["status"] = "legacy"
+  File.write(path, data.to_yaml)
+' "$missing_lock_entry_dir/skills.registry.yaml"
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$missing_lock_entry_dir/skills.registry.yaml" --print-lock >"$missing_lock_entry_dir/legacy.lock.yaml"
+assert_not_contains "$(cat "$missing_lock_entry_dir/legacy.lock.yaml")" "example-skill"
 
 cat >"$missing_lock_entry_dir/skills.registry.yaml" <<'YAML'
 schema_version: 0.1

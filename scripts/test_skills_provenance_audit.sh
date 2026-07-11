@@ -81,11 +81,12 @@ write_skill "$fixture_dir" "missing-upstream-copy" "missing-upstream-copy" "# Mi
 write_skill "$fixture_dir" "candidate-copy" "candidate-copy" "# Candidate Copy"
 write_skill "$fixture_dir" "local-fork-copy" "local-fork-copy" "# Local Fork Copy"
 write_skill "$fixture_dir" "local-owned" "local-owned" "# Local Owned"
+write_skill "$fixture_dir" "unresolved-external-copy" "unresolved-external-copy" "# Unresolved External Copy"
 write_skill "$fixture_dir" "duplicate-a" "duplicate-skill" "# Duplicate"
 mkdir -p "$fixture_dir/duplicate-b"
 cp "$fixture_dir/duplicate-a/SKILL.md" "$fixture_dir/duplicate-b/SKILL.md"
 
-for skill_id in external-copy alias-copy external-fork-copy unregistered-copy unknown-copy candidate-copy local-fork-copy; do
+for skill_id in external-copy alias-copy external-fork-copy unregistered-copy unknown-copy candidate-copy local-fork-copy unresolved-external-copy; do
   mkdir -p "$upstream_dir/public-source/skills/$skill_id"
   cp "$fixture_dir/$skill_id/SKILL.md" "$upstream_dir/public-source/skills/$skill_id/SKILL.md"
 done
@@ -133,6 +134,11 @@ skills:
     source:
       type: registry-local
       path: local-owned
+  - id: unresolved-external-copy
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: unresolved-external-copy
 YAML
 
 cat >"$fixture_dir/provenance.sources.yaml" <<'YAML'
@@ -202,6 +208,12 @@ sources:
         confidence: high
         match: local-overlay-observed
         recommended_registry_source: registry-local
+      - local_id: unresolved-external-copy
+        upstream_path: skills/unresolved-external-copy
+        status: confirmed
+        confidence: high
+        match: exact-observed
+        recommended_registry_source: external-git
 YAML
 
 json_output="$(run_audit "$fixture_dir" --json --source-root "public-source=$upstream_dir/public-source")"
@@ -210,7 +222,7 @@ assert_contains "$json_output" '"registry_external_local_fork_conflicts": 1'
 assert_contains "$json_output" '"registry_external_local_folders": 1'
 assert_contains "$json_output" '"registry_local_source_missing": 1'
 assert_contains "$json_output" '"stale_provenance_entries": 1'
-assert_contains "$json_output" '"unregistered_external_imports": 2'
+assert_contains "$json_output" '"unregistered_external_imports": 3'
 assert_contains "$json_output" '"unregistered_local_fork_provenance": 1'
 assert_contains "$json_output" '"unregistered_provenance_candidates": 1'
 assert_contains "$json_output" '"unresolved_provenance_recommendations": 1'
@@ -229,6 +241,7 @@ assert_contains "$json_output" '"message": "missing-upstream-copy points at a mi
 assert_contains "$json_output" '"message": "missing-registry-source points at missing local source path missing-registry-source"'
 assert_contains "$json_output" '"message": "missing-local-skill has checked-in provenance but no local skill folder"'
 assert_contains "$json_output" '"message": "local-fork-copy has reviewed local-fork provenance but is not registry-covered"'
+assert_contains "$json_output" '"message": "unresolved-external-copy has reviewed external provenance but remains unresolved-local"'
 assert_contains "$json_output" '"message": "unknown-copy has reviewed provenance without a registry source recommendation"'
 assert_not_contains "$json_output" '"message": "alias-copy appears copied or derived from an external source but is not registry-covered"'
 assert_not_contains "$json_output" '"message": "unknown-copy is not registry-covered and has no checked-in provenance candidate"'
@@ -255,6 +268,7 @@ assert_contains "$markdown_output" "unregistered-copy appears copied or derived 
 assert_contains "$markdown_output" "missing-upstream-copy points at a missing source-root SKILL.md"
 assert_contains "$markdown_output" "drifted-external-copy no longer resembles the provided source-root copy"
 assert_contains "$markdown_output" "local-fork-copy has reviewed local-fork provenance but is not registry-covered"
+assert_contains "$markdown_output" "unresolved-external-copy has reviewed external provenance but remains unresolved-local"
 assert_contains "$markdown_output" "unknown-copy has reviewed provenance without a registry source recommendation"
 assert_contains "$markdown_output" "candidate-copy has an unresolved public provenance candidate"
 assert_contains "$markdown_output" "duplicate-a, duplicate-b"
@@ -269,7 +283,7 @@ assert_contains "$conflict_failure" '"registry_external_local_fork_conflicts": 1
 import_failure="$(expect_failure run_audit "$fixture_dir" --json --fail-on-unregistered-import)"
 assert_contains "$import_failure" "unregistered external imports found"
 assert_contains "$import_failure" "unregistered local-fork provenance found"
-assert_contains "$import_failure" '"unregistered_external_imports": 2'
+assert_contains "$import_failure" '"unregistered_external_imports": 3'
 assert_contains "$import_failure" '"unregistered_local_fork_provenance": 1'
 
 non_mapping_source_dir="$tmp_dir/non-mapping-source"

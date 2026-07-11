@@ -1305,7 +1305,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     update_policy = skill["update_policy"]
     reporter.error("#{skill_id}: update_policy is required") if source_type != "unresolved-local" && !valid_string?(update_policy)
 
-    lockable = %w[registry-local external-git].include?(source_type)
+    lockable = %w[registry-local external-git].include?(source_type) && status != "legacy"
     lockable_skill_ids << skill_id if lockable
     lock_entry = lockable ? lock_by_id[skill_id] : nil
     if lockable && lock_entry.nil?
@@ -1465,7 +1465,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       "description" => description,
       "status" => status,
       "source" => source_catalog,
-      "update_policy" => update_policy || "review-required"
+      "update_policy" => source_type == "unresolved-local" ? "review-required" : update_policy
     }
     if lockable
       entry["exported_names"] = exported_names

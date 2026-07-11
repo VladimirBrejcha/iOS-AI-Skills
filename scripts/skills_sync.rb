@@ -904,7 +904,8 @@ def load_registry(path, reporter)
         source_digest_sha256: source_digest_sha256,
         manager_skill_name: name,
         exported_names: exported_names,
-        clients: normalized_clients
+        clients: normalized_clients,
+        lockable: status != "legacy"
       }
     when "external-git"
       url = source["url"]
@@ -1023,7 +1024,8 @@ def load_registry(path, reporter)
         pinned_tag: pinned_tag,
         observed_commit: observed_commit,
         exported_names: exported_names,
-        clients: normalized_clients
+        clients: normalized_clients,
+        lockable: status != "legacy"
       }
     when "unresolved-local"
       unless UNRESOLVED_LOCAL_STATUSES.include?(status)
@@ -1306,6 +1308,10 @@ def load_profiles(paths, registry_by_id, reporter)
         next
       end
       reporter.error("#{display_path(path)} selected skill #{skill_id} is not in registry") unless registry_by_id.key?(skill_id)
+      skill = registry_by_id[skill_id]
+      if skill && skill[:status] != "active"
+        reporter.error("#{display_path(path)} selected skill #{skill_id} has non-active registry status #{skill[:status]}")
+      end
       expose_to = string_array(selection["expose_to"], reporter, "#{display_path(path)} #{skill_id} expose_to")
       reporter.error("#{display_path(path)} #{skill_id} expose_to must list at least one consumer") if expose_to.empty?
       expose_to.each do |consumer|
@@ -1852,7 +1858,11 @@ def plan_desired_adapters(profile, registry_by_id, lock_by_id, registry_root, re
         status = "planned"
         reason = nil
 
-        if selected_state_blocked?(selection["state"])
+        if skill[:status] != "active"
+          action = "blocked"
+          status = "blocked"
+          reason = "registry skill status is #{skill[:status]}"
+        elsif selected_state_blocked?(selection["state"])
           action = "blocked"
           status = "blocked"
           reason = "selected skill state is #{selection["state"]}"

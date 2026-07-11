@@ -1054,7 +1054,8 @@ def validate_registry(registry_path, registry, options, reporter)
         "path" => source_path,
         "absolute_path" => skill_dir.to_s,
         "digest_sha256" => digest,
-        "exported_names" => exported_names
+        "exported_names" => exported_names,
+        "lockable" => status != "legacy"
       }
       reporter.ok("#{skill_id}: registry-local #{source_path} digest #{digest[0, 12]}")
     when "external-git"
@@ -1201,7 +1202,8 @@ def validate_registry(registry_path, registry, options, reporter)
         "path" => source_path.empty? ? "." : source_path,
         "pinned_tag" => tag,
         "observed_commit" => observed_commit,
-        "exported_names" => exported_names
+        "exported_names" => exported_names,
+        "lockable" => status != "legacy"
       }
     when "unresolved-local"
       unless UNRESOLVED_LOCAL_STATUSES.include?(status)
@@ -1553,6 +1555,10 @@ def validate_profiles(paths, resolved, reporter)
       skill_id = selection["skill_id"]
       expose_to = string_array(selection["expose_to"], reporter, "#{display_path(expanded)} #{skill_id} expose_to")
       reporter.error("#{display_path(expanded)} selected skill #{skill_id} is not in registry") unless resolved.key?(skill_id)
+      skill = resolved[skill_id]
+      if skill && skill["status"] != "active"
+        reporter.error("#{display_path(expanded)} selected skill #{skill_id} has non-active registry status #{skill["status"]}")
+      end
       if expose_to.empty?
         reporter.error("#{display_path(expanded)} #{skill_id} expose_to must list at least one consumer")
         next

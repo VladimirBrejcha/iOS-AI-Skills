@@ -433,6 +433,14 @@ def build_findings(skills:, registry_entries:, provenance_entries:, source_roots
         message: "#{local_id} has reviewed provenance without a registry source recommendation",
         details: details
       )
+    elsif external_reviewed && registry && registry["source_type"] == "unresolved-local"
+      findings << finding(
+        severity: "warning",
+        kind: "unregistered-external-import",
+        skill_ids: local_id,
+        message: "#{local_id} has reviewed external provenance but remains unresolved-local",
+        details: details
+      )
     elsif external_reviewed && registry && registry["source_type"] == "registry-local"
       findings << finding(
         severity: "error",

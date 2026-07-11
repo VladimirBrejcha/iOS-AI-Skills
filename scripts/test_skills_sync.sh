@@ -1420,7 +1420,7 @@ skills:
     exported_names:
       - local-skill
   - id: external-skill
-    status: needs-import-review
+    status: active
     source:
       type: external-git
       url: https://example.com/example/skill.git
@@ -4688,6 +4688,7 @@ assert_contains "$bad_lock_shape_output" "stale lock entry stale-skill is not pr
 
 legacy_install_dir="$tmp_dir/legacy-install"
 write_skill "$legacy_install_dir/legacy-skill" "legacy-skill" "Legacy install guard fixture."
+write_skill "$legacy_install_dir/unresolved-skill" "unresolved-skill" "Unresolved profile guard fixture."
 mkdir -p "$legacy_install_dir/profiles/machine" "$legacy_install_dir/consumer-root"
 cat >"$legacy_install_dir/skills.registry.yaml" <<'YAML'
 schema_version: 0.1
@@ -4706,8 +4707,14 @@ skills:
       - legacy-skill
     clients:
       codex: supported
+  - id: unresolved-skill
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: unresolved-skill
 YAML
-write_lock_from_registry "$legacy_install_dir"
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$legacy_install_dir/skills.registry.yaml" --print-lock >"$legacy_install_dir/skills.lock.yaml"
+assert_not_contains "$(cat "$legacy_install_dir/skills.lock.yaml")" "legacy-skill"
 cat >"$legacy_install_dir/profiles/machine/example.yaml" <<'YAML'
 schema_version: 0.1
 status: fixture
@@ -4723,9 +4730,15 @@ selected_skills:
     expose_to:
       - codex_user
     state: active
+  - skill_id: unresolved-skill
+    expose_to:
+      - codex_user
+    state: active
 YAML
-legacy_install_output="$(ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$legacy_install_dir/skills.registry.yaml" --lock "$legacy_install_dir/skills.lock.yaml" --profile "$legacy_install_dir/profiles/machine/example.yaml")"
-assert_contains "$legacy_install_output" "registry skill status is legacy"
+legacy_install_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$legacy_install_dir/skills.registry.yaml" --lock "$legacy_install_dir/skills.lock.yaml" --profile "$legacy_install_dir/profiles/machine/example.yaml")"
+assert_contains "$legacy_install_output" "selected skill legacy-skill has non-active registry status legacy"
+assert_contains "$legacy_install_output" "selected skill unresolved-skill has non-active registry status needs-source-review"
+assert_not_contains "$legacy_install_output" "create | planned"
 assert_not_contains "$legacy_install_output" "npx --yes"
 
 json_output="$(

@@ -1836,7 +1836,8 @@ ruby -ryaml -e '
   data.fetch("skills") << {
     "id" => "legacy-skill",
     "status" => "legacy",
-    "source" => { "type" => "unresolved-local", "path" => "legacy-skill" }
+    "source" => { "type" => "unresolved-local", "path" => "legacy-skill" },
+    "update_policy" => "internal-reviewed"
   }
   File.write(path, data.to_yaml)
 ' "$disposition_dir/skills.registry.yaml"
@@ -1847,6 +1848,7 @@ ruby -rjson -e '
   raise "legacy skill emitted install metadata" if skill.key?("install")
   raise "legacy skill emitted lock metadata" if skill.key?("lock")
   raise "legacy skill exported adapter metadata" if skill.key?("exported_names")
+  raise "legacy skill did not keep a review-required update policy" unless skill.fetch("update_policy") == "review-required"
 ' <<<"$disposition_json"
 assert_not_contains "$(cat "$disposition_dir/skills.lock.yaml")" "legacy-skill"
 
