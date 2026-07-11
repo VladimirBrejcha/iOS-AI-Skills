@@ -23,13 +23,17 @@ patched in place. The imported package keeps the richer TwoStraws structure:
 ## Local Adaptations
 
 The local fork intentionally differs from upstream only where the registry
-contract requires it:
+contract or verified API correctness requires it:
 
 - `SKILL.md` front matter uses `name: swift-testing` so the manager-selected
   skill name remains stable for existing consumers.
 - `SKILL.md` front matter contains only `name` and `description`, matching the
   local skill authoring contract.
 - `agents/openai.yaml` uses `$swift-testing` in `default_prompt`.
+- Reference examples correct suite-level `.serialized`, fire-and-forget task
+  tracking, `ConditionTrait.evaluate()`, thrown-error unwrapping, and
+  `URLResponse` construction. These corrections were verified against the
+  Swift Testing source and Apple Foundation documentation during PR review.
 - The source remains `registry-local` until external-git aliases and manager
   installs can preserve the public `swift-testing` surface end-to-end.
 

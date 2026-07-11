@@ -252,7 +252,9 @@ skills:
         baseline. Local adaptations are limited to preserving the exported
         registry id and manager-selected name `swift-testing`, normalizing
         SKILL.md front matter to the repository contract, and updating
-        agents/openai.yaml to invoke `$swift-testing`.
+        agents/openai.yaml to invoke `$swift-testing`, plus reviewed correctness
+        fixes for Swift Testing and Foundation examples that were inaccurate in
+        upstream release 1.0.0.
       - Keep registry-local ownership until external-git aliases and manager
         installs can preserve the public `swift-testing` surface across
         doctor, catalog, sync, managed global profiles, and repo-local

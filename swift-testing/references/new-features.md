@@ -236,6 +236,8 @@ Out of the box, Swift Testing provides support for attaching `String`, `Data`, a
 
 Swift Testing provides an `evaluate()` method to test condition traits, meaning that it's possible to write non-test functions that evaluate the same conditions as test functions.
 
+`evaluate()` returns whether the test is enabled. For a `.disabled(if:)` trait, a `true` disabled condition therefore produces `false` from `evaluate()`.
+
 You will already know that we can use condition traits in the `@Test` macro, like this:
 
 ```swift
@@ -256,9 +258,9 @@ func checkForSmokeTest() async throws {
     let trait = ConditionTrait.disabled(if: TestManager.inSmokeTestMode)
 
     if try await trait.evaluate() {
-        print("We're in smoke test mode")
-    } else {
         print("Run all tests.")
+    } else {
+        print("We're in smoke test mode")
     }
 }
 ```
@@ -271,7 +273,7 @@ func checkForSmokeTest() async throws {
 
 The macros `#expect(_:sourceLocation:performing:throws:)` and `#require(_:sourceLocation:performing:throws:)` are both deprecated – they used a trailing closure to run some code for evaluation, then used a second trailing closure to check whether the error that was thrown was expected or not.
 
-Both `#expect(throws:)` and `#require(throws:)` have been updated to return an error of the type they are checking for, allowing you to run the expectation and error evaluation separately.
+Both `#expect(throws:)` and `#require(throws:)` have been updated to return the error type they check, allowing you to run the expectation and error evaluation separately. `#expect(throws:)` returns an optional because execution continues when no matching error is thrown. `#require(throws:)` throws when the requirement fails and otherwise returns a nonoptional error.
 
 As an example, there might be old code that ensures playing video games is disallowed early in the morning or late in the evening:
 
@@ -306,9 +308,8 @@ With the old, deprecated API you might check for an exact error type like this:
 You should move that over to code that runs the expectation and error evaluation separately, like this:
 
 ```swift
-@Test func playGameAtNight() {
-    // `error` will now be a GameError
-    let error = #expect(throws: GameError.self) {
+@Test func playGameAtNight() throws {
+    let error = try #require(throws: GameError.self) {
         try playGame(at: 22)
     }
 

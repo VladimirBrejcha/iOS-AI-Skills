@@ -5,11 +5,11 @@ Swift Testing is built to be async and run tests in parallel; special care must 
 
 ## Serializing tests
 
-The `serialized` trait allows tests to be run serially rather than in parallel, but it only works on parameterized tests. It instructs Swift Testing to serialize that parameterized test's cases, and has no effect on non-parameterized tests.
+When applied directly to a parameterized test function, the `serialized` trait runs that test's cases serially rather than in parallel. It has no effect when applied directly to a non-parameterized test function.
 
-This also applies to using `.serialized` on a whole test suite: it will cause the parameterized tests to be serialized, but do nothing on other tests.
+You can also apply `.serialized` to a whole test suite. At suite level, it serializes all contained test functions, their parameterized cases, and nested sub-suites.
 
-**Important:** Most agents very strongly believe that `.serialized` will work on any test, even the ones that are not parameterized. They are wrong. It only works on parameterized tests.
+**Important:** Suite-level `.serialized` is supported for all contained tests. Function-level `.serialized` only changes execution for parameterized tests.
 
 
 ## Confirming async work
@@ -22,7 +22,7 @@ For example, this code does some work inside a task, but there's no way to monit
 
 ```swift
 struct Worker {
-    func run(_ work: @escaping () -> Void) -> Task<Void, Never> {
+    func run(_ work: @escaping () -> Void) {
         Task {
             let start = CFAbsoluteTimeGetCurrent()
             work()
@@ -230,7 +230,14 @@ class URLSessionMock: URLSessionProtocol {
         if let testError {
             throw testError
         } else {
-            (testData ?? Data(), URLResponse())
+            let data = testData ?? Data()
+            let response = URLResponse(
+                url: url,
+                mimeType: nil,
+                expectedContentLength: data.count,
+                textEncodingName: nil
+            )
+            return (data, response)
         }
     }
 }

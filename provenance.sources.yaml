@@ -65,6 +65,8 @@ sources:
           the tagged TwoStraws Swift Testing package while preserving the
           exported registry id and manager-selected name swift-testing for
           existing Codex, Claude Code, OpenCode, machine, and repo consumers.
+          The maintained fork also carries reviewed API-correctness fixes for
+          examples that were inaccurate in upstream release 1.0.0.
           Treat as a maintained registry-local fork until external-git aliases
           and manager installs can preserve that public surface end-to-end.
   - id: dimillian-skills
