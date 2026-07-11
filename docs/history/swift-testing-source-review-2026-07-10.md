@@ -31,9 +31,14 @@ contract or verified API correctness requires it:
   local skill authoring contract.
 - `agents/openai.yaml` uses `$swift-testing` in `default_prompt`.
 - Reference examples correct suite-level `.serialized`, fire-and-forget task
-  tracking, `ConditionTrait.evaluate()`, thrown-error unwrapping, and
-  `URLResponse` construction. These corrections were verified against the
-  Swift Testing source and Apple Foundation documentation during PR review.
+  tracking and sendability, `ConditionTrait.evaluate()`, thrown-error
+  unwrapping, and `URLResponse` construction.
+- Networking examples preserve mutating value semantics and mirror
+  `URLSession.data(from:delegate:)`; attachment examples require `Attachable`;
+  and test-only protocol conformances distinguish same-package types from true
+  retroactive conformances. These corrections were verified against the Swift
+  compiler, Swift Testing source, Swift Evolution, and Apple Foundation
+  documentation during PR review.
 - The source remains `registry-local` until external-git aliases and manager
   installs can preserve the public `swift-testing` surface end-to-end.
 

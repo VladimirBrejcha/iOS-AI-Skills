@@ -71,7 +71,7 @@ struct News {
 To remove the hidden dependency, a first step would be to inject the `URLSession` like this:
 
 ```swift
-func fetch(using session: URLSession = .shared) async throws {
+mutating func fetch(using session: URLSession = .shared) async throws {
     let (data, _) = try await session.data(from: url)
     stories = String(decoding: data, as: UTF8.self)
 }
@@ -83,16 +83,25 @@ Even better would be to wrap `URLSession` in a protocol, requiring whatever meth
 
 ```swift
 protocol URLSessionProtocol {
-    func data(from url: URL) async throws -> (Data, URLResponse)
+    func data(
+        from url: URL,
+        delegate: (any URLSessionTaskDelegate)?
+    ) async throws -> (Data, URLResponse)
 }
 
 extension URLSession: URLSessionProtocol { }
+
+extension URLSessionProtocol {
+    func data(from url: URL) async throws -> (Data, URLResponse) {
+        try await data(from: url, delegate: nil)
+    }
+}
 ```
 
 And now the production code can be written like this:
 
 ```swift
-func fetch(using session: any URLSessionProtocol = URLSession.shared) async throws {
+mutating func fetch(using session: any URLSessionProtocol = URLSession.shared) async throws {
     let (data, _) = try await session.data(from: url)
     stories = String(decoding: data, as: UTF8.self)
 }
@@ -212,10 +221,10 @@ For example, without this conformance a test that catches a `parentalControlsDis
 Test patchMatchThrows() recorded an issue at ThrowingTests.swift:61:6: Caught error: parentalControlsDisallowed
 ```
 
-If we add a retroactive conformance to `CustomTestStringConvertible` in the test target, the text can be clarified:
+If `GameError` comes from another target in the same Swift package, add a conformance to `CustomTestStringConvertible` in the test target without `@retroactive`:
 
 ```swift
-extension GameError: @retroactive CustomTestStringConvertible {
+extension GameError: CustomTestStringConvertible {
     public var testDescription: String {
         switch self {
         case .notPurchased:
@@ -231,7 +240,7 @@ extension GameError: @retroactive CustomTestStringConvertible {
 
 Now Swift Testing will use the friendlier string wherever the enum cases appear.
 
-**Important:** This conformance should not be added in production code.
+Use `@retroactive` only when both the type and protocol come from external packages or modules and the compiler requires an explicit retroactive conformance. Same-package types must omit it. This test-only conformance should not be added in production code.
 
 
 ## Writing good verification methods
