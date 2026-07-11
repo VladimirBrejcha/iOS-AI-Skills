@@ -282,7 +282,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "swift-testing",
-        "digest_sha256": "a04e00cad3349f1c74c2f7e1c54529a771ca5ef530d2eeab3273fd51e7bf5d84"
+        "digest_sha256": "aec1fc0b032122fd08c04d35b5d42d6f95bed87e2c1340371c46c2c40d1a09b9"
       },
       "install": {
         "manager_package": "skills@1.5.14",
