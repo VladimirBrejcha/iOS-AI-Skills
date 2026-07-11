@@ -475,4 +475,3 @@ echo "meeting-transcription: transcript body: $work_dir/assembled-transcript-bod
 echo "meeting-transcription: validation: $work_dir/validation.tsv"
 echo "meeting-transcription: usage: $work_dir/usage.json"
 echo "meeting-transcription: manifest: $work_dir/run-manifest.json"
-
