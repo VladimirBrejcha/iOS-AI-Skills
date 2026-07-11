@@ -814,6 +814,11 @@ def load_registry(path, reporter)
     if status == "needs-import-review" && source["type"] != "external-git"
       reporter.error("#{skill_id}: needs-import-review status requires source.type external-git")
     end
+    if source["type"] == "unresolved-local"
+      %w[exported_names clients scopes].each do |field|
+        reporter.error("#{skill_id}: unresolved-local entries must not define #{field}") if skill.key?(field)
+      end
+    end
     reporter.error("#{skill_id}: exported_names must not be empty") if source["type"] != "unresolved-local" && exported_names.empty?
 
     exported_names.each do |name|

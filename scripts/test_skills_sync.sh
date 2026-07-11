@@ -4686,6 +4686,62 @@ bad_lock_shape_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb"
 assert_contains "$bad_lock_shape_output" "lock exported_names must be an array of strings"
 assert_contains "$bad_lock_shape_output" "stale lock entry stale-skill is not present in the registry"
 
+unresolved_exposure_dir="$tmp_dir/unresolved-exposure"
+write_skill "$unresolved_exposure_dir/active-skill" "active-skill" "Active sync fixture."
+write_skill "$unresolved_exposure_dir/unresolved-skill" "unresolved-skill" "Unresolved exposure fixture."
+mkdir -p "$unresolved_exposure_dir/profiles/machine" "$unresolved_exposure_dir/consumer-root"
+cat >"$unresolved_exposure_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: unresolved-exposure
+  name: Unresolved Exposure
+skills:
+  - id: active-skill
+    status: active
+    source:
+      type: registry-local
+      path: active-skill
+    exported_names:
+      - active-skill
+    clients:
+      codex: supported
+  - id: unresolved-skill
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: unresolved-skill
+YAML
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$unresolved_exposure_dir/skills.registry.yaml" --print-lock >"$unresolved_exposure_dir/skills.lock.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  skill = data.fetch("skills").find { |entry| entry.fetch("id") == "unresolved-skill" }
+  skill["exported_names"] = ["unresolved-skill"]
+  skill["clients"] = { "codex" => "planned" }
+  skill["scopes"] = ["machine"]
+  File.write(path, data.to_yaml)
+' "$unresolved_exposure_dir/skills.registry.yaml"
+cat >"$unresolved_exposure_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: unresolved-exposure-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+selected_skills:
+  - skill_id: active-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+unresolved_exposure_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --json --registry "$unresolved_exposure_dir/skills.registry.yaml" --lock "$unresolved_exposure_dir/skills.lock.yaml" --profile "$unresolved_exposure_dir/profiles/machine/example.yaml")"
+assert_contains "$unresolved_exposure_output" "unresolved-skill: unresolved-local entries must not define exported_names"
+assert_contains "$unresolved_exposure_output" "unresolved-skill: unresolved-local entries must not define clients"
+assert_contains "$unresolved_exposure_output" "unresolved-skill: unresolved-local entries must not define scopes"
+
 legacy_install_dir="$tmp_dir/legacy-install"
 write_skill "$legacy_install_dir/legacy-skill" "legacy-skill" "Legacy install guard fixture."
 write_skill "$legacy_install_dir/unresolved-skill" "unresolved-skill" "Unresolved profile guard fixture."
