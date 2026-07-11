@@ -108,7 +108,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "meeting-transcription",
-        "digest_sha256": "3a2c849b74814105326b5c8e5fcb7794e4eba7d291c3aabd573fc80f7ec52955"
+        "digest_sha256": "e725d265ad9aa443f530b561e94bdff9e1cf3d9ad85979f3a2ca2b17047a941c"
       },
       "install": {
         "manager_package": "skills@1.5.14",
