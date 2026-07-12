@@ -1,7 +1,7 @@
 # Setup And Update Workflow
 
-Status: active-partial
-Last updated: 2026-07-08
+Status: inventory-complete-review-pending
+Last updated: 2026-07-11
 
 Related: [README](../README.md), [Usage](usage.md),
 [Registry Contract](registry-contract.md), [Manager Boundary](manager-boundary.md),

@@ -4,7 +4,7 @@
   "registry": {
     "id": "agent-skills",
     "name": "Agent Skills",
-    "status": "active-partial",
+    "status": "inventory-complete-review-pending",
     "source_files": [
       "skills.registry.yaml",
       "skills.lock.yaml",
@@ -22,6 +22,7 @@
         "type": "registry-local",
         "path": "code-review"
       },
+      "update_policy": "internal-reviewed",
       "exported_names": [
         "code-review"
       ],
@@ -34,7 +35,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "internal-reviewed",
       "lock": {
         "source_type": "registry-local",
         "path": "code-review",
@@ -57,6 +57,7 @@
         "type": "registry-local",
         "path": "harness-engineering"
       },
+      "update_policy": "internal-reviewed",
       "exported_names": [
         "harness-engineering"
       ],
@@ -69,7 +70,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "internal-reviewed",
       "lock": {
         "source_type": "registry-local",
         "path": "harness-engineering",
@@ -92,6 +92,7 @@
         "type": "registry-local",
         "path": "spec-creation-updating"
       },
+      "update_policy": "internal-reviewed",
       "exported_names": [
         "spec-creation-updating"
       ],
@@ -104,7 +105,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "internal-reviewed",
       "lock": {
         "source_type": "registry-local",
         "path": "spec-creation-updating",
@@ -127,6 +127,7 @@
         "type": "registry-local",
         "path": "ios-xcodegen"
       },
+      "update_policy": "internal-reviewed",
       "exported_names": [
         "ios-xcodegen"
       ],
@@ -139,7 +140,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "internal-reviewed",
       "lock": {
         "source_type": "registry-local",
         "path": "ios-xcodegen",
@@ -162,6 +162,7 @@
         "type": "registry-local",
         "path": "xcode-build"
       },
+      "update_policy": "internal-reviewed",
       "exported_names": [
         "xcode-build"
       ],
@@ -174,7 +175,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "internal-reviewed",
       "lock": {
         "source_type": "registry-local",
         "path": "xcode-build",
@@ -197,6 +197,7 @@
         "type": "registry-local",
         "path": "xcode-cloud"
       },
+      "update_policy": "internal-reviewed",
       "exported_names": [
         "xcode-cloud"
       ],
@@ -209,7 +210,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "internal-reviewed",
       "lock": {
         "source_type": "registry-local",
         "path": "xcode-cloud",
@@ -236,6 +236,7 @@
         "observed_commit": "2482c176372299c92af01f8414a67172f324e8db",
         "observed_at": "2026-07-09"
       },
+      "update_policy": "external-reviewed",
       "exported_names": [
         "swift-concurrency"
       ],
@@ -248,7 +249,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "external-reviewed",
       "lock": {
         "source_type": "external-git",
         "url": "https://github.com/jamesrochabrun/skills.git",
@@ -266,6 +266,7 @@
         "type": "registry-local",
         "path": "swift-testing"
       },
+      "update_policy": "internal-reviewed",
       "exported_names": [
         "swift-testing"
       ],
@@ -278,7 +279,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "internal-reviewed",
       "lock": {
         "source_type": "registry-local",
         "path": "swift-testing",
@@ -301,6 +301,7 @@
         "type": "registry-local",
         "path": "swiftui-view-refactor"
       },
+      "update_policy": "internal-reviewed",
       "exported_names": [
         "swiftui-view-refactor"
       ],
@@ -313,7 +314,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "internal-reviewed",
       "lock": {
         "source_type": "registry-local",
         "path": "swiftui-view-refactor",
@@ -340,6 +340,7 @@
         "observed_commit": "be297ff80dddec529af1f9b1f1f114aab6c9d11c",
         "observed_at": "2026-06-26"
       },
+      "update_policy": "external-reviewed",
       "exported_names": [
         "swiftui-pro"
       ],
@@ -352,7 +353,6 @@
         "machine",
         "repo"
       ],
-      "update_policy": "external-reviewed",
       "lock": {
         "source_type": "external-git",
         "url": "https://github.com/twostraws/SwiftUI-Agent-Skill.git",
@@ -360,6 +360,545 @@
         "pinned_tag": "1.1.0",
         "observed_commit": "be297ff80dddec529af1f9b1f1f114aab6c9d11c"
       }
+    },
+    {
+      "id": "ab-test-setup",
+      "name": "ab-test-setup",
+      "description": "When the user wants to plan, design, or implement an A/B test or experiment. Also use when the user mentions \"A/B test,\" \"split test,\" \"experiment,\" \"test this change,\" \"variant copy,\" \"multivariate test,\" or \"hypothesis.\" For tracking implementation, see analytics-tracking.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "ab-test-setup"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "analytics-tracking",
+      "name": "analytics-tracking",
+      "description": "When the user wants to set up, improve, or audit analytics tracking and measurement. Also use when the user mentions \"set up tracking,\" \"GA4,\" \"Google Analytics,\" \"conversion tracking,\" \"event tracking,\" \"UTM parameters,\" \"tag manager,\" \"GTM,\" \"analytics implementation,\" or \"tracking plan.\" For A/B test measurement, see ab-test-setup.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "analytics-tracking"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "app-store-optimisation",
+      "name": "app-store-optimisation-codex",
+      "description": "App Store Optimization (ASO) workflows for Apple App Store and Google Play Store. Use when Codex is asked to research keywords, optimize app metadata (titles, subtitles, descriptions, keywords), analyze competitors, plan A/B tests, compute ASO scores, analyze reviews, plan localization, or build launch/update checklists for mobile apps.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "app-store-optimisation"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "app-store-optimisation-codex",
+      "name": "app-store-optimisation-codex",
+      "description": "App Store Optimization (ASO) workflows for Apple App Store and Google Play Store. Use when Codex is asked to research keywords, optimize app metadata (titles, subtitles, descriptions, keywords), analyze competitors, plan A/B tests, compute ASO scores, analyze reviews, plan localization, or build launch/update checklists for mobile apps.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "app-store-optimisation-codex"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "apple-doc-research",
+      "name": "apple-doc-research",
+      "description": "Use when researching or implementing anything related to Apple platforms (iOS, iPadOS, macOS, watchOS, tvOS, visionOS), Swift/Objective-C APIs, Apple frameworks, WWDC sessions, or Apple Developer Documentation. Triggers include: \"find Apple's docs\", \"latest API guidance\", \"WWDC session\", \"platform availability\", \"SwiftUI/UIKit/AppKit/Combine/AVFoundation/etc.\", or any Apple SDK coding question where authoritative docs are needed. Always use the apple-docs MCP tools for discovery and citations instead of general web search.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "apple-doc-research"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "apple-docs-research",
+      "name": "apple-docs-research",
+      "description": "Use when researching or implementing anything related to Apple platforms (iOS, iPadOS, macOS, watchOS, tvOS, visionOS), Swift/Objective-C APIs, Apple frameworks, WWDC sessions, or Apple Developer Documentation. Triggers include: \"find Apple's docs\", \"latest API guidance\", \"WWDC session\", \"platform availability\", \"SwiftUI/UIKit/AppKit/Combine/AVFoundation/etc.\", or any Apple SDK coding question where authoritative docs are needed. Always use the apple-docs MCP tools for discovery and citations instead of general web search.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "apple-docs-research"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "apple-hig-designer",
+      "name": "apple-hig-designer",
+      "description": "Design iOS apps following Apple's Human Interface Guidelines. Generate native components, validate designs, and ensure accessibility compliance for iPhone, iPad, and Apple Watch.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "apple-hig-designer"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "asc-metadata-sync",
+      "name": "asc-metadata-sync",
+      "description": "Sync and validate App Store metadata and localizations with asc, including Fastlane format migration. Use when updating metadata or translations.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "asc-metadata-sync"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "asc-ppp-pricing",
+      "name": "asc-ppp-pricing",
+      "description": "Set territory-specific pricing for subscriptions and in-app purchases using purchasing power parity (PPP). Use when adjusting prices by country or implementing localized pricing strategies.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "asc-ppp-pricing"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "asc-shots-pipeline",
+      "name": "asc-shots-pipeline",
+      "description": "Orchestrate iOS screenshot automation with xcodebuild/simctl for build-run, AXe for UI actions, JSON settings and plan files, Go-based framing (`asc screenshots frame`), and screenshot upload (`asc screenshots upload`). Use when users ask for automated screenshot capture, AXe-driven simulator flows, frame composition, or screenshot-to-upload pipelines.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "asc-shots-pipeline"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "asc-subscription-localization",
+      "name": "asc-subscription-localization",
+      "description": "Bulk-localize subscription and in-app purchase display names across all App Store locales using asc. Use when you want to fill in subscription/IAP names for every language without clicking through ASC manually.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "asc-subscription-localization"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "cloudflare-d1",
+      "name": "cloudflare-d1",
+      "description": "Build with D1 serverless SQLite database on Cloudflare's edge. Use when: creating databases, writing SQL migrations, querying D1 from Workers, handling relational data, or troubleshooting D1_ERROR, statement too long, migration failures, or query performance issues. Prevents 14 documented errors.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "cloudflare-d1"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "cloudflare-queues",
+      "name": "cloudflare-queues",
+      "description": "Build async message queues with Cloudflare Queues for background processing. Use when: handling async tasks, batch processing, implementing retries, configuring dead letter queues, managing consumer concurrency, or troubleshooting queue timeout, batch retry, message loss, or throughput exceeded.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "cloudflare-queues"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "cloudflare-worker-base",
+      "name": "cloudflare-worker-base",
+      "description": "Set up Cloudflare Workers with Hono routing, Vite plugin, and Static Assets using production-tested patterns. Prevents 8 errors: export syntax, routing conflicts, HMR crashes, gradual rollout asset mismatches, and free tier 429s. Use when: creating Workers projects, configuring Hono or Vite for Workers, deploying with Wrangler, adding Static Assets with SPA fallback, or troubleshooting export syntax, API route conflicts, scheduled handlers, or HMR race conditions. Keywords: Cloudflare Workers, CF Workers, Hono, wrangler, Vite, Static Assets, @cloudflare/vite-plugin, wrangler.jsonc, ES Module, run_worker_first, SPA fallback, API routes, serverless, edge computing, \"Cannot read properties of undefined\", \"Static Assets 404\", \"A hanging Promise was canceled\", \"Handler does not export\", deployment fails, routing not working, HMR crashes",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "cloudflare-worker-base"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "competitor-alternatives",
+      "name": "competitor-alternatives",
+      "description": "When the user wants to create competitor comparison or alternative pages for SEO and sales enablement. Also use when the user mentions 'alternative page,' 'vs page,' 'competitor comparison,' 'comparison page,' '[Product] vs [Product],' '[Product] alternative,' or 'competitive landing pages.' Covers four formats: singular alternative, plural alternatives, you vs competitor, and competitor vs competitor. Emphasizes deep research, modular content architecture, and varied section types beyond feature tables.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "competitor-alternatives"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "copy-editing",
+      "name": "copy-editing",
+      "description": "When the user wants to edit, review, or improve existing marketing copy. Also use when the user mentions 'edit this copy,' 'review my copy,' 'copy feedback,' 'proofread,' 'polish this,' 'make this better,' or 'copy sweep.' This skill provides a systematic approach to editing marketing copy through multiple focused passes.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "copy-editing"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "copywriting",
+      "name": "copywriting",
+      "description": "When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says \"write copy for,\" \"improve this copy,\" \"rewrite this page,\" \"marketing copy,\" \"headline help,\" or \"CTA copy.\" For email copy, see email-sequence. For popup copy, see popup-cro.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "copywriting"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "design-brief-generator",
+      "name": "design-brief-generator",
+      "description": "Generate comprehensive design briefs for design projects. Use this skill when designers ask to \"create a design brief\", \"structure a design project\", \"define design requirements\", or need help planning design work.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "design-brief-generator"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "email-sequence",
+      "name": "email-sequence",
+      "description": "When the user wants to create or optimize an email sequence, drip campaign, automated email flow, or lifecycle email program. Also use when the user mentions \"email sequence,\" \"drip campaign,\" \"nurture sequence,\" \"onboarding emails,\" \"welcome sequence,\" \"re-engagement emails,\" \"email automation,\" or \"lifecycle emails.\" For in-app onboarding, see onboarding-cro.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "email-sequence"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "form-cro",
+      "name": "form-cro",
+      "description": "When the user wants to optimize any form that is NOT signup/registration — including lead capture forms, contact forms, demo request forms, application forms, survey forms, or checkout forms. Also use when the user mentions \"form optimization,\" \"lead form conversions,\" \"form friction,\" \"form fields,\" \"form completion rate,\" or \"contact form.\" For signup/registration forms, see signup-flow-cro. For popups containing forms, see popup-cro.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "form-cro"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "free-tool-strategy",
+      "name": "free-tool-strategy",
+      "description": "When the user wants to plan, evaluate, or build a free tool for marketing purposes — lead generation, SEO value, or brand awareness. Also use when the user mentions \"engineering as marketing,\" \"free tool,\" \"marketing tool,\" \"calculator,\" \"generator,\" \"interactive tool,\" \"lead gen tool,\" \"build a tool for leads,\" or \"free resource.\" This skill bridges engineering and marketing — useful for founders and technical marketers.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "free-tool-strategy"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "launch-strategy",
+      "name": "launch-strategy",
+      "description": "When the user wants to plan a product launch, feature announcement, or release strategy. Also use when the user mentions 'launch,' 'Product Hunt,' 'feature release,' 'announcement,' 'go-to-market,' 'beta launch,' 'early access,' 'waitlist,' or 'product update.' This skill covers phased launches, channel strategy, and ongoing launch momentum.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "launch-strategy"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "marketing-ideas",
+      "name": "marketing-ideas",
+      "description": "When the user needs marketing ideas, inspiration, or strategies for their SaaS or software product. Also use when the user asks for 'marketing ideas,' 'growth ideas,' 'how to market,' 'marketing strategies,' 'marketing tactics,' 'ways to promote,' or 'ideas to grow.' This skill provides 140 proven marketing approaches organized by category.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "marketing-ideas"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "marketing-psychology",
+      "name": "marketing-psychology",
+      "description": "When the user wants to apply psychological principles, mental models, or behavioral science to marketing. Also use when the user mentions 'psychology,' 'mental models,' 'cognitive bias,' 'persuasion,' 'behavioral science,' 'why people buy,' 'decision-making,' or 'consumer behavior.' This skill provides 70+ mental models organized for marketing application.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "marketing-psychology"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "mechanism-audit",
+      "name": "mechanism-audit",
+      "description": "Audit whether a spec, task, harness, agent workflow, safety boundary, or operational contract is actually enforced by concrete mechanisms. Use when reviewing or changing AGENTS.md, CLAUDE.md, .agents/manifests, .agents/verify, .agents/evals, spec/agents, build/test specs, task plans, risk/execution contracts, source-of-truth boundaries, session closeout rules, verifier classifications, or any explicit request to check whether a promised guarantee is real.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "mechanism-audit"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "onboarding-cro",
+      "name": "onboarding-cro",
+      "description": "When the user wants to optimize post-signup onboarding, user activation, first-run experience, or time-to-value. Also use when the user mentions \"onboarding flow,\" \"activation rate,\" \"user activation,\" \"first-run experience,\" \"empty states,\" \"onboarding checklist,\" \"aha moment,\" or \"new user experience.\" For signup/registration optimization, see signup-flow-cro. For ongoing email sequences, see email-sequence.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "onboarding-cro"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "page-cro",
+      "name": "page-cro",
+      "description": "When the user wants to optimize, improve, or increase conversions on any marketing page — including homepage, landing pages, pricing pages, feature pages, or blog posts. Also use when the user says \"CRO,\" \"conversion rate optimization,\" \"this page isn't converting,\" \"improve conversions,\" or \"why isn't this page working.\" For signup/registration flows, see signup-flow-cro. For post-signup activation, see onboarding-cro. For forms outside of signup, see form-cro. For popups/modals, see popup-cro.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "page-cro"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "paid-ads",
+      "name": "paid-ads",
+      "description": "When the user wants help with paid advertising campaigns on Google Ads, Meta (Facebook/Instagram), LinkedIn, Twitter/X, or other ad platforms. Also use when the user mentions 'PPC,' 'paid media,' 'ad copy,' 'ad creative,' 'ROAS,' 'CPA,' 'ad campaign,' 'retargeting,' or 'audience targeting.' This skill covers campaign strategy, ad creation, audience targeting, and optimization.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "paid-ads"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "paywall-upgrade-cro",
+      "name": "paywall-upgrade-cro",
+      "description": "When the user wants to create or optimize in-app paywalls, upgrade screens, upsell modals, or feature gates. Also use when the user mentions \"paywall,\" \"upgrade screen,\" \"upgrade modal,\" \"upsell,\" \"feature gate,\" \"convert free to paid,\" \"freemium conversion,\" \"trial expiration screen,\" \"limit reached screen,\" \"plan upgrade prompt,\" or \"in-app pricing.\" Distinct from public pricing pages (see page-cro) — this skill focuses on in-product upgrade moments where the user has already experienced value.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "paywall-upgrade-cro"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "popup-cro",
+      "name": "popup-cro",
+      "description": "When the user wants to create or optimize popups, modals, overlays, slide-ins, or banners for conversion purposes. Also use when the user mentions \"exit intent,\" \"popup conversions,\" \"modal optimization,\" \"lead capture popup,\" \"email popup,\" \"announcement banner,\" or \"overlay.\" For forms outside of popups, see form-cro. For general page conversion optimization, see page-cro.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "popup-cro"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "pricing-strategy",
+      "name": "pricing-strategy",
+      "description": "When the user wants help with pricing decisions, packaging, or monetization strategy. Also use when the user mentions 'pricing,' 'pricing tiers,' 'freemium,' 'free trial,' 'packaging,' 'price increase,' 'value metric,' 'Van Westendorp,' 'willingness to pay,' or 'monetization.' This skill covers pricing research, tier structure, and packaging strategy.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "pricing-strategy"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "programmatic-seo",
+      "name": "programmatic-seo",
+      "description": "When the user wants to create SEO-driven pages at scale using templates and data. Also use when the user mentions \"programmatic SEO,\" \"template pages,\" \"pages at scale,\" \"directory pages,\" \"location pages,\" \"[keyword] + [city] pages,\" \"comparison pages,\" \"integration pages,\" or \"building many pages for SEO.\" For auditing existing SEO issues, see seo-audit.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "programmatic-seo"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "referral-program",
+      "name": "referral-program",
+      "description": "When the user wants to create, optimize, or analyze a referral program, affiliate program, or word-of-mouth strategy. Also use when the user mentions 'referral,' 'affiliate,' 'ambassador,' 'word of mouth,' 'viral loop,' 'refer a friend,' or 'partner program.' This skill covers program design, incentive structure, and growth optimization.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "referral-program"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "replicate-cli",
+      "name": "replicate-cli",
+      "description": "This skill provides comprehensive guidance for using the Replicate CLI to run AI models, create predictions, manage deployments, and fine-tune models. Use this skill when the user wants to interact with Replicate's AI model platform via command line, including running image generation models, language models, or any ML model hosted on Replicate. This skill should be used when users ask about running models on Replicate, creating predictions, managing deployments, fine-tuning models, or working with the Replicate API through the CLI.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "replicate-cli"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "revenuecat",
+      "name": "revenuecat",
+      "description": "Comprehensive assistance with RevenueCat in-app subscriptions and purchases",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "revenuecat"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "schema-markup",
+      "name": "schema-markup",
+      "description": "When the user wants to add, fix, or optimize schema markup and structured data on their site. Also use when the user mentions \"schema markup,\" \"structured data,\" \"JSON-LD,\" \"rich snippets,\" \"schema.org,\" \"FAQ schema,\" \"product schema,\" \"review schema,\" or \"breadcrumb schema.\" For broader SEO issues, see seo-audit.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "schema-markup"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "screenshot-analyze-verification",
+      "name": "screenshot-analyze-verification",
+      "description": "Strict screenshot QA and approval gate for simulator captures. Use when validating UI screenshots, hint overlays, spotlight behavior, dark mode, and cross-OS parity. Fails fast on wrong app/page, missing elements, weak contrast, bad padding, overlap, clipping, and hidden-element leaks.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "screenshot-analyze-verification"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "seo-audit",
+      "name": "seo-audit",
+      "description": "When the user wants to audit, review, or diagnose SEO issues on their site. Also use when the user mentions \"SEO audit,\" \"technical SEO,\" \"why am I not ranking,\" \"SEO issues,\" \"on-page SEO,\" \"meta tags review,\" or \"SEO health check.\" For building pages at scale to target keywords, see programmatic-seo. For adding structured data, see schema-markup.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "seo-audit"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "signup-flow-cro",
+      "name": "signup-flow-cro",
+      "description": "When the user wants to optimize signup, registration, account creation, or trial activation flows. Also use when the user mentions \"signup conversions,\" \"registration friction,\" \"signup form optimization,\" \"free trial signup,\" \"reduce signup dropoff,\" or \"account creation flow.\" For post-signup onboarding, see onboarding-cro. For lead capture forms (not account creation), see form-cro.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "signup-flow-cro"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "silent-pushes-setup",
+      "name": "silent-pushes-setup",
+      "description": "Setup, debug, or validate iOS silent (background) push notifications with APNs, including entitlements, device token registration, backend APNs sending, and widget refresh. Use for silent push setup or troubleshooting (aps-environment errors, token registration, background delivery, APNs headers).",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "silent-pushes-setup"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "social-content",
+      "name": "social-content",
+      "description": "When the user wants help creating, scheduling, or optimizing social media content for LinkedIn, Twitter/X, Instagram, TikTok, Facebook, or other platforms. Also use when the user mentions 'LinkedIn post,' 'Twitter thread,' 'social media,' 'content calendar,' 'social scheduling,' 'engagement,' or 'viral content.' This skill covers content creation, repurposing, and platform-specific strategies.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "social-content"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "swiftui-animation",
+      "name": "swiftui-animation",
+      "description": "This skill provides comprehensive guidance for implementing advanced SwiftUI animations, transitions, matched geometry effects, and Metal shader integration. Use when building animations, view transitions, hero animations, or GPU-accelerated effects in SwiftUI apps for iOS and macOS.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "swiftui-animation"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "swiftui-expert-skill",
+      "name": "swiftui-expert-skill",
+      "description": "Write, review, or improve SwiftUI code following best practices for state management, view composition, performance, modern APIs, Swift concurrency, and iOS 26+ Liquid Glass adoption. Use when building new SwiftUI features, refactoring existing views, reviewing code quality, or adopting modern SwiftUI patterns.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "swiftui-expert-skill"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "swiftui-liquid-glass",
+      "name": "swiftui-liquid-glass",
+      "description": "Implement, review, or improve SwiftUI features using the iOS 26+ Liquid Glass API. Use when asked to adopt Liquid Glass in new SwiftUI UI, refactor an existing feature to Liquid Glass, or review Liquid Glass usage for correctness, performance, and design alignment.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "swiftui-liquid-glass"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "swiftui-performance-audit",
+      "name": "swiftui-performance-audit",
+      "description": "Audit and improve SwiftUI runtime performance from code review and architecture. Use for requests to diagnose slow rendering, janky scrolling, high CPU/memory usage, excessive view updates, or layout thrash in SwiftUI apps, and to provide guidance for user-run Instruments profiling when code review alone is insufficient.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "swiftui-performance-audit"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "swiftui-simulator-ui",
+      "name": "swiftui-simulator-ui",
+      "description": "Run SwiftUI apps in iOS Simulator and capture screenshots for visual verification. Use when building UI, reviewing layouts, validating designs, or when you need to see what SwiftUI code looks like. Essential for any UI work requiring visual feedback.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "swiftui-simulator-ui"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "threads-api",
+      "name": "threads-api",
+      "description": "Threads API Documentation",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "threads-api"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "typescript",
+      "name": "typescript",
+      "description": "This skill should be used when the user asks to \"configure TypeScript\", \"fix type errors\", \"use dayjs\", \"add type definitions\", \"set up React with TypeScript\", mentions \".ts\" or \".tsx\" files, or asks about TypeScript best practices or TypeScript-specific tooling.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "typescript"
+      },
+      "update_policy": "review-required"
+    },
+    {
+      "id": "wrangler",
+      "name": "wrangler",
+      "description": "Cloudflare Workers CLI for deploying, developing, and managing Workers, KV, R2, D1, Vectorize, Hyperdrive, Workers AI, Containers, Queues, Workflows, Pipelines, and Secrets Store. Load before running wrangler commands to ensure correct syntax and best practices.",
+      "status": "needs-source-review",
+      "source": {
+        "type": "unresolved-local",
+        "path": "wrangler"
+      },
+      "update_policy": "review-required"
     }
   ]
 }

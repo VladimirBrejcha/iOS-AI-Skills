@@ -162,6 +162,7 @@ verify_requirements_output="$(
     required_pass_signals = config.fetch("required_pass_signals")
     missing = []
     missing << "required_artifact skills-provenance-audit.json" unless required_artifacts.include?("skills-provenance-audit.json")
+    missing << "required_pass_signal registry-dispositions" unless required_pass_signals.include?("registry-dispositions")
     missing << "required_pass_signal skills-provenance-audit-test" unless required_pass_signals.include?("skills-provenance-audit-test")
     missing << "required_pass_signal provenance-audit" unless required_pass_signals.include?("provenance-audit")
     abort(missing.join("\n")) unless missing.empty?

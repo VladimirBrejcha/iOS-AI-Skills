@@ -1,7 +1,7 @@
 # Usage
 
-Status: active-partial
-Last updated: 2026-07-08
+Status: inventory-complete-review-pending
+Last updated: 2026-07-11
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Setup And Update Workflow](setup-update-workflow.md),
@@ -22,9 +22,9 @@ cd agent-skills
 
 ## Public Install Commands
 
-Registry coverage is currently active-partial. Only skills listed in
-`skills.registry.yaml` are registry-covered; other top-level skill folders stay
-in backlog until a follow-up coverage PR registers them.
+`skills.registry.yaml` contains every top-level skill disposition. Install only
+entries whose generated catalog record has `status: active` and an `install`
+object; unreviewed and legacy entries are inventory-only.
 
 Install one skill into the reviewed shared global manager root:
 
@@ -53,8 +53,8 @@ verify it with `npx --yes skills@1.5.14 list --global --json` before treating a
 skill as installed for OpenCode. Claude Code support is currently proven for
 every active registry-local skill through the separate `~/.claude/skills`
 root. External-git entries such as `swift-concurrency` and `swiftui-pro`,
-repo-local consumers, and unclassified top-level skills remain manual-review
-until they move to reviewed support in the registry and profile examples.
+repo-local consumers, and non-active entries remain manual-review until they
+move to reviewed support in the registry and profile examples.
 
 Install a reviewed Claude Code target:
 
@@ -125,9 +125,10 @@ coverage/profile PR promotes them.
 
 Do not use `npx --yes skills@1.5.14 add fiveonecode/agent-skills --list` as a
 registry coverage list. It enumerates every top-level skill folder in the
-repository, including backlog entries outside the active-partial contract.
+repository, including non-active entries that are intentionally not installable.
 
-Use the generated catalog for the reviewed public registry-covered set:
+Use the generated catalog for the complete public inventory and filter by
+`install` for the reviewed installable set:
 
 ```bash
 scripts/skills_catalog.rb --check
@@ -189,7 +190,7 @@ scripts/skills_sync.rb --plan
 scripts/skills_sync.rb --plan --json
 ```
 
-Audit unregistered or copied-source backlog before promoting skills or
+Audit unreviewed or copied-source inventory before promoting skills or
 changing source ownership:
 
 ```bash

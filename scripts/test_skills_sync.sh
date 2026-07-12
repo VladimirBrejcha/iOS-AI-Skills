@@ -1420,7 +1420,7 @@ skills:
     exported_names:
       - local-skill
   - id: external-skill
-    status: needs-import-review
+    status: active
     source:
       type: external-git
       url: https://example.com/example/skill.git
@@ -1636,7 +1636,11 @@ skills:
       - skill-b
 YAML
 
-write_lock_from_registry "$duplicate_source_owner_dir"
+cat >"$duplicate_source_owner_dir/skills.lock.yaml" <<'YAML'
+schema_version: 0.1
+generated_by: duplicate-source-owner-fixture
+skills: []
+YAML
 
 cat >"$duplicate_source_owner_dir/profiles/machine/example.yaml" <<'YAML'
 schema_version: 0.1
@@ -4681,6 +4685,190 @@ YAML
 bad_lock_shape_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$bad_lock_shape_dir/skills.registry.yaml" --lock "$bad_lock_shape_dir/skills.lock.yaml" --profile "$bad_lock_shape_dir/profiles/machine/example.yaml")"
 assert_contains "$bad_lock_shape_output" "lock exported_names must be an array of strings"
 assert_contains "$bad_lock_shape_output" "stale lock entry stale-skill is not present in the registry"
+
+unresolved_exposure_dir="$tmp_dir/unresolved-exposure"
+write_skill "$unresolved_exposure_dir/active-skill" "active-skill" "Active sync fixture."
+write_skill "$unresolved_exposure_dir/unresolved-skill" "unresolved-skill" "Unresolved exposure fixture."
+mkdir -p "$unresolved_exposure_dir/profiles/machine" "$unresolved_exposure_dir/consumer-root"
+cat >"$unresolved_exposure_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: unresolved-exposure
+  name: Unresolved Exposure
+skills:
+  - id: active-skill
+    status: active
+    source:
+      type: registry-local
+      path: active-skill
+    exported_names:
+      - active-skill
+    clients:
+      codex: supported
+  - id: unresolved-skill
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: unresolved-skill
+YAML
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$unresolved_exposure_dir/skills.registry.yaml" --print-lock >"$unresolved_exposure_dir/skills.lock.yaml"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  skill = data.fetch("skills").find { |entry| entry.fetch("id") == "unresolved-skill" }
+  skill["exported_names"] = ["unresolved-skill"]
+  skill["clients"] = { "codex" => "planned" }
+  skill["scopes"] = ["machine"]
+  File.write(path, data.to_yaml)
+' "$unresolved_exposure_dir/skills.registry.yaml"
+cat >"$unresolved_exposure_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: unresolved-exposure-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+selected_skills:
+  - skill_id: active-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+unresolved_exposure_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --json --registry "$unresolved_exposure_dir/skills.registry.yaml" --lock "$unresolved_exposure_dir/skills.lock.yaml" --profile "$unresolved_exposure_dir/profiles/machine/example.yaml")"
+assert_contains "$unresolved_exposure_output" "unresolved-skill: unresolved-local entries must not define exported_names"
+assert_contains "$unresolved_exposure_output" "unresolved-skill: unresolved-local entries must not define clients"
+assert_contains "$unresolved_exposure_output" "unresolved-skill: unresolved-local entries must not define scopes"
+
+legacy_install_dir="$tmp_dir/legacy-install"
+write_skill "$legacy_install_dir/legacy-skill" "legacy-skill" "Legacy install guard fixture."
+write_skill "$legacy_install_dir/unresolved-skill" "unresolved-skill" "Unresolved profile guard fixture."
+mkdir -p "$legacy_install_dir/profiles/machine" "$legacy_install_dir/consumer-root"
+cat >"$legacy_install_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: legacy-install
+  name: Legacy Install
+  manager_source: fiveonecode/agent-skills
+skills:
+  - id: legacy-skill
+    status: legacy
+    source:
+      type: registry-local
+      path: legacy-skill
+    exported_names:
+      - legacy-skill
+    clients:
+      codex: supported
+  - id: unresolved-skill
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: unresolved-skill
+YAML
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$legacy_install_dir/skills.registry.yaml" --print-lock >"$legacy_install_dir/skills.lock.yaml"
+assert_not_contains "$(cat "$legacy_install_dir/skills.lock.yaml")" "legacy-skill"
+cat >"$legacy_install_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: legacy-install-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: manager-copy
+    status: proven-manager-copy
+selected_skills:
+  - skill_id: legacy-skill
+    expose_to:
+      - codex_user
+    state: active
+  - skill_id: unresolved-skill
+    expose_to:
+      - codex_user
+    state: active
+YAML
+legacy_install_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$legacy_install_dir/skills.registry.yaml" --lock "$legacy_install_dir/skills.lock.yaml" --profile "$legacy_install_dir/profiles/machine/example.yaml")"
+assert_contains "$legacy_install_output" "selected skill legacy-skill has non-active registry status legacy"
+assert_contains "$legacy_install_output" "selected skill unresolved-skill has non-active registry status needs-source-review"
+assert_not_contains "$legacy_install_output" "create | planned"
+assert_not_contains "$legacy_install_output" "npx --yes"
+
+legacy_stale_copy_dir="$tmp_dir/legacy-stale-copy"
+write_skill "$legacy_stale_copy_dir/legacy-skill" "legacy-skill" "Legacy stale manager copy fixture."
+mkdir -p "$legacy_stale_copy_dir/profiles/machine" "$legacy_stale_copy_dir/consumer-root"
+cp -R "$legacy_stale_copy_dir/legacy-skill" "$legacy_stale_copy_dir/consumer-root/legacy-skill"
+cat >"$legacy_stale_copy_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: legacy-stale-copy
+  name: Legacy Stale Copy
+skills:
+  - id: legacy-skill
+    status: legacy
+    source:
+      type: registry-local
+      path: legacy-skill
+    exported_names:
+      - legacy-skill
+YAML
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$legacy_stale_copy_dir/skills.registry.yaml" --print-lock >"$legacy_stale_copy_dir/skills.lock.yaml"
+cat >"$legacy_stale_copy_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: legacy-stale-copy-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: manager-copy
+YAML
+legacy_stale_copy_output="$(ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$legacy_stale_copy_dir/skills.registry.yaml" --lock "$legacy_stale_copy_dir/skills.lock.yaml" --profile "$legacy_stale_copy_dir/profiles/machine/example.yaml")"
+assert_contains "$legacy_stale_copy_output" "manual-review | blocked | codex_user/legacy-skill"
+assert_contains "$legacy_stale_copy_output" "manager-owned copy has non-active registry status legacy and is not selected by the profile"
+assert_not_contains "$legacy_stale_copy_output" "no adapter actions"
+
+unresolved_stale_adapter_dir="$tmp_dir/unresolved-stale-adapter"
+write_skill "$unresolved_stale_adapter_dir/unresolved-skill" "unresolved-skill" "Unresolved stale adapter fixture."
+mkdir -p "$unresolved_stale_adapter_dir/profiles/machine" "$unresolved_stale_adapter_dir/symlink-root" "$unresolved_stale_adapter_dir/copy-root"
+ln -s "$unresolved_stale_adapter_dir/unresolved-skill" "$unresolved_stale_adapter_dir/symlink-root/unresolved-skill"
+cp -R "$unresolved_stale_adapter_dir/unresolved-skill" "$unresolved_stale_adapter_dir/copy-root/unresolved-skill"
+cat >"$unresolved_stale_adapter_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: unresolved-stale-adapter
+  name: Unresolved Stale Adapter
+skills:
+  - id: unresolved-skill
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: unresolved-skill
+YAML
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$unresolved_stale_adapter_dir/skills.registry.yaml" --print-lock >"$unresolved_stale_adapter_dir/skills.lock.yaml"
+cat >"$unresolved_stale_adapter_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: unresolved-stale-adapter-profile
+consumer_roots:
+  codex_user:
+    path: ../../symlink-root
+    adapter: symlink
+  claude_user:
+    path: ../../copy-root
+    adapter: manager-copy
+YAML
+unresolved_stale_adapter_output="$(ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$unresolved_stale_adapter_dir/skills.registry.yaml" --lock "$unresolved_stale_adapter_dir/skills.lock.yaml" --profile "$unresolved_stale_adapter_dir/profiles/machine/example.yaml")"
+assert_contains "$unresolved_stale_adapter_output" "manual-review | blocked | codex_user/unresolved-skill"
+assert_contains "$unresolved_stale_adapter_output" "manual-review | blocked | claude_user/unresolved-skill"
+assert_contains "$unresolved_stale_adapter_output" "unresolved-local source with status needs-source-review and requires manual review"
+assert_not_contains "$unresolved_stale_adapter_output" "no adapter actions"
 
 json_output="$(
   ruby "$repo_root/scripts/skills_sync.rb" \

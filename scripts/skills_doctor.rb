@@ -39,6 +39,8 @@ SUPPORTED_PROJECT_MANAGER_LOCK_VERSION = 1
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
 DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
+SKILL_STATUSES = %w[active needs-import-review needs-source-review legacy].freeze
+UNRESOLVED_LOCAL_STATUSES = %w[needs-source-review legacy].freeze
 
 class Reporter
   attr_reader :errors, :warnings
@@ -877,6 +879,7 @@ def validate_registry(registry_path, registry, options, reporter)
   ids = {}
   resolved = {}
   exported_name_owners = {}
+  local_path_owners = {}
 
   if options[:print_lock]
     manifest_path = Pathname.new(registry_path).realpath.relative_path_from(registry_root_real).to_s
@@ -902,7 +905,24 @@ def validate_registry(registry_path, registry, options, reporter)
       next
     end
     source = skill["source"] || {}
-    exported_names = string_array(skill["exported_names"], reporter, "#{skill_id}: exported_names")
+    source_type = source.is_a?(Hash) ? source["type"] : nil
+    exported_names = source_type == "unresolved-local" && skill["exported_names"].nil? ? [] :
+      string_array(skill["exported_names"], reporter, "#{skill_id}: exported_names")
+    status = skill["status"]
+    unless status.is_a?(String) && SKILL_STATUSES.include?(status)
+      reporter.error("#{skill_id}: status must be one of #{SKILL_STATUSES.join(', ')}")
+    end
+    if status == "needs-source-review" && source_type != "unresolved-local"
+      reporter.error("#{skill_id}: needs-source-review status requires source.type unresolved-local")
+    end
+    if status == "needs-import-review" && source_type != "external-git"
+      reporter.error("#{skill_id}: needs-import-review status requires source.type external-git")
+    end
+    if source_type == "unresolved-local"
+      %w[exported_names clients scopes].each do |field|
+        reporter.error("#{skill_id}: unresolved-local entries must not define #{field}") if skill.key?(field)
+      end
+    end
 
     if skill_id.strip.empty?
       reporter.error("skill entry is missing id")
@@ -915,7 +935,7 @@ def validate_registry(registry_path, registry, options, reporter)
       ids[skill_id] = true
     end
 
-    reporter.error("#{skill_id}: exported_names must not be empty") if exported_names.empty?
+    reporter.error("#{skill_id}: exported_names must not be empty") if source_type != "unresolved-local" && exported_names.empty?
     exported_names.each do |exported_name|
       if exported_name.strip.empty?
         reporter.error("#{skill_id}: exported_names entries must not be empty")
@@ -958,6 +978,11 @@ def validate_registry(registry_path, registry, options, reporter)
         reporter.error("#{skill_id}: registry-local source.path must name a top-level skill directory")
         next
       end
+      if local_path_owners.key?(source_path)
+        reporter.error("#{skill_id}: local source.path #{source_path} is already declared by #{local_path_owners[source_path]}")
+        next
+      end
+      local_path_owners[source_path] = skill_id
 
       skill_dir = registry_root.join(source_path).cleanpath
       skill_file = skill_dir.join("SKILL.md")
@@ -1029,11 +1054,13 @@ def validate_registry(registry_path, registry, options, reporter)
       digest = directory_digest(skill_dir.to_s, reporter)
       next if digest.nil?
       resolved[skill_id] = {
+        "status" => status,
         "source_type" => "registry-local",
         "path" => source_path,
         "absolute_path" => skill_dir.to_s,
         "digest_sha256" => digest,
-        "exported_names" => exported_names
+        "exported_names" => exported_names,
+        "lockable" => status != "legacy"
       }
       reporter.ok("#{skill_id}: registry-local #{source_path} digest #{digest[0, 12]}")
     when "external-git"
@@ -1174,16 +1201,68 @@ def validate_registry(registry_path, registry, options, reporter)
       end
 
       resolved[skill_id] = {
+        "status" => status,
         "source_type" => "external-git",
         "url" => url,
         "path" => source_path.empty? ? "." : source_path,
         "pinned_tag" => tag,
         "observed_commit" => observed_commit,
-        "exported_names" => exported_names
+        "exported_names" => exported_names,
+        "lockable" => status != "legacy"
       }
+    when "unresolved-local"
+      unless UNRESOLVED_LOCAL_STATUSES.include?(status)
+        reporter.error("#{skill_id}: unresolved-local source requires status needs-source-review or legacy")
+      end
+      source_path = source["path"]
+      unless source_path.is_a?(String) && top_level_skill_path?(source_path)
+        reporter.error("#{skill_id}: unresolved-local source.path must name a top-level skill directory")
+        next
+      end
+      if local_path_owners.key?(source_path)
+        reporter.error("#{skill_id}: local source.path #{source_path} is already declared by #{local_path_owners[source_path]}")
+        next
+      end
+      local_path_owners[source_path] = skill_id
+
+      skill_dir = registry_root.join(source_path).cleanpath
+      skill_file = skill_dir.join("SKILL.md")
+      if !skill_dir.directory?
+        reporter.error("#{skill_id}: source directory #{source_path} is missing")
+        next
+      elsif skill_dir.symlink?
+        reporter.error("#{skill_id}: unresolved-local source.path must not be a symlink")
+        next
+      elsif !path_within?(skill_dir.realpath, registry_root_real)
+        reporter.error("#{skill_id}: unresolved-local source.path must stay within registry root")
+        next
+      elsif !skill_file.file?
+        reporter.error("#{skill_id}: #{source_path}/SKILL.md is missing")
+        next
+      end
+
+      metadata = frontmatter(skill_file.to_s, reporter)
+      reporter.error("#{skill_id}: SKILL.md front matter name is required") unless metadata["name"].is_a?(String) && !metadata["name"].strip.empty?
+      reporter.error("#{skill_id}: SKILL.md front matter description is required") unless metadata["description"].is_a?(String) && !metadata["description"].strip.empty?
+      resolved[skill_id] = {
+        "status" => status,
+        "source_type" => "unresolved-local",
+        "path" => source_path,
+        "absolute_path" => skill_dir.to_s,
+        "exported_names" => [],
+        "lockable" => false
+      }
+      reporter.ok("#{skill_id}: #{status} disposition covers #{source_path}")
     else
       reporter.error("#{skill_id}: unsupported source.type #{source["type"].inspect}")
     end
+  end
+
+  top_level_skill_paths = Dir.glob(registry_root.join("*/SKILL.md").to_s).map do |path|
+    Pathname.new(path).dirname.basename.to_s
+  end.sort
+  (top_level_skill_paths - local_path_owners.keys).each do |source_path|
+    reporter.error("#{source_path}/SKILL.md has no registry disposition")
   end
 
   unless options[:print_lock]
@@ -1398,11 +1477,16 @@ def validate_lock(lock_path, registry_root, resolved, reporter)
     memo[skill_id] = entry
     valid_locked_entries[skill_id] = validate_lock_entry_shape(entry, registry_root, lock_label, skill_id, reporter)
   end
-  (locked_by_id.keys - resolved.keys).sort.each do |skill_id|
-    reporter.error("#{lock_label}: stale lock entry #{skill_id} is not present in the registry")
+  lockable = resolved.reject { |_skill_id, entry| entry["lockable"] == false }
+  (locked_by_id.keys - lockable.keys).sort.each do |skill_id|
+    if resolved.key?(skill_id)
+      reporter.error("#{lock_label}: stale lock entry #{skill_id} is not lockable in the registry")
+    else
+      reporter.error("#{lock_label}: stale lock entry #{skill_id} is not present in the registry")
+    end
   end
 
-  resolved.each do |skill_id, entry|
+  lockable.each do |skill_id, entry|
     locked = locked_by_id[skill_id]
     if locked.nil?
       reporter.error("#{lock_label}: missing lock entry for #{skill_id}")
@@ -1476,6 +1560,10 @@ def validate_profiles(paths, resolved, reporter)
       skill_id = selection["skill_id"]
       expose_to = string_array(selection["expose_to"], reporter, "#{display_path(expanded)} #{skill_id} expose_to")
       reporter.error("#{display_path(expanded)} selected skill #{skill_id} is not in registry") unless resolved.key?(skill_id)
+      skill = resolved[skill_id]
+      if skill && skill["status"] != "active"
+        reporter.error("#{display_path(expanded)} selected skill #{skill_id} has non-active registry status #{skill["status"]}")
+      end
       if expose_to.empty?
         reporter.error("#{display_path(expanded)} #{skill_id} expose_to must list at least one consumer")
         next
@@ -2091,7 +2179,7 @@ def validate_global_manager_lock(path, reporter)
   { entries: entries, usable_entries: usable_entries }
 end
 
-def validate_project_manager_lock(path, registry_names, expected_sources, reporter)
+def validate_project_manager_lock(path, registry_names, expected_sources, resolved, reporter)
   label = display_path(path)
   lock = load_json_file(path, reporter, label: "project skills lock #{label}", warning_only: true)
   unless lock.is_a?(Hash)
@@ -2149,6 +2237,10 @@ def validate_project_manager_lock(path, registry_names, expected_sources, report
   skills.keys.sort.each do |name|
     skill_id = registry_names[name]
     next unless skill_id
+    if resolved.dig(skill_id, "status") != "active"
+      reporter.warn("project skills lock #{label} tracks non-installable registry skill #{skill_id} as #{name} with status #{resolved.dig(skill_id, "status")}")
+      next
+    end
     expected = expected_sources[skill_id]
 
     unless usable_entries.key?(name)
@@ -2191,6 +2283,10 @@ def check_manager_state(options, resolved, reporter)
   if manager_list_state[:available]
     (list_names & registry_names.keys).sort.each do |name|
       skill_id = registry_names[name]
+      if resolved.dig(skill_id, "status") != "active"
+        reporter.warn("npx global list sees non-installable registry skill #{skill_id} as #{name} with status #{resolved.dig(skill_id, "status")}")
+        next
+      end
       expected = expected_sources[skill_id]
       entry = manager_list.find { |item| item["name"] == name } || {}
       agents = Array(entry["agents"]).join(", ")
@@ -2211,6 +2307,10 @@ def check_manager_state(options, resolved, reporter)
 
   (lock_names & registry_names.keys).sort.each do |name|
     skill_id = registry_names[name]
+    if resolved.dig(skill_id, "status") != "active"
+      reporter.warn("global skills lock tracks non-installable registry skill #{skill_id} as #{name} with status #{resolved.dig(skill_id, "status")}")
+      next
+    end
     expected = expected_sources[skill_id]
     reporter.warn("global skills lock tracks registry-related #{name}, but npx global list does not report it") if manager_list_state[:available] && !list_names.include?(name)
     unless usable_lock_names.include?(name)
@@ -2230,17 +2330,18 @@ def check_manager_state(options, resolved, reporter)
   else
     reporter.ok("found #{project_lock_paths.length} project skills-lock.json file(s)")
     project_lock_paths.each do |path|
-      validate_project_manager_lock(path, registry_names, expected_sources, reporter)
+      validate_project_manager_lock(path, registry_names, expected_sources, resolved, reporter)
     end
   end
 end
 
 def lock_document(resolved)
+  lockable = resolved.reject { |_skill_id, entry| entry["lockable"] == false }
   {
     "schema_version" => 0.1,
     "generated_by" => "scripts/skills_doctor.rb --print-lock",
-    "skills" => resolved.keys.sort.map do |skill_id|
-      entry = resolved[skill_id]
+    "skills" => lockable.keys.sort.map do |skill_id|
+      entry = lockable[skill_id]
       {
         "id" => skill_id,
         "source_type" => entry["source_type"],

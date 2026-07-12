@@ -16,6 +16,8 @@ require "yaml"
 ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
 CATALOG_SCHEMA_VERSION = "0.1"
 GENERATOR = "scripts/skills_catalog.rb"
+SKILL_STATUSES = %w[active needs-import-review needs-source-review legacy].freeze
+UNRESOLVED_LOCAL_STATUSES = %w[needs-source-review legacy].freeze
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 DEFAULT_INSTALL_PROFILE = File.join("profiles", "machine", "example-local-skills.yaml").freeze
 SHARED_AGENTS_USER_ROOT = File.expand_path("~/.agents/skills").freeze
@@ -783,6 +785,13 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
       reporter.error("#{display_path(profile_path)} selected skill #{entry["skill_id"]} is not in registry")
       next
     end
+    unless registry_skill_ids[entry["skill_id"]] == "active"
+      reporter.error(
+        "#{display_path(profile_path)} selected skill #{entry["skill_id"]} " \
+        "has non-active registry status #{registry_skill_ids[entry["skill_id"]]}"
+      )
+      next
+    end
 
     expose_to = string_array(entry["expose_to"], reporter, "#{display_path(profile_path)} #{entry["skill_id"]} expose_to")
     reporter.error("#{display_path(profile_path)} #{entry["skill_id"]} expose_to must list at least one consumer") if expose_to.empty?
@@ -839,6 +848,7 @@ def approved_codex_global_install_ids(profile, profile_path, registry_skill_ids,
       end
     end
     next unless state.to_s == "active"
+    next unless registry_skill_ids[entry["skill_id"]] == "active"
     next unless expose_to.is_a?(Array) && expose_to.include?("agents_user")
     if seen_active_agents_user_skill_ids[entry["skill_id"]]
       reporter.error("#{display_path(profile_path)} duplicate active agents_user selection for skill_id #{entry["skill_id"]}")
@@ -880,7 +890,7 @@ def approved_claude_code_global_install_ids(profile, profile_path, registry_skil
 
   installable_skills = selected_skills.each_with_object({}) do |entry, memo|
     next unless entry.is_a?(Hash) && valid_string?(entry["skill_id"])
-    next unless registry_skill_ids.key?(entry["skill_id"])
+    next unless registry_skill_ids[entry["skill_id"]] == "active"
 
     expose_to = string_array(entry["expose_to"], reporter, "#{display_path(profile_path)} #{entry["skill_id"]} expose_to")
     next unless expose_to.include?("claude_user")
@@ -1226,7 +1236,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   registry_skill_ids = raw_skills.each_with_object({}) do |entry, memo|
     next unless entry.is_a?(Hash) && safe_non_path_identifier?(entry["id"])
 
-    memo[entry["id"]] = true
+    memo[entry["id"]] = entry["status"]
   end
   install_profile, install_profile_path = load_install_profile(registry_root, reporter)
   installable_codex_skills = approved_codex_global_install_ids(
@@ -1247,6 +1257,7 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   seen_skill_ids = {}
   seen_exported_names = {}
   seen_registry_local_source_paths = {}
+  lockable_skill_ids = []
   manager_source_required = false
 
   raw_skills.each_with_index do |skill, index|
@@ -1272,9 +1283,24 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
 
     status = skill["status"]
     reporter.error("#{skill_id}: status is required") unless valid_string?(status)
+    if valid_string?(status) && !SKILL_STATUSES.include?(status)
+      reporter.error("#{skill_id}: status must be one of #{SKILL_STATUSES.join(', ')}")
+    end
     source = mapping(skill["source"], reporter, "#{skill_id}: source")
     source_type = source["type"]
-    exported_names = string_array(skill["exported_names"], reporter, "#{skill_id}: exported_names")
+    if status == "needs-source-review" && source_type != "unresolved-local"
+      reporter.error("#{skill_id}: needs-source-review status requires source.type unresolved-local")
+    end
+    if status == "needs-import-review" && source_type != "external-git"
+      reporter.error("#{skill_id}: needs-import-review status requires source.type external-git")
+    end
+    if source_type == "unresolved-local"
+      %w[exported_names clients scopes].each do |field|
+        reporter.error("#{skill_id}: unresolved-local entries must not define #{field}") if skill.key?(field)
+      end
+    end
+    exported_names = source_type == "unresolved-local" && skill["exported_names"].nil? ? [] :
+      string_array(skill["exported_names"], reporter, "#{skill_id}: exported_names")
     exported_names.each do |name|
       reporter.error("#{skill_id}: exported_names entries must be safe adapter names") unless safe_adapter_name?(name)
       if safe_adapter_name?(name) && seen_exported_names.key?(name)
@@ -1283,20 +1309,23 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
         seen_exported_names[name] = skill_id if safe_adapter_name?(name)
       end
     end
-    reporter.error("#{skill_id}: exported_names must not be empty") if exported_names.empty?
+    reporter.error("#{skill_id}: exported_names must not be empty") if source_type != "unresolved-local" && exported_names.empty?
     clients = string_mapping(skill["clients"], reporter, "#{skill_id}: clients", allow_nil: true)
     reporter.error("#{skill_id}: clients values must be safe non-path identifiers") unless clients.values.all? { |value| safe_non_path_identifier?(value) }
-    scopes = string_array(skill["scopes"], reporter, "#{skill_id}: scopes")
+    scopes = source_type == "unresolved-local" && skill["scopes"].nil? ? [] :
+      string_array(skill["scopes"], reporter, "#{skill_id}: scopes")
     update_policy = skill["update_policy"]
-    reporter.error("#{skill_id}: update_policy is required") unless valid_string?(update_policy)
+    reporter.error("#{skill_id}: update_policy is required") if source_type != "unresolved-local" && !valid_string?(update_policy)
 
-    lock_entry = lock_by_id[skill_id]
-    if lock_entry.nil?
+    lockable = %w[registry-local external-git].include?(source_type) && status != "legacy"
+    lockable_skill_ids << skill_id if lockable
+    lock_entry = lockable ? lock_by_id[skill_id] : nil
+    if lockable && lock_entry.nil?
       reporter.error("#{skill_id}: missing lock entry")
       lock_entry = {}
     end
-    compare_lock_field(lock_entry, skill_id, "source_type", source_type, reporter)
-    compare_lock_array(lock_entry, skill_id, "exported_names", exported_names, reporter)
+    compare_lock_field(lock_entry, skill_id, "source_type", source_type, reporter) if lockable
+    compare_lock_array(lock_entry, skill_id, "exported_names", exported_names, reporter) if lockable
 
     metadata = {}
     source_catalog = nil
@@ -1324,21 +1353,23 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       if skill_file&.file? && !valid_text_string?(metadata["description"])
         reporter.error("#{skill_id}: registry-local SKILL.md front matter description is required")
       end
-      digest = require_lock_field(lock_entry, skill_id, "digest_sha256", reporter)
-      reporter.error("#{skill_id}: lock digest_sha256 must be a 64-character SHA-256") unless digest.empty? || valid_sha256_hex?(digest)
-      current_digest = directory_digest(skill_root.to_s, reporter) if skill_root&.directory?
-      if valid_sha256_hex?(digest) && current_digest && digest != current_digest
-        reporter.error("#{skill_id}: lock digest_sha256 differs from registry-local source contents")
+      if lockable
+        digest = require_lock_field(lock_entry, skill_id, "digest_sha256", reporter)
+        reporter.error("#{skill_id}: lock digest_sha256 must be a 64-character SHA-256") unless digest.empty? || valid_sha256_hex?(digest)
+        current_digest = directory_digest(skill_root.to_s, reporter) if skill_root&.directory?
+        if valid_sha256_hex?(digest) && current_digest && digest != current_digest
+          reporter.error("#{skill_id}: lock digest_sha256 differs from registry-local source contents")
+        end
+        compare_lock_field(lock_entry, skill_id, "path", source_path, reporter)
+        lock_catalog = {
+          "source_type" => "registry-local",
+          "path" => lock_entry["path"],
+          "digest_sha256" => digest
+        }
       end
-      compare_lock_field(lock_entry, skill_id, "path", source_path, reporter)
       source_catalog = {
         "type" => "registry-local",
         "path" => source_path
-      }
-      lock_catalog = {
-        "source_type" => "registry-local",
-        "path" => lock_entry["path"],
-        "digest_sha256" => digest
       }
     when "external-git"
       url = source["url"]
@@ -1360,12 +1391,21 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
         reporter.error("#{skill_id}: external-git source.observed_at must be an ISO date (YYYY-MM-DD)")
       end
 
-      %w[url path pinned_tag observed_commit].each do |field|
-        require_lock_field(lock_entry, skill_id, field, reporter)
-        compare_lock_field(lock_entry, skill_id, field, source[field], reporter)
-      end
-      if valid_string?(lock_entry["pinned_tag"]) && !valid_git_tag_name?(lock_entry["pinned_tag"])
-        reporter.error("#{skill_id}: lock pinned_tag must be an exact tag name")
+      if lockable
+        %w[url path pinned_tag observed_commit].each do |field|
+          require_lock_field(lock_entry, skill_id, field, reporter)
+          compare_lock_field(lock_entry, skill_id, field, source[field], reporter)
+        end
+        if valid_string?(lock_entry["pinned_tag"]) && !valid_git_tag_name?(lock_entry["pinned_tag"])
+          reporter.error("#{skill_id}: lock pinned_tag must be an exact tag name")
+        end
+        lock_catalog = {
+          "source_type" => "external-git",
+          "url" => lock_entry["url"],
+          "path" => lock_entry["path"],
+          "pinned_tag" => lock_entry["pinned_tag"],
+          "observed_commit" => lock_entry["observed_commit"]
+        }
       end
 
       source_catalog = {
@@ -1376,15 +1416,37 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
         "observed_commit" => observed_commit,
         "observed_at" => observed_at
       }
-      lock_catalog = {
-        "source_type" => "external-git",
-        "url" => lock_entry["url"],
-        "path" => lock_entry["path"],
-        "pinned_tag" => lock_entry["pinned_tag"],
-        "observed_commit" => lock_entry["observed_commit"]
+    when "unresolved-local"
+      unless UNRESOLVED_LOCAL_STATUSES.include?(status)
+        reporter.error("#{skill_id}: unresolved-local source requires status needs-source-review or legacy")
+      end
+      source_path = source["path"]
+      source_valid = top_level_skill_path?(source_path)
+      unless source_valid
+        reporter.error("#{skill_id}: unresolved-local source.path must name a top-level skill directory")
+      end
+      if source_valid && seen_registry_local_source_paths.key?(source_path)
+        reporter.error("#{skill_id}: local source.path #{source_path} is already declared by #{seen_registry_local_source_paths[source_path]}")
+        next
+      end
+      seen_registry_local_source_paths[source_path] = skill_id if source_valid
+
+      skill_root = source_valid ? registry_root.join(source_path) : nil
+      skill_file = skill_root&.join("SKILL.md")
+      if skill_root&.symlink?
+        reporter.error("#{skill_id}: unresolved-local source.path must not be a symlink")
+      elsif !skill_file&.file?
+        reporter.error("#{skill_id}: #{source_path}/SKILL.md is missing") if source_valid
+      else
+        metadata = frontmatter(skill_file.to_s, reporter)
+        reporter.error("#{skill_id}: unresolved-local SKILL.md front matter name is required") unless valid_string?(metadata["name"])
+      end
+      source_catalog = {
+        "type" => "unresolved-local",
+        "path" => source_path
       }
     else
-      reporter.error("#{skill_id}: source.type must be registry-local or external-git")
+      reporter.error("#{skill_id}: source.type must be registry-local, external-git, or unresolved-local")
     end
 
     name = catalog_name(skill, metadata, exported_names, source_type)
@@ -1420,22 +1482,31 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       "description" => description,
       "status" => status,
       "source" => source_catalog,
-      "exported_names" => exported_names,
-      "clients" => clients,
-      "scopes" => scopes,
-      "update_policy" => update_policy,
-      "lock" => lock_catalog
+      "update_policy" => source_type == "unresolved-local" ? "review-required" : update_policy
     }
+    if lockable
+      entry["exported_names"] = exported_names
+      entry["clients"] = clients
+      entry["scopes"] = scopes
+      entry["lock"] = lock_catalog
+    end
     entry["install"] = install if install
     catalog_skills << entry
   end
 
-  registry_skill_id_list = raw_skills.each_with_object([]) do |entry, memo|
-    memo << entry["id"] if entry.is_a?(Hash) && safe_non_path_identifier?(entry["id"])
+  top_level_skill_paths = Dir.glob(registry_root.join("*/SKILL.md").to_s).map do |path|
+    Pathname.new(path).dirname.basename.to_s
+  end.sort
+  (top_level_skill_paths - seen_registry_local_source_paths.keys).each do |source_path|
+    reporter.error("#{source_path}/SKILL.md has no registry disposition")
   end
-  stale_locks = lock_by_id.keys - registry_skill_id_list
+  stale_locks = lock_by_id.keys - lockable_skill_ids
   stale_locks.sort.each do |skill_id|
-    reporter.error("skills.lock.yaml stale lock entry #{skill_id} is not present in skills.registry.yaml")
+    if seen_skill_ids.key?(skill_id)
+      reporter.error("skills.lock.yaml stale lock entry #{skill_id} is not lockable in skills.registry.yaml")
+    else
+      reporter.error("skills.lock.yaml stale lock entry #{skill_id} is not present in skills.registry.yaml")
+    end
   end
 
   if !manager_source.nil? && !manager_source.is_a?(String)
@@ -1513,16 +1584,16 @@ def markdown_document(catalog)
       if source.fetch("type") == "external-git"
         "external-git:#{source.fetch("path")}@#{source.fetch("pinned_tag")}"
       else
-        "registry-local:#{source.fetch("path")}"
+        "#{source.fetch("type")}:#{source.fetch("path")}"
       end
-    clients = skill.fetch("clients").map { |client, status| "#{client}=#{status}" }.join(", ")
+    clients = (skill["clients"] || {}).map { |client, status| "#{client}=#{status}" }.join(", ")
     lines << [
       code_span(skill.fetch("id")),
       code_span(skill.fetch("status")),
       code_span(source_label),
-      skill.fetch("exported_names").map { |name| code_span(name) }.join(", "),
+      Array(skill["exported_names"]).map { |name| code_span(name) }.join(", "),
       md_escape(clients),
-      skill.fetch("scopes").map { |scope| code_span(scope) }.join(", "),
+      Array(skill["scopes"]).map { |scope| code_span(scope) }.join(", "),
       code_span(skill.fetch("update_policy")),
       md_escape(skill.fetch("description"))
     ].join(" | ").prepend("| ") + " |"

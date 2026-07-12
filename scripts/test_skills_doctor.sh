@@ -89,6 +89,17 @@ basic_output="$(
 assert_contains "$basic_output" "fixture-profile: 1 selected skills, 1 consumer roots"
 assert_contains "$basic_output" "example-skill: registry-local example-skill digest"
 
+non_active_profile_dir="$tmp_dir/non-active-profile"
+cp -R "$basic_dir/." "$non_active_profile_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").first["status"] = "legacy"
+  File.write(path, data.to_yaml)
+' "$non_active_profile_dir/skills.registry.yaml"
+non_active_profile_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$non_active_profile_dir/skills.registry.yaml" --profile "$non_active_profile_dir/profiles/machine/example.yaml" --projects-root "$non_active_profile_dir/projects")"
+assert_contains "$non_active_profile_output" "selected skill example-skill has non-active registry status legacy"
+
 lock_output="$(
   ruby "$repo_root/scripts/skills_doctor.rb" \
     --registry "$basic_dir/skills.registry.yaml" \
@@ -450,9 +461,41 @@ skills:
       path: example-skill
     exported_names:
       - example-skill
+  - id: new-skill
+    status: needs-source-review
+    source:
+      type: unresolved-local
+      path: new-skill
 YAML
 
 ruby "$repo_root/scripts/skills_doctor.rb" --registry "$missing_lock_entry_dir/skills.registry.yaml" --print-lock >"$missing_lock_entry_dir/good.lock.yaml"
+assert_not_contains "$(cat "$missing_lock_entry_dir/good.lock.yaml")" "new-skill"
+
+unresolved_exposure_dir="$tmp_dir/unresolved-exposure"
+cp -R "$missing_lock_entry_dir/." "$unresolved_exposure_dir/"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  skill = data.fetch("skills").find { |entry| entry.fetch("id") == "new-skill" }
+  skill["exported_names"] = ["new-skill"]
+  skill["clients"] = { "codex" => "planned" }
+  skill["scopes"] = ["machine"]
+  File.write(path, data.to_yaml)
+' "$unresolved_exposure_dir/skills.registry.yaml"
+unresolved_exposure_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$unresolved_exposure_dir/skills.registry.yaml" --print-lock)"
+assert_contains "$unresolved_exposure_output" "new-skill: unresolved-local entries must not define exported_names"
+assert_contains "$unresolved_exposure_output" "new-skill: unresolved-local entries must not define clients"
+assert_contains "$unresolved_exposure_output" "new-skill: unresolved-local entries must not define scopes"
+
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  skill = data.fetch("skills").find { |entry| entry.fetch("id") == "example-skill" }
+  skill["status"] = "legacy"
+  File.write(path, data.to_yaml)
+' "$missing_lock_entry_dir/skills.registry.yaml"
+ruby "$repo_root/scripts/skills_doctor.rb" --registry "$missing_lock_entry_dir/skills.registry.yaml" --print-lock >"$missing_lock_entry_dir/legacy.lock.yaml"
+assert_not_contains "$(cat "$missing_lock_entry_dir/legacy.lock.yaml")" "example-skill"
 
 cat >"$missing_lock_entry_dir/skills.registry.yaml" <<'YAML'
 schema_version: 0.1
@@ -6630,6 +6673,36 @@ manager_state_legacy_lock_output="$(
 
 assert_contains "$manager_state_legacy_lock_output" "global skills lock <absolute-path> version 2 is older than supported version 3 and will be ignored by skills@1.5.14"
 assert_contains "$manager_state_legacy_lock_output" "npx global list sees registry-related code-review, but global skills lock does not track it"
+
+manager_state_non_installable_dir="$tmp_dir/manager-state-non-installable"
+mkdir -p "$manager_state_non_installable_dir/code-review" "$manager_state_non_installable_dir/projects/app"
+cp "$manager_state_dir/code-review/SKILL.md" "$manager_state_non_installable_dir/code-review/SKILL.md"
+cp "$manager_state_dir/skills.registry.yaml" "$manager_state_non_installable_dir/skills.registry.yaml"
+cp "$manager_state_dir/npx-global.json" "$manager_state_non_installable_dir/npx-global.json"
+cp "$manager_state_dir/global-lock.json" "$manager_state_non_installable_dir/global-lock.json"
+cp "$manager_state_dir/projects/app/skills-lock.json" "$manager_state_non_installable_dir/projects/app/skills-lock.json"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").first["status"] = "legacy"
+  File.write(path, data.to_yaml)
+' "$manager_state_non_installable_dir/skills.registry.yaml"
+
+manager_state_non_installable_output="$(
+  PROJECTS_ROOT="$manager_state_non_installable_dir/projects" \
+    ruby "$repo_root/scripts/skills_doctor.rb" \
+    --registry "$manager_state_non_installable_dir/skills.registry.yaml" \
+    --projects-root "$manager_state_non_installable_dir/projects" \
+    --check-manager \
+    --manager-list-json "$manager_state_non_installable_dir/npx-global.json" \
+    --manager-global-lock "$manager_state_non_installable_dir/global-lock.json"
+)"
+
+assert_contains "$manager_state_non_installable_output" "npx global list sees non-installable registry skill code-review as code-review with status legacy"
+assert_contains "$manager_state_non_installable_output" "global skills lock tracks non-installable registry skill code-review as code-review with status legacy"
+assert_contains "$manager_state_non_installable_output" "project skills lock <absolute-path> tracks non-installable registry skill code-review as code-review with status legacy"
+assert_not_contains "$manager_state_non_installable_output" "global skills lock tracks registry-related code-review as code-review"
+assert_not_contains "$manager_state_non_installable_output" "project skills lock <absolute-path> tracks registry-related code-review as code-review from"
 
 manager_state_list_unavailable_dir="$tmp_dir/manager-state-list-unavailable"
 mkdir -p "$manager_state_list_unavailable_dir/code-review" "$manager_state_list_unavailable_dir/profiles/machine" "$manager_state_list_unavailable_dir/projects/app" "$manager_state_list_unavailable_dir/bin"
