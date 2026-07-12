@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+for command in ffmpeg ffprobe; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "meeting transcription test skipped: missing $command"
+    exit 0
+  fi
+done
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo_root/meeting-transcription/scripts/transcribe_meeting_audio.sh"
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/meeting-transcription-test.XXXXXX")"
@@ -91,7 +98,10 @@ const count = fs.existsSync(counterPath)
 fs.writeFileSync(counterPath, `${count + 1}\n`);
 
 if (count === 0) {
-  process.stdout.write('{malformed response\n');
+  process.stdout.write(`${JSON.stringify({
+    text: '[00:00:00] Response without required usage metadata.',
+    modelVersion: 'fixture-model',
+  })}\n`);
 } else {
   process.stdout.write(`${JSON.stringify({
     text: '[00:00:00] Managed wrapper retry transcript.',
@@ -116,7 +126,7 @@ HOME="$managed_home" "$script" \
   --skip-smoke-test >/dev/null
 
 test -f "$FAKE_GEMINI_BOOTSTRAP_MARKER"
-rg -n $'chunk_000.json\t0\t0\tinvalid_json' "$run_dir/validation.tsv" >/dev/null
+rg -n $'chunk_000.json\t0\t[0-9]+\tmissing_usage_metadata' "$run_dir/validation.tsv" >/dev/null
 test ! -s "$run_dir/unresolved-parts.txt"
 rg -n 'Managed wrapper retry transcript' "$run_dir/assembled-transcript-body.md" >/dev/null
 test "$(jq -r '.malformedResponses' "$run_dir/usage.json")" = "1"
@@ -133,5 +143,35 @@ HOME="$managed_home" "$script" \
 test ! -s "$run_dir/accepted-rescue-parts.txt"
 test ! -e "$run_dir/rescue/000/part_00.json"
 rg -n 'Managed wrapper retry transcript' "$run_dir/assembled-transcript-body.md" >/dev/null
+
+retry_response="$run_dir/retry/000/part_00.json"
+jq '.text = ("Yeah " * 25)' "$retry_response" > "$retry_response.tmp"
+mv "$retry_response.tmp" "$retry_response"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --rescue-model fixture-rescue \
+  --skip-smoke-test \
+  --resume >/dev/null
+test "$(jq -r '.rescueModel' "$run_dir/run-config.json")" = "fixture-rescue"
+test "$(jq -r '.rescueModel' "$run_dir/run-manifest.json")" = "fixture-rescue"
+rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+
+unsafe_dir="$tmp_dir/unsafe-resume"
+mkdir -p "$unsafe_dir/unrelated"
+chmod 755 "$unsafe_dir" "$unsafe_dir/unrelated"
+if "$script" \
+  --input "$audio" \
+  --work-dir "$unsafe_dir" \
+  --chunk-seconds 10 \
+  --prepare-only \
+  --resume >/dev/null 2>&1; then
+  echo "expected unvalidated resume work directory to fail" >&2
+  exit 1
+fi
+test "$(mode_of "$unsafe_dir")" = "755"
+test "$(mode_of "$unsafe_dir/unrelated")" = "755"
 
 echo "meeting transcription test ok"

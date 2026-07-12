@@ -149,15 +149,15 @@ if test -z "$work_dir"; then
   work_dir="/tmp/meeting-transcription-$base_name"
 fi
 
+test ! -L "$work_dir" || die "work directory must not be a symlink: $work_dir"
+
 if test -d "$work_dir" && test "$(find "$work_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" != "" && test "$resume" -ne 1; then
   die "work directory is not empty; choose another path or pass --resume: $work_dir"
 fi
 
-mkdir -p "$work_dir" "$work_dir/chunks" "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
-chmod -R go-rwx "$work_dir"
-
 sha256="$(shasum -a 256 "$input" | awk '{print $1}')"
-config_tmp="$work_dir/run-config.json.tmp"
+config_tmp="$(mktemp "${TMPDIR:-/tmp}/meeting-transcription-run-config.XXXXXX")"
+trap 'rm -f "$config_tmp"' EXIT
 jq -n \
   --arg input "$input" \
   --arg sha256 "$sha256" \
@@ -171,10 +171,18 @@ jq -n \
   '{input:$input,sha256:$sha256,model:$model,rescueModel:$rescueModel,chunkSeconds:$chunkSeconds,retrySeconds:$retrySeconds,maxOutputTokens:$maxOutputTokens,retryOutputTokens:$retryOutputTokens,rescueOutputTokens:$rescueOutputTokens}' \
   > "$config_tmp"
 
-if test "$resume" -eq 1 && test -f "$work_dir/run-config.json" && ! cmp -s "$work_dir/run-config.json" "$config_tmp"; then
-  rm -f "$config_tmp"
-  die "--resume configuration does not match the existing run-config.json"
+if test "$resume" -eq 1; then
+  test -d "$work_dir" || die "--resume work directory does not exist: $work_dir"
+  test -f "$work_dir/run-config.json" || die "--resume work directory is missing run-config.json: $work_dir"
+  if ! cmp -s \
+    <(jq -S 'del(.rescueModel)' "$work_dir/run-config.json") \
+    <(jq -S 'del(.rescueModel)' "$config_tmp"); then
+    die "--resume configuration does not match the existing run-config.json"
+  fi
 fi
+
+mkdir -p "$work_dir" "$work_dir/chunks" "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
+chmod -R go-rwx "$work_dir"
 
 source_sha_tmp="$work_dir/source.sha256.tmp"
 source_metadata_tmp="$work_dir/source-metadata.json.tmp"
@@ -324,8 +332,12 @@ for (const file of walk(root).filter((item) => item.endsWith('.json')).sort()) {
   }
 
   const text = typeof data.text === 'string' ? data.text.trim() : '';
-  const outputTokens = Number(data.usageMetadata?.candidatesTokenCount || 0);
+  const hasUsageMetadata = data.usageMetadata
+    && typeof data.usageMetadata === 'object'
+    && !Array.isArray(data.usageMetadata);
+  const outputTokens = hasUsageMetadata ? Number(data.usageMetadata.candidatesTokenCount || 0) : 0;
   if (!text) reasons.push('empty_text');
+  if (!hasUsageMetadata) reasons.push('missing_usage_metadata');
   if (outputTokens >= limit - 4) reasons.push('output_limit');
   if (/(?:\bI\b[\s,.]*){12,}/i.test(text)) reasons.push('repeated_i');
   if (/(?:\bYeah\b[\s,.]*){20,}/i.test(text)) reasons.push('repeated_yeah');
@@ -508,7 +520,11 @@ for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.
     usage.malformedResponses += 1;
     continue;
   }
-  const metadata = data.usageMetadata || {};
+  if (!data.usageMetadata || typeof data.usageMetadata !== 'object' || Array.isArray(data.usageMetadata)) {
+    usage.malformedResponses += 1;
+    continue;
+  }
+  const metadata = data.usageMetadata;
   const model = data.modelVersion || data.model || 'unknown';
   usage.requests += 1;
   usage.outputTokens += Number(metadata.candidatesTokenCount || 0);
