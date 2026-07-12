@@ -1170,10 +1170,10 @@ def validate_registry(registry_path, registry, options, reporter)
       reporter.warn("#{skill_id}: external-git observed_commit is missing") if observed_commit.empty?
 
       if options[:check_upstream] && !url.empty? && !tag.empty?
-        refs, stderr, status = git_ls_remote_tag(resolve_upstream_url(url, registry_root), tag)
+        refs, stderr, git_status = git_ls_remote_tag(resolve_upstream_url(url, registry_root), tag)
         resolved_commit = refs["refs/tags/#{tag}^{}"] || refs["refs/tags/#{tag}"]
         resolved_commit = resolved_commit.downcase unless resolved_commit.nil?
-        if status.success?
+        if git_status.success?
           if resolved_commit.nil?
             message = "#{skill_id}: upstream tag #{tag} is not present"
             if options[:print_lock]
