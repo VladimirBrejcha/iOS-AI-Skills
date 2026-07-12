@@ -3954,7 +3954,7 @@ bad_lock_observed_commit_output="$(expect_failure ruby "$repo_root/scripts/skill
 assert_contains "$bad_lock_observed_commit_output" "swiftui-pro lock observed_commit must be a full git object id"
 
 uppercase_observed_commit_dir="$tmp_dir/uppercase-observed-commit"
-mkdir -p "$uppercase_observed_commit_dir/upstream"
+mkdir -p "$uppercase_observed_commit_dir/upstream" "$uppercase_observed_commit_dir/profiles/machine"
 
 git -C "$uppercase_observed_commit_dir/upstream" init -q
 cat >"$uppercase_observed_commit_dir/upstream/README.md" <<'EOF'
@@ -3985,13 +3985,32 @@ skills:
       - swiftui-pro
 YAML
 
+cat >"$uppercase_observed_commit_dir/profiles/machine/example.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+profile:
+  id: uppercase-observed-commit-profile
+consumer_roots:
+  codex_user:
+    path: ../../consumer-root
+    adapter: symlink
+    status: planned
+selected_skills:
+  - skill_id: swiftui-pro
+    expose_to:
+      - codex_user
+    state: active
+YAML
+
 uppercase_observed_commit_output="$(
   ruby "$repo_root/scripts/skills_doctor.rb" \
     --registry "$uppercase_observed_commit_dir/skills.registry.yaml" \
+    --profile "$uppercase_observed_commit_dir/profiles/machine/example.yaml" \
     --check-upstream
 )"
 assert_contains "$uppercase_observed_commit_output" "swiftui-pro: upstream tag v1.0.0 resolves to ${uppercase_observed_commit_object:0:12}"
 assert_not_contains "$uppercase_observed_commit_output" "no longer resolves to observed_commit"
+assert_not_contains "$uppercase_observed_commit_output" "selected skill swiftui-pro has non-active registry status"
 
 ruby "$repo_root/scripts/skills_doctor.rb" \
   --registry "$uppercase_observed_commit_dir/skills.registry.yaml" \
