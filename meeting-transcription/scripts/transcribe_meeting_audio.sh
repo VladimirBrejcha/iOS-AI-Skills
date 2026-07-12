@@ -175,9 +175,17 @@ if test "$resume" -eq 1; then
   test -d "$work_dir" || die "--resume work directory does not exist: $work_dir"
   test -f "$work_dir/run-config.json" || die "--resume work directory is missing run-config.json: $work_dir"
   if ! cmp -s \
-    <(jq -S 'del(.rescueModel)' "$work_dir/run-config.json") \
-    <(jq -S 'del(.rescueModel)' "$config_tmp"); then
+    <(jq -S 'del(.rescueModel, .rescueOutputTokens)' "$work_dir/run-config.json") \
+    <(jq -S 'del(.rescueModel, .rescueOutputTokens)' "$config_tmp"); then
     die "--resume configuration does not match the existing run-config.json"
+  fi
+  if test -z "$rescue_model" && test -s "$work_dir/accepted-rescue-parts.txt"; then
+    jq \
+      --arg rescueModel "$(jq -r '.rescueModel // ""' "$work_dir/run-config.json")" \
+      --argjson rescueOutputTokens "$(jq -r '.rescueOutputTokens' "$work_dir/run-config.json")" \
+      '.rescueModel = $rescueModel | .rescueOutputTokens = $rescueOutputTokens' \
+      "$config_tmp" > "$config_tmp.preserved-rescue"
+    mv "$config_tmp.preserved-rescue" "$config_tmp"
   fi
 fi
 
@@ -335,9 +343,12 @@ for (const file of walk(root).filter((item) => item.endsWith('.json')).sort()) {
   const hasUsageMetadata = data.usageMetadata
     && typeof data.usageMetadata === 'object'
     && !Array.isArray(data.usageMetadata);
-  const outputTokens = hasUsageMetadata ? Number(data.usageMetadata.candidatesTokenCount || 0) : 0;
+  const hasOutputTokens = hasUsageMetadata
+    && Number.isFinite(data.usageMetadata.candidatesTokenCount);
+  const outputTokens = hasOutputTokens ? data.usageMetadata.candidatesTokenCount : 0;
   if (!text) reasons.push('empty_text');
   if (!hasUsageMetadata) reasons.push('missing_usage_metadata');
+  if (hasUsageMetadata && !hasOutputTokens) reasons.push('missing_output_tokens');
   if (outputTokens >= limit - 4) reasons.push('output_limit');
   if (/(?:\bI\b[\s,.]*){12,}/i.test(text)) reasons.push('repeated_i');
   if (/(?:\bYeah\b[\s,.]*){20,}/i.test(text)) reasons.push('repeated_yeah');
@@ -399,6 +410,12 @@ else
 fi
 
 accepted_rescue_parts="$work_dir/accepted-rescue-parts.txt"
+if test "$resume" -eq 1 \
+  && test -s "$work_dir/unresolved-parts.txt" \
+  && test -z "$rescue_model" \
+  && test -s "$accepted_rescue_parts"; then
+  die "existing accepted rescue outputs require --rescue-model before rerunning unresolved parts"
+fi
 : > "$accepted_rescue_parts"
 rm -rf "$work_dir/rescue"
 mkdir -p "$work_dir/rescue"
@@ -520,7 +537,10 @@ for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.
     usage.malformedResponses += 1;
     continue;
   }
-  if (!data.usageMetadata || typeof data.usageMetadata !== 'object' || Array.isArray(data.usageMetadata)) {
+  if (!data.usageMetadata
+    || typeof data.usageMetadata !== 'object'
+    || Array.isArray(data.usageMetadata)
+    || !Number.isFinite(data.usageMetadata.candidatesTokenCount)) {
     usage.malformedResponses += 1;
     continue;
   }
