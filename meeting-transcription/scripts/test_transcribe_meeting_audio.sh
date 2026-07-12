@@ -22,6 +22,22 @@ ffmpeg -hide_banner -loglevel error \
   -f lavfi -i 'sine=frequency=440:duration=5.2' \
   -c:a aac "$audio"
 
+symlink_target="$tmp_dir/symlink-target"
+symlink_work_dir="$tmp_dir/symlink-work"
+mkdir -p "$symlink_target"
+chmod 755 "$symlink_target"
+printf 'preserve me\n' > "$symlink_target/existing.txt"
+ln -s "$symlink_target" "$symlink_work_dir"
+if "$script" \
+  --input "$audio" \
+  --work-dir "$symlink_work_dir/" \
+  --prepare-only >/dev/null 2>&1; then
+  echo "expected symlinked work directory with trailing slash to fail" >&2
+  exit 1
+fi
+test "$(mode_of "$symlink_target")" = "755"
+test "$(cat "$symlink_target/existing.txt")" = "preserve me"
+
 prepare_dir="$tmp_dir/prepare"
 mkdir -p "$prepare_dir"
 chmod 755 "$prepare_dir"
@@ -97,6 +113,11 @@ const count = fs.existsSync(counterPath)
   : 0;
 fs.writeFileSync(counterPath, `${count + 1}\n`);
 
+const fileIndex = process.argv.indexOf('--file');
+const inputFile = fileIndex >= 0 ? process.argv[fileIndex + 1] : '';
+const shouldFail = process.env.FAKE_GEMINI_FAIL_FILE
+  && inputFile.endsWith(process.env.FAKE_GEMINI_FAIL_FILE);
+
 if (count === 0) {
   process.stdout.write(`${JSON.stringify({
     text: '[00:00:00] Response without required output token metadata.',
@@ -105,8 +126,9 @@ if (count === 0) {
   })}\n`);
 } else {
   process.stdout.write(`${JSON.stringify({
-    text: '[00:00:00] Managed wrapper retry transcript.',
+    text: shouldFail ? 'Yeah '.repeat(25) : '[00:00:00] Managed wrapper retry transcript.',
     modelVersion: 'fixture-model',
+    requestOrdinal: count,
     usageMetadata: {
       candidatesTokenCount: 8,
       totalTokenCount: 16,
@@ -115,6 +137,28 @@ if (count === 0) {
   })}\n`);
 }
 WRAPPER
+
+repo_local_root="$tmp_dir/product-repo/.agents/skills"
+repo_local_meeting_scripts="$repo_local_root/meeting-transcription/scripts"
+repo_local_gemini_scripts="$repo_local_root/gemini-files-api/scripts"
+mkdir -p "$repo_local_meeting_scripts" "$repo_local_gemini_scripts"
+cp "$script" "$repo_local_meeting_scripts/transcribe_meeting_audio.sh"
+cp "$managed_root/bootstrap.sh" "$repo_local_gemini_scripts/bootstrap.sh"
+cp "$managed_root/gemini-mm.mjs" "$repo_local_gemini_scripts/gemini-mm.mjs"
+
+repo_local_home="$tmp_dir/repo-local-home"
+repo_local_run="$tmp_dir/repo-local-run"
+mkdir -p "$repo_local_home"
+HOME="$repo_local_home" \
+FAKE_GEMINI_COUNTER="$tmp_dir/repo-local-counter" \
+FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/repo-local-bootstrap-marker" \
+  "$repo_local_meeting_scripts/transcribe_meeting_audio.sh" \
+  --input "$audio" \
+  --work-dir "$repo_local_run" \
+  --chunk-seconds 10 \
+  --skip-smoke-test >/dev/null
+test -f "$tmp_dir/repo-local-bootstrap-marker"
+rg -n 'Managed wrapper retry transcript' "$repo_local_run/assembled-transcript-body.md" >/dev/null
 
 export FAKE_GEMINI_COUNTER="$tmp_dir/gemini-counter"
 export FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/bootstrap-marker"
@@ -148,17 +192,24 @@ rg -n 'Managed wrapper retry transcript' "$run_dir/assembled-transcript-body.md"
 retry_response="$run_dir/retry/000/part_00.json"
 jq '.text = ("Yeah " * 25)' "$retry_response" > "$retry_response.tmp"
 mv "$retry_response.tmp" "$retry_response"
-HOME="$managed_home" "$script" \
+second_retry_response="$run_dir/retry/000/part_01.json"
+jq '.text = ("Yeah " * 25)' "$second_retry_response" > "$second_retry_response.tmp"
+mv "$second_retry_response.tmp" "$second_retry_response"
+if FAKE_GEMINI_FAIL_FILE="part_01.m4a" HOME="$managed_home" "$script" \
   --input "$audio" \
   --work-dir "$run_dir" \
   --chunk-seconds 10 \
   --retry-seconds 2 \
   --rescue-model fixture-rescue \
   --skip-smoke-test \
-  --resume >/dev/null
+  --resume >/dev/null 2>&1; then
+  echo "expected partially unresolved rescue run to fail" >&2
+  exit 1
+fi
 test "$(jq -r '.rescueModel' "$run_dir/run-config.json")" = "fixture-rescue"
-test "$(jq -r '.rescueModel' "$run_dir/run-manifest.json")" = "fixture-rescue"
 rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+test "$(wc -l < "$run_dir/accepted-rescue-parts.txt" | tr -d ' ')" = "1"
+rg -n '^000/part_01$' "$run_dir/unresolved-parts.txt" >/dev/null
 
 accepted_rescue_sha="$(shasum -a 256 "$run_dir/accepted-rescue-parts.txt" | awk '{print $1}')"
 rescue_response_sha="$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')"
@@ -186,6 +237,11 @@ HOME="$managed_home" "$script" \
   --skip-smoke-test \
   --resume >/dev/null
 test "$(jq -r '.rescueOutputTokens' "$run_dir/run-config.json")" = "5000"
+test "$(jq -r '.rescueModel' "$run_dir/run-manifest.json")" = "fixture-rescue"
+test ! -s "$run_dir/unresolved-parts.txt"
+rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+test "$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')" = "$rescue_response_sha"
 
 unsafe_dir="$tmp_dir/unsafe-resume"
 mkdir -p "$unsafe_dir/unrelated"

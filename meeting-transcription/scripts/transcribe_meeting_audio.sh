@@ -149,6 +149,9 @@ if test -z "$work_dir"; then
   work_dir="/tmp/meeting-transcription-$base_name"
 fi
 
+while test "$work_dir" != "/" && test "${work_dir%/}" != "$work_dir"; do
+  work_dir="${work_dir%/}"
+done
 test ! -L "$work_dir" || die "work directory must not be a symlink: $work_dir"
 
 if test -d "$work_dir" && test "$(find "$work_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" != "" && test "$resume" -ne 1; then
@@ -240,7 +243,12 @@ resolve_dependency_file() {
     return
   fi
 
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
   for skill_root in \
+    "$script_dir/../../gemini-files-api" \
+    "$PWD/.agents/skills/gemini-files-api" \
+    "$PWD/.claude/skills/gemini-files-api" \
+    "$PWD/.codex/skills/gemini-files-api" \
     "${HOME}/.agents/skills/gemini-files-api" \
     "${HOME}/.claude/skills/gemini-files-api" \
     "${HOME}/.codex/skills/gemini-files-api"; do
@@ -416,13 +424,21 @@ if test "$resume" -eq 1 \
   && test -s "$accepted_rescue_parts"; then
   die "existing accepted rescue outputs require --rescue-model before rerunning unresolved parts"
 fi
-: > "$accepted_rescue_parts"
-rm -rf "$work_dir/rescue"
+accepted_rescue_parts_tmp="$work_dir/accepted-rescue-parts.txt.tmp"
+if test "$resume" -eq 1 && test -s "$accepted_rescue_parts"; then
+  sort -u "$accepted_rescue_parts" > "$accepted_rescue_parts_tmp"
+else
+  : > "$accepted_rescue_parts_tmp"
+  rm -rf "$work_dir/rescue"
+fi
 mkdir -p "$work_dir/rescue"
 
 if test -s "$work_dir/unresolved-parts.txt" && test -n "$rescue_model"; then
   rescue_requested_parts="$work_dir/rescue-requested-parts.txt"
-  cp "$work_dir/unresolved-parts.txt" "$rescue_requested_parts"
+  comm -23 \
+    <(sort -u "$work_dir/unresolved-parts.txt") \
+    "$accepted_rescue_parts_tmp" \
+    > "$rescue_requested_parts"
   while IFS= read -r relative; do
     test -n "$relative" || continue
     input_part="$work_dir/retry/$relative.m4a"
@@ -430,16 +446,23 @@ if test -s "$work_dir/unresolved-parts.txt" && test -n "$rescue_model"; then
     mkdir -p "$(dirname "$output_part")"
     echo "meeting-transcription: rescue $relative with $rescue_model"
     run_request "$rescue_model" "$rescue_output_tokens" "$retry_prompt" "$input_part" "$output_part"
-  done < "$work_dir/unresolved-parts.txt"
+  done < "$rescue_requested_parts"
   validate_json_dir "$work_dir/rescue" "$rescue_output_tokens" "$work_dir/rescue-validation.tsv" "$work_dir/still-unresolved-parts.txt"
-  comm -23 \
+  comm -12 \
     <(sort -u "$rescue_requested_parts") \
     <(sort -u "$work_dir/still-unresolved-parts.txt") \
+    > "$work_dir/requested-still-unresolved-parts.txt"
+  comm -23 \
+    <(sort -u "$rescue_requested_parts") \
+    <(sort -u "$work_dir/requested-still-unresolved-parts.txt") \
+    | sort -u -m "$accepted_rescue_parts_tmp" - \
     > "$accepted_rescue_parts"
-  cp "$work_dir/still-unresolved-parts.txt" "$work_dir/unresolved-parts.txt"
+  cp "$work_dir/requested-still-unresolved-parts.txt" "$work_dir/unresolved-parts.txt"
 else
+  mv "$accepted_rescue_parts_tmp" "$accepted_rescue_parts"
   printf 'file\toutput_tokens\ttext_chars\tstatus\n' > "$work_dir/rescue-validation.tsv"
 fi
+rm -f "$accepted_rescue_parts_tmp"
 
 if test -s "$work_dir/unresolved-parts.txt"; then
   echo "meeting-transcription: unresolved retry outliers:" >&2
