@@ -3,8 +3,8 @@ set -euo pipefail
 
 for command in ffmpeg ffprobe; do
   if ! command -v "$command" >/dev/null 2>&1; then
-    echo "meeting transcription test skipped: missing $command"
-    exit 0
+    echo "meeting transcription test failed: missing required command: $command" >&2
+    exit 1
   fi
 done
 
@@ -247,6 +247,27 @@ test ! -s "$run_dir/unresolved-parts.txt"
 rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 test "$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')" = "$rescue_response_sha"
+
+printf '{truncated accepted rescue\n' > "$run_dir/rescue/000/part_00.json"
+if HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --rescue-model fixture-rescue \
+  --rescue-output-tokens 5000 \
+  --skip-smoke-test \
+  --resume >/dev/null 2>&1; then
+  echo "expected resume with an invalid accepted rescue to fail" >&2
+  exit 1
+fi
+test ! -e "$run_dir/accepted-rescue-parts.txt.tmp"
+if rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null; then
+  echo "expected invalid accepted rescue to be removed from the accepted set" >&2
+  exit 1
+fi
+rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+rg -n '^000/part_00$' "$run_dir/unresolved-parts.txt" >/dev/null
 
 unsafe_dir="$tmp_dir/unsafe-resume"
 mkdir -p "$unsafe_dir/unrelated"

@@ -452,12 +452,22 @@ if test -s "$work_dir/unresolved-parts.txt" && test -n "$rescue_model"; then
     <(sort -u "$rescue_requested_parts") \
     <(sort -u "$work_dir/still-unresolved-parts.txt") \
     > "$work_dir/requested-still-unresolved-parts.txt"
+  comm -12 \
+    "$accepted_rescue_parts_tmp" \
+    <(sort -u "$work_dir/still-unresolved-parts.txt") \
+    > "$work_dir/accepted-still-unresolved-parts.txt"
   comm -23 \
-    <(sort -u "$rescue_requested_parts") \
-    <(sort -u "$work_dir/requested-still-unresolved-parts.txt") \
-    | sort -u -m "$accepted_rescue_parts_tmp" - \
+    "$accepted_rescue_parts_tmp" \
+    <(sort -u "$work_dir/accepted-still-unresolved-parts.txt") \
+    | sort -u -m - \
+      <(comm -23 \
+        <(sort -u "$rescue_requested_parts") \
+        <(sort -u "$work_dir/requested-still-unresolved-parts.txt")) \
     > "$accepted_rescue_parts"
-  cp "$work_dir/requested-still-unresolved-parts.txt" "$work_dir/unresolved-parts.txt"
+  sort -u -m \
+    "$work_dir/accepted-still-unresolved-parts.txt" \
+    "$work_dir/requested-still-unresolved-parts.txt" \
+    > "$work_dir/unresolved-parts.txt"
 else
   mv "$accepted_rescue_parts_tmp" "$accepted_rescue_parts"
   printf 'file\toutput_tokens\ttext_chars\tstatus\n' > "$work_dir/rescue-validation.tsv"
