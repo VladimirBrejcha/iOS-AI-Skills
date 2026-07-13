@@ -132,6 +132,8 @@ if (count === 0) {
       totalTokenCount: 16,
       ...(process.env.FAKE_GEMINI_INVALID_PROMPT_DETAILS
         ? { promptTokensDetails: [{ modality: 'AUDIO' }] }
+        : process.env.FAKE_GEMINI_UNKNOWN_MODALITY
+          ? { promptTokensDetails: [{ modality: 'audio', tokenCount: 8 }] }
         : {}),
     },
   })}\n`);
@@ -174,6 +176,19 @@ rg -n $'chunk_000.json\t8\t[0-9]+\tinvalid_prompt_token_details' "$repo_local_ru
 rg -n 'Managed wrapper retry transcript' "$repo_local_run/assembled-transcript-body.md" >/dev/null
 test "$(jq -r '.malformedResponses' "$repo_local_run/usage.json")" = "1"
 
+unknown_modality_run="$tmp_dir/unknown-modality-run"
+HOME="$repo_local_home" \
+FAKE_GEMINI_COUNTER="$tmp_dir/unknown-modality-counter" \
+FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/unknown-modality-bootstrap-marker" \
+FAKE_GEMINI_UNKNOWN_MODALITY=1 \
+  "$repo_local_meeting_scripts/transcribe_meeting_audio.sh" \
+  --input "$audio" \
+  --work-dir "$unknown_modality_run" \
+  --chunk-seconds 10 \
+  --skip-smoke-test >/dev/null
+rg -n $'chunk_000.json\t8\t[0-9]+\tinvalid_prompt_token_details' "$unknown_modality_run/validation.tsv" >/dev/null
+test "$(jq -r '.malformedResponses' "$unknown_modality_run/usage.json")" = "1"
+
 export FAKE_GEMINI_COUNTER="$tmp_dir/gemini-counter"
 export FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/bootstrap-marker"
 run_dir="$tmp_dir/run"
@@ -191,6 +206,50 @@ rg -n 'Managed wrapper retry transcript' "$run_dir/assembled-transcript-body.md"
 test "$(jq -r '.malformedResponses' "$run_dir/usage.json")" = "1"
 test "$(jq -r '.requests' "$run_dir/usage.json")" -gt 0
 test "$(jq -r '.audioInputTokens' "$run_dir/usage.json")" -gt 0
+
+for ((index = 3; index <= 100; index += 1)); do
+  number="$(printf '%02d' "$index")"
+  : > "$run_dir/retry/000/part_$number.m4a"
+  jq --arg text "Synthetic retry part $index." '.text = $text' \
+    "$run_dir/retry/000/part_02.json" > "$run_dir/retry/000/part_$number.json"
+done
+printf '101\n' > "$run_dir/retry/000/.complete"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+part_99_line="$(rg -n 'Synthetic retry part 99\.' "$run_dir/assembled-transcript-body.md" | cut -d: -f1)"
+part_100_line="$(rg -n 'Synthetic retry part 100\.' "$run_dir/assembled-transcript-body.md" | cut -d: -f1)"
+test "$part_99_line" -lt "$part_100_line"
+
+real_ffprobe="$(command -v ffprobe)"
+fake_bin="$tmp_dir/fake-bin"
+mkdir -p "$fake_bin"
+cat > "$fake_bin/ffprobe" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+"$real_ffprobe" "\$@" | jq '.format.duration = "N/A"'
+EOF
+chmod +x "$fake_bin/ffprobe"
+
+nonnumeric_duration_run="$tmp_dir/nonnumeric-duration-run"
+PATH="$fake_bin:$PATH" \
+HOME="$managed_home" \
+FAKE_GEMINI_COUNTER="$tmp_dir/nonnumeric-duration-counter" \
+  "$script" \
+  --input "$audio" \
+  --work-dir "$nonnumeric_duration_run" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test >/dev/null
+rg -n '^## Chunk 000 - 00:00:00 to 00:00:10$' "$nonnumeric_duration_run/assembled-transcript-body.md" >/dev/null
+if rg -n 'NaN' "$nonnumeric_duration_run/assembled-transcript-body.md" >/dev/null; then
+  echo "expected nonnumeric duration to use the chunk-count fallback" >&2
+  exit 1
+fi
 
 mkdir -p "$run_dir/rescue/000"
 printf '{stale rescue response\n' > "$run_dir/rescue/000/part_00.json"

@@ -329,6 +329,7 @@ const root = process.argv[2];
 const limit = Number(process.argv[3]);
 const reportPath = process.argv[4];
 const suspectPath = process.argv[5];
+const knownPromptModalities = new Set(['AUDIO', 'TEXT']);
 
 function walk(dir) {
   if (!fs.existsSync(dir)) return [];
@@ -370,7 +371,7 @@ for (const file of walk(root).filter((item) => item.endsWith('.json')).sort()) {
       && typeof detail === 'object'
       && !Array.isArray(detail)
       && typeof detail.modality === 'string'
-      && detail.modality.length > 0
+      && knownPromptModalities.has(detail.modality)
       && Number.isFinite(detail.tokenCount));
   const outputTokens = hasOutputTokens ? data.usageMetadata.candidatesTokenCount : 0;
   if (!text) reasons.push('empty_text');
@@ -518,7 +519,10 @@ const chunkSeconds = Number(process.argv[3]);
 const retrySeconds = Number(process.argv[4]);
 const chunkCount = Number(process.argv[5]);
 const metadata = JSON.parse(fs.readFileSync(path.join(root, 'source-metadata.json'), 'utf8'));
-const duration = Number(metadata.format?.duration || chunkCount * chunkSeconds);
+const parsedDuration = Number(metadata.format?.duration);
+const duration = Number.isFinite(parsedDuration) && parsedDuration >= 0
+  ? parsedDuration
+  : chunkCount * chunkSeconds;
 const suspects = new Set(
   fs.readFileSync(path.join(root, 'suspect-chunks.txt'), 'utf8').split(/\n/).filter(Boolean)
 );
@@ -539,6 +543,13 @@ function responseText(file) {
   return String(data.text || '').trim();
 }
 
+function compareRetryParts(left, right) {
+  const leftMatch = left.match(/^part_(\d+)\.m4a$/);
+  const rightMatch = right.match(/^part_(\d+)\.m4a$/);
+  if (leftMatch && rightMatch) return Number(leftMatch[1]) - Number(rightMatch[1]);
+  return left.localeCompare(right);
+}
+
 const output = [];
 for (let index = 0; index < chunkCount; index += 1) {
   const number = String(index).padStart(3, '0');
@@ -553,7 +564,9 @@ for (let index = 0; index < chunkCount; index += 1) {
   }
 
   const retryDir = path.join(root, 'retry', number);
-  const parts = fs.readdirSync(retryDir).filter((name) => name.endsWith('.m4a')).sort();
+  const parts = fs.readdirSync(retryDir)
+    .filter((name) => name.endsWith('.m4a'))
+    .sort(compareRetryParts);
   parts.forEach((part, partIndex) => {
     const stem = part.replace(/\.m4a$/, '');
     const rescue = path.join(root, 'rescue', number, `${stem}.json`);
@@ -572,6 +585,7 @@ const path = require('path');
 
 const root = process.argv[2];
 const responseRoots = ['raw', 'retry', 'rescue'].map((name) => path.join(root, name));
+const knownPromptModalities = new Set(['AUDIO', 'TEXT']);
 
 function walk(dir) {
   if (!fs.existsSync(dir)) return [];
@@ -610,7 +624,7 @@ for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.
       || typeof detail !== 'object'
       || Array.isArray(detail)
       || typeof detail.modality !== 'string'
-      || detail.modality.length === 0
+      || !knownPromptModalities.has(detail.modality)
       || !Number.isFinite(detail.tokenCount))) {
     usage.malformedResponses += 1;
     continue;
