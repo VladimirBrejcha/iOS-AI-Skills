@@ -13,6 +13,11 @@ script="$repo_root/meeting-transcription/scripts/transcribe_meeting_audio.sh"
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/meeting-transcription-test.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
 
+if grep -F 'require_command rg' "$script" >/dev/null; then
+  echo "meeting transcription runtime must not require unused ripgrep" >&2
+  exit 1
+fi
+
 mode_of() {
   local mode
   if mode="$(stat -f '%Lp' "$1" 2>/dev/null)"; then
@@ -128,12 +133,16 @@ if (count === 0) {
     text: '[00:00:00] Response without required prompt token details.',
     modelVersion: 'fixture-model',
     usageMetadata: {
-      candidatesTokenCount: 8,
+      candidatesTokenCount: process.env.FAKE_GEMINI_BAD_TOKEN_COUNT
+        ? Number(process.env.FAKE_GEMINI_BAD_TOKEN_COUNT)
+        : 8,
       totalTokenCount: 16,
       ...(process.env.FAKE_GEMINI_INVALID_PROMPT_DETAILS
         ? { promptTokensDetails: [{ modality: 'AUDIO' }] }
         : process.env.FAKE_GEMINI_UNKNOWN_MODALITY
           ? { promptTokensDetails: [{ modality: 'audio', tokenCount: 8 }] }
+          : process.env.FAKE_GEMINI_BAD_TOKEN_COUNT
+            ? { promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 8 }] }
         : {}),
     },
   })}\n`);
@@ -189,8 +198,27 @@ FAKE_GEMINI_UNKNOWN_MODALITY=1 \
 rg -n $'chunk_000.json\t8\t[0-9]+\tinvalid_prompt_token_details' "$unknown_modality_run/validation.tsv" >/dev/null
 test "$(jq -r '.malformedResponses' "$unknown_modality_run/usage.json")" = "1"
 
+for bad_token_count in -1 1.5; do
+  safe_bad_token_count="${bad_token_count//./_}"
+  bad_token_run="$tmp_dir/bad-token-$safe_bad_token_count-run"
+  HOME="$repo_local_home" \
+  FAKE_GEMINI_COUNTER="$tmp_dir/bad-token-$safe_bad_token_count-counter" \
+  FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/bad-token-$safe_bad_token_count-bootstrap-marker" \
+  FAKE_GEMINI_BAD_TOKEN_COUNT="$bad_token_count" \
+    "$repo_local_meeting_scripts/transcribe_meeting_audio.sh" \
+    --input "$audio" \
+    --work-dir "$bad_token_run" \
+    --chunk-seconds 10 \
+    --skip-smoke-test >/dev/null
+  rg -n $'chunk_000.json\t0\t[0-9]+\tmissing_output_tokens' "$bad_token_run/validation.tsv" >/dev/null
+  test "$(jq -r '.malformedResponses' "$bad_token_run/usage.json")" = "1"
+  test "$(jq -r '.outputTokens' "$bad_token_run/usage.json")" = "8"
+done
+
 export FAKE_GEMINI_COUNTER="$tmp_dir/gemini-counter"
 export FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/bootstrap-marker"
+export GEMINI_MM="$managed_root/gemini-mm.mjs"
+export GEMINI_MM_BOOTSTRAP="$managed_root/bootstrap.sh"
 run_dir="$tmp_dir/run"
 HOME="$managed_home" "$script" \
   --input "$audio" \

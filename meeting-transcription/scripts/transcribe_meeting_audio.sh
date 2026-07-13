@@ -137,7 +137,6 @@ require_command ffmpeg
 require_command ffprobe
 require_command jq
 require_command node
-require_command rg
 require_command shasum
 
 input_dir="$(cd "$(dirname "$input")" && pwd -P)"
@@ -330,6 +329,7 @@ const limit = Number(process.argv[3]);
 const reportPath = process.argv[4];
 const suspectPath = process.argv[5];
 const knownPromptModalities = new Set(['AUDIO', 'TEXT']);
+const isTokenCount = (value) => Number.isInteger(value) && value >= 0;
 
 function walk(dir) {
   if (!fs.existsSync(dir)) return [];
@@ -358,9 +358,9 @@ for (const file of walk(root).filter((item) => item.endsWith('.json')).sort()) {
     && typeof data.usageMetadata === 'object'
     && !Array.isArray(data.usageMetadata);
   const hasOutputTokens = hasUsageMetadata
-    && Number.isFinite(data.usageMetadata.candidatesTokenCount);
+    && isTokenCount(data.usageMetadata.candidatesTokenCount);
   const hasTotalTokens = hasUsageMetadata
-    && Number.isFinite(data.usageMetadata.totalTokenCount);
+    && isTokenCount(data.usageMetadata.totalTokenCount);
   const promptTokenDetails = hasUsageMetadata
     ? data.usageMetadata.promptTokensDetails
     : null;
@@ -372,7 +372,7 @@ for (const file of walk(root).filter((item) => item.endsWith('.json')).sort()) {
       && !Array.isArray(detail)
       && typeof detail.modality === 'string'
       && knownPromptModalities.has(detail.modality)
-      && Number.isFinite(detail.tokenCount));
+      && isTokenCount(detail.tokenCount));
   const outputTokens = hasOutputTokens ? data.usageMetadata.candidatesTokenCount : 0;
   if (!text) reasons.push('empty_text');
   if (!hasUsageMetadata) reasons.push('missing_usage_metadata');
@@ -604,6 +604,7 @@ const usage = {
   totalTokens: 0,
   byModel: {},
 };
+const isTokenCount = (value) => Number.isInteger(value) && value >= 0;
 
 for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.json'))) {
   let data;
@@ -616,8 +617,8 @@ for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.
   if (!data.usageMetadata
     || typeof data.usageMetadata !== 'object'
     || Array.isArray(data.usageMetadata)
-    || !Number.isFinite(data.usageMetadata.candidatesTokenCount)
-    || !Number.isFinite(data.usageMetadata.totalTokenCount)
+    || !isTokenCount(data.usageMetadata.candidatesTokenCount)
+    || !isTokenCount(data.usageMetadata.totalTokenCount)
     || !Array.isArray(data.usageMetadata.promptTokensDetails)
     || data.usageMetadata.promptTokensDetails.length === 0
     || data.usageMetadata.promptTokensDetails.some((detail) => !detail
@@ -625,7 +626,7 @@ for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.
       || Array.isArray(detail)
       || typeof detail.modality !== 'string'
       || !knownPromptModalities.has(detail.modality)
-      || !Number.isFinite(detail.tokenCount))) {
+      || !isTokenCount(detail.tokenCount))) {
     usage.malformedResponses += 1;
     continue;
   }

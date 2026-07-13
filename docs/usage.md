@@ -36,6 +36,24 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
   --yes
 ```
 
+`meeting-transcription` requires the separately owned `gemini-files-api`
+wrapper. Install both into the same manager root, then bootstrap the pinned npm
+dependencies. This pair requires Node.js 20 or newer:
+
+```bash
+npx --yes skills@1.5.14 add fiveonecode/agent-skills \
+  --skill gemini-files-api \
+  --agent codex \
+  --global \
+  --yes
+npx --yes skills@1.5.14 add fiveonecode/agent-skills \
+  --skill meeting-transcription \
+  --agent codex \
+  --global \
+  --yes
+bash ~/.agents/skills/gemini-files-api/scripts/bootstrap.sh
+```
+
 Install one skill into a consumer repo for Codex. Run this from the product
 repo, not from the `agent-skills` clone:
 
@@ -76,10 +94,24 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
 
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills \
+  --skill gemini-files-api \
+  --agent claude-code \
+  --global \
+  --yes
+```
+
+```bash
+npx --yes skills@1.5.14 add fiveonecode/agent-skills \
   --skill meeting-transcription \
   --agent claude-code \
   --global \
   --yes
+```
+
+After installing or updating the Claude Code dependency, run:
+
+```bash
+bash ~/.claude/skills/gemini-files-api/scripts/bootstrap.sh
 ```
 
 ```bash

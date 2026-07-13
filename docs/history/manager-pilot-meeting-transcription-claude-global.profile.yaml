@@ -5,8 +5,8 @@ profile:
   owner: maintainers
   purpose: >
     Historical proof target for the reviewed Claude Code manager-owned
-    meeting-transcription write. This profile is not auto-loaded by default
-    and is retained for audit context.
+    meeting-transcription and gemini-files-api dependency writes. This profile
+    is not auto-loaded by default and is retained for audit context.
 
 registry:
   path_hint: ../..
@@ -19,13 +19,17 @@ consumer_roots:
     status: historical-proof-target
 
 selected_skills:
+  - skill_id: gemini-files-api
+    expose_to:
+      - claude_global_manager
+    state: active
   - skill_id: meeting-transcription
     expose_to:
       - claude_global_manager
     state: active
 
 non_goals:
-  - installing more than meeting-transcription
+  - installing skills other than meeting-transcription and gemini-files-api
   - changing ~/.agents/skills
   - changing ~/.codex/skills
   - stale cleanup

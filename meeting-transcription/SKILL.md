@@ -12,9 +12,23 @@ Turn long local meeting audio into a validated transcript body without treating 
 ## Dependencies
 
 - `ffmpeg` and `ffprobe`
-- `node`, `jq`, `rg`, and `shasum`
-- A Gemini Files API wrapper compatible with the CLI contract below
+- `node`, `jq`, and `shasum`
+- The separately managed `gemini-files-api` skill
 - Gemini authentication configured outside this skill
+
+Install the wrapper dependency and this skill into the same reviewed manager
+root before running the canonical command:
+
+```bash
+npx --yes skills@1.5.14 add fiveonecode/agent-skills \
+  --skill gemini-files-api --agent codex --global --yes
+npx --yes skills@1.5.14 add fiveonecode/agent-skills \
+  --skill meeting-transcription --agent codex --global --yes
+bash ~/.agents/skills/gemini-files-api/scripts/bootstrap.sh
+```
+
+For Claude Code, use the same two pinned commands with `--agent claude-code`;
+the bootstrap path is `~/.claude/skills/gemini-files-api/scripts/bootstrap.sh`.
 
 The script resolves the Gemini wrapper from:
 

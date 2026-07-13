@@ -170,6 +170,8 @@ for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh script
 done
 bash -n meeting-transcription/scripts/transcribe_meeting_audio.sh
 bash -n meeting-transcription/scripts/test_transcribe_meeting_audio.sh
+bash -n gemini-files-api/scripts/bootstrap.sh
+node --check gemini-files-api/scripts/gemini-mm.mjs
 ruby -c scripts/skills_catalog.rb
 ruby -c scripts/skills_doctor.rb
 ruby -c scripts/skills_provenance_audit.rb

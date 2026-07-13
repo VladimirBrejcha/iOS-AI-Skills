@@ -181,6 +181,29 @@ assert_contains "$verify_requirements_output" "verify requirements ok"
 assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/transcribe_meeting_audio.sh"
 assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/test_transcribe_meeting_audio.sh"
 
+dependency_contract_output="$(
+  ruby -ryaml -e '
+    repo_root = ARGV.fetch(0)
+    registry = YAML.safe_load(File.read(File.join(repo_root, "skills.registry.yaml")), aliases: false)
+    profile = YAML.safe_load(File.read(File.join(repo_root, "profiles/machine/example-local-skills.yaml")), aliases: false)
+    skills = registry.fetch("skills").to_h { |entry| [entry.fetch("id"), entry] }
+    dependency = skills.fetch("gemini-files-api")
+    meeting = skills.fetch("meeting-transcription")
+    abort "gemini-files-api must be registry-local" unless dependency.dig("source", "type") == "registry-local"
+    abort "gemini-files-api must own its top-level source" unless dependency.dig("source", "path") == "gemini-files-api"
+    abort "meeting-transcription must declare gemini-files-api" unless meeting.fetch("notes").any? { |note| note.include?("gemini-files-api") }
+    selected = profile.fetch("selected_skills").to_h { |entry| [entry.fetch("skill_id"), entry] }
+    ["gemini-files-api", "meeting-transcription"].each do |skill_id|
+      entry = selected.fetch(skill_id)
+      abort "#{skill_id} must be active" unless entry.fetch("state") == "active"
+      abort "#{skill_id} must be manager-owned for agents_user" unless entry.dig("consumer_overrides", "agents_user", "adapter") == "manager-copy"
+      abort "#{skill_id} must be manager-owned for claude_user" unless entry.dig("consumer_overrides", "claude_user", "adapter") == "manager-copy"
+    end
+    puts "meeting transcription dependency contract ok"
+  ' "$repo_root"
+)"
+assert_contains "$dependency_contract_output" "meeting transcription dependency contract ok"
+
 unquoted_hash_dir="$tmp_dir/unquoted-hash"
 cp -R "$ok_dir/." "$unquoted_hash_dir/"
 ruby -e '

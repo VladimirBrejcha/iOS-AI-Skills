@@ -37,7 +37,7 @@ DEFAULT_MANAGER_REGISTRY_SOURCE_TYPE = ENV.fetch("SKILLS_DOCTOR_MANAGER_REGISTRY
 SUPPORTED_GLOBAL_MANAGER_LOCK_VERSION = 3
 SUPPORTED_PROJECT_MANAGER_LOCK_VERSION = 1
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
-INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
+INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__ node_modules].freeze
 DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
 
 class Reporter
@@ -440,6 +440,11 @@ def adapter_directory_digest(dir)
   files = []
 
   Find.find(dir) do |entry|
+    if installer_excluded_entry?(entry, directory: File.directory?(entry))
+      Find.prune if File.directory?(entry)
+      next
+    end
+
     if File.symlink?(entry)
       Find.prune if File.directory?(entry)
       return [nil, "manager-owned copy contains a symlink"]

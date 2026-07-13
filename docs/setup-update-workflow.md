@@ -106,6 +106,18 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
   --yes
 ```
 
+When installing `meeting-transcription`, run the generated commands for both
+`gemini-files-api` and `meeting-transcription` against the same agent and scope.
+Then restore the wrapper's pinned npm dependencies in the corresponding managed
+root. The wrapper requires Node.js 20 or newer:
+
+```bash
+bash ~/.agents/skills/gemini-files-api/scripts/bootstrap.sh
+```
+
+For the separate Claude Code root, use
+`~/.claude/skills/gemini-files-api/scripts/bootstrap.sh`.
+
 Expected outcome: each selected command completes through the upstream
 manager. The command may create or update a manager-owned copied directory in
 the manager's reviewed global targets, currently `~/.agents/skills` for the

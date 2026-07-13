@@ -161,6 +161,7 @@ mkdir -p \
   "$manager_copy_dir/example-skill/.git" \
   "$manager_copy_dir/example-skill/__pycache__" \
   "$manager_copy_dir/example-skill/__pypackages__" \
+  "$manager_copy_dir/example-skill/node_modules/generated-package" \
   "$manager_copy_dir/example-skill/references"
 
 cat >"$manager_copy_dir/example-skill/SKILL.md" <<'SKILL'
@@ -176,6 +177,7 @@ printf '{"ignored":true}\n' >"$manager_copy_dir/example-skill/metadata.json"
 printf '[core]\n\trepositoryformatversion = 0\n' >"$manager_copy_dir/example-skill/.git/config"
 printf 'compiled\n' >"$manager_copy_dir/example-skill/__pycache__/ignored.pyc"
 printf 'package cache\n' >"$manager_copy_dir/example-skill/__pypackages__/ignored.txt"
+printf 'source install\n' >"$manager_copy_dir/example-skill/node_modules/generated-package/index.js"
 printf 'kept\n' >"$manager_copy_dir/example-skill/references/guide.md"
 
 cat >"$manager_copy_dir/skills.registry.yaml" <<'YAML'
@@ -211,9 +213,11 @@ selected_skills:
     state: active
 YAML
 
-mkdir -p "$manager_copy_dir/consumer-root/example-skill/references"
+mkdir -p "$manager_copy_dir/consumer-root/example-skill/references" \
+  "$manager_copy_dir/consumer-root/example-skill/node_modules/generated-package"
 cp "$manager_copy_dir/example-skill/SKILL.md" "$manager_copy_dir/consumer-root/example-skill/SKILL.md"
 cp "$manager_copy_dir/example-skill/references/guide.md" "$manager_copy_dir/consumer-root/example-skill/references/guide.md"
+printf 'consumer install with different generated content\n' >"$manager_copy_dir/consumer-root/example-skill/node_modules/generated-package/index.js"
 manager_copy_ok_output="$(
   ruby "$repo_root/scripts/skills_doctor.rb" \
     --registry "$manager_copy_dir/skills.registry.yaml" \
