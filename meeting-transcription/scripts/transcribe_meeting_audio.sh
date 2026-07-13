@@ -190,6 +190,11 @@ if test "$resume" -eq 1; then
       "$config_tmp" > "$config_tmp.preserved-rescue"
     mv "$config_tmp.preserved-rescue" "$config_tmp"
   fi
+  if test -n "$rescue_model" \
+    && test -s "$work_dir/accepted-rescue-parts.txt" \
+    && test "$rescue_model" != "$(jq -r '.rescueModel // ""' "$work_dir/run-config.json")"; then
+    die "--resume cannot change --rescue-model while reusing accepted rescue outputs"
+  fi
 fi
 
 mkdir -p "$work_dir" "$work_dir/chunks" "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
@@ -353,10 +358,13 @@ for (const file of walk(root).filter((item) => item.endsWith('.json')).sort()) {
     && !Array.isArray(data.usageMetadata);
   const hasOutputTokens = hasUsageMetadata
     && Number.isFinite(data.usageMetadata.candidatesTokenCount);
+  const hasTotalTokens = hasUsageMetadata
+    && Number.isFinite(data.usageMetadata.totalTokenCount);
   const outputTokens = hasOutputTokens ? data.usageMetadata.candidatesTokenCount : 0;
   if (!text) reasons.push('empty_text');
   if (!hasUsageMetadata) reasons.push('missing_usage_metadata');
   if (hasUsageMetadata && !hasOutputTokens) reasons.push('missing_output_tokens');
+  if (hasUsageMetadata && !hasTotalTokens) reasons.push('missing_total_tokens');
   if (outputTokens >= limit - 4) reasons.push('output_limit');
   if (/(?:\bI\b[\s,.]*){12,}/i.test(text)) reasons.push('repeated_i');
   if (/(?:\bYeah\b[\s,.]*){20,}/i.test(text)) reasons.push('repeated_yeah');
@@ -427,6 +435,13 @@ fi
 accepted_rescue_parts_tmp="$work_dir/accepted-rescue-parts.txt.tmp"
 if test "$resume" -eq 1 && test -s "$accepted_rescue_parts"; then
   sort -u "$accepted_rescue_parts" > "$accepted_rescue_parts_tmp"
+  while IFS= read -r relative; do
+    test -n "$relative" || continue
+    if test -f "$work_dir/rescue/$relative.json"; then
+      printf '%s\n' "$relative"
+    fi
+  done < "$accepted_rescue_parts_tmp" > "$accepted_rescue_parts_tmp.existing"
+  mv "$accepted_rescue_parts_tmp.existing" "$accepted_rescue_parts_tmp"
 else
   : > "$accepted_rescue_parts_tmp"
   rm -rf "$work_dir/rescue"
@@ -573,7 +588,8 @@ for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.
   if (!data.usageMetadata
     || typeof data.usageMetadata !== 'object'
     || Array.isArray(data.usageMetadata)
-    || !Number.isFinite(data.usageMetadata.candidatesTokenCount)) {
+    || !Number.isFinite(data.usageMetadata.candidatesTokenCount)
+    || !Number.isFinite(data.usageMetadata.totalTokenCount)) {
     usage.malformedResponses += 1;
     continue;
   }

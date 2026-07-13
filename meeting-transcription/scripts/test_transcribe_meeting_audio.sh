@@ -125,9 +125,9 @@ const shouldFail = process.env.FAKE_GEMINI_FAIL_FILE
 
 if (count === 0) {
   process.stdout.write(`${JSON.stringify({
-    text: '[00:00:00] Response without required output token metadata.',
+    text: '[00:00:00] Response without required total token metadata.',
     modelVersion: 'fixture-model',
-    usageMetadata: {},
+    usageMetadata: { candidatesTokenCount: 8 },
   })}\n`);
 } else {
   process.stdout.write(`${JSON.stringify({
@@ -176,7 +176,7 @@ HOME="$managed_home" "$script" \
   --skip-smoke-test >/dev/null
 
 test -f "$FAKE_GEMINI_BOOTSTRAP_MARKER"
-rg -n $'chunk_000.json\t0\t[0-9]+\tmissing_output_tokens' "$run_dir/validation.tsv" >/dev/null
+rg -n $'chunk_000.json\t8\t[0-9]+\tmissing_total_tokens' "$run_dir/validation.tsv" >/dev/null
 test ! -s "$run_dir/unresolved-parts.txt"
 rg -n 'Managed wrapper retry transcript' "$run_dir/assembled-transcript-body.md" >/dev/null
 test "$(jq -r '.malformedResponses' "$run_dir/usage.json")" = "1"
@@ -223,6 +223,21 @@ if HOME="$managed_home" "$script" \
   --work-dir "$run_dir" \
   --chunk-seconds 10 \
   --retry-seconds 2 \
+  --rescue-model fixture-rescue-v2 \
+  --skip-smoke-test \
+  --resume >/dev/null 2>&1; then
+  echo "expected rescue-model change with accepted rescues to fail" >&2
+  exit 1
+fi
+test "$(shasum -a 256 "$run_dir/accepted-rescue-parts.txt" | awk '{print $1}')" = "$accepted_rescue_sha"
+test "$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')" = "$rescue_response_sha"
+test "$(jq -r '.rescueModel' "$run_dir/run-config.json")" = "fixture-rescue"
+
+if HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
   --skip-smoke-test \
   --resume >/dev/null 2>&1; then
   echo "expected plain resume with accepted rescues to require --rescue-model" >&2
@@ -247,6 +262,21 @@ test ! -s "$run_dir/unresolved-parts.txt"
 rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 test "$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')" = "$rescue_response_sha"
+
+rm "$run_dir/rescue/000/part_00.json"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --rescue-model fixture-rescue \
+  --rescue-output-tokens 5000 \
+  --skip-smoke-test \
+  --resume >/dev/null
+test -f "$run_dir/rescue/000/part_00.json"
+rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+test ! -s "$run_dir/unresolved-parts.txt"
 
 printf '{truncated accepted rescue\n' > "$run_dir/rescue/000/part_00.json"
 if HOME="$managed_home" "$script" \
