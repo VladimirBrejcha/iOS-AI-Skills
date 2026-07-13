@@ -360,11 +360,25 @@ for (const file of walk(root).filter((item) => item.endsWith('.json')).sort()) {
     && Number.isFinite(data.usageMetadata.candidatesTokenCount);
   const hasTotalTokens = hasUsageMetadata
     && Number.isFinite(data.usageMetadata.totalTokenCount);
+  const promptTokenDetails = hasUsageMetadata
+    ? data.usageMetadata.promptTokensDetails
+    : null;
+  const hasPromptTokenDetails = Array.isArray(promptTokenDetails)
+    && promptTokenDetails.length > 0;
+  const hasValidPromptTokenDetails = hasPromptTokenDetails
+    && promptTokenDetails.every((detail) => detail
+      && typeof detail === 'object'
+      && !Array.isArray(detail)
+      && typeof detail.modality === 'string'
+      && detail.modality.length > 0
+      && Number.isFinite(detail.tokenCount));
   const outputTokens = hasOutputTokens ? data.usageMetadata.candidatesTokenCount : 0;
   if (!text) reasons.push('empty_text');
   if (!hasUsageMetadata) reasons.push('missing_usage_metadata');
   if (hasUsageMetadata && !hasOutputTokens) reasons.push('missing_output_tokens');
   if (hasUsageMetadata && !hasTotalTokens) reasons.push('missing_total_tokens');
+  if (hasUsageMetadata && !hasPromptTokenDetails) reasons.push('missing_prompt_token_details');
+  if (hasPromptTokenDetails && !hasValidPromptTokenDetails) reasons.push('invalid_prompt_token_details');
   if (outputTokens >= limit - 4) reasons.push('output_limit');
   if (/(?:\bI\b[\s,.]*){12,}/i.test(text)) reasons.push('repeated_i');
   if (/(?:\bYeah\b[\s,.]*){20,}/i.test(text)) reasons.push('repeated_yeah');
@@ -589,7 +603,15 @@ for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.
     || typeof data.usageMetadata !== 'object'
     || Array.isArray(data.usageMetadata)
     || !Number.isFinite(data.usageMetadata.candidatesTokenCount)
-    || !Number.isFinite(data.usageMetadata.totalTokenCount)) {
+    || !Number.isFinite(data.usageMetadata.totalTokenCount)
+    || !Array.isArray(data.usageMetadata.promptTokensDetails)
+    || data.usageMetadata.promptTokensDetails.length === 0
+    || data.usageMetadata.promptTokensDetails.some((detail) => !detail
+      || typeof detail !== 'object'
+      || Array.isArray(detail)
+      || typeof detail.modality !== 'string'
+      || detail.modality.length === 0
+      || !Number.isFinite(detail.tokenCount))) {
     usage.malformedResponses += 1;
     continue;
   }
@@ -599,9 +621,9 @@ for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.
   usage.outputTokens += Number(metadata.candidatesTokenCount || 0);
   usage.totalTokens += Number(metadata.totalTokenCount || 0);
   usage.byModel[model] = (usage.byModel[model] || 0) + 1;
-  for (const detail of metadata.promptTokensDetails || []) {
-    if (detail.modality === 'AUDIO') usage.audioInputTokens += Number(detail.tokenCount || 0);
-    if (detail.modality === 'TEXT') usage.textInputTokens += Number(detail.tokenCount || 0);
+  for (const detail of metadata.promptTokensDetails) {
+    if (detail.modality === 'AUDIO') usage.audioInputTokens += detail.tokenCount;
+    if (detail.modality === 'TEXT') usage.textInputTokens += detail.tokenCount;
   }
 }
 

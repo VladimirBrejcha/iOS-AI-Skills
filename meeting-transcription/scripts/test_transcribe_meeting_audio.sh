@@ -125,9 +125,15 @@ const shouldFail = process.env.FAKE_GEMINI_FAIL_FILE
 
 if (count === 0) {
   process.stdout.write(`${JSON.stringify({
-    text: '[00:00:00] Response without required total token metadata.',
+    text: '[00:00:00] Response without required prompt token details.',
     modelVersion: 'fixture-model',
-    usageMetadata: { candidatesTokenCount: 8 },
+    usageMetadata: {
+      candidatesTokenCount: 8,
+      totalTokenCount: 16,
+      ...(process.env.FAKE_GEMINI_INVALID_PROMPT_DETAILS
+        ? { promptTokensDetails: [{ modality: 'AUDIO' }] }
+        : {}),
+    },
   })}\n`);
 } else {
   process.stdout.write(`${JSON.stringify({
@@ -157,13 +163,16 @@ mkdir -p "$repo_local_home"
 HOME="$repo_local_home" \
 FAKE_GEMINI_COUNTER="$tmp_dir/repo-local-counter" \
 FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/repo-local-bootstrap-marker" \
+FAKE_GEMINI_INVALID_PROMPT_DETAILS=1 \
   "$repo_local_meeting_scripts/transcribe_meeting_audio.sh" \
   --input "$audio" \
   --work-dir "$repo_local_run" \
   --chunk-seconds 10 \
   --skip-smoke-test >/dev/null
 test -f "$tmp_dir/repo-local-bootstrap-marker"
+rg -n $'chunk_000.json\t8\t[0-9]+\tinvalid_prompt_token_details' "$repo_local_run/validation.tsv" >/dev/null
 rg -n 'Managed wrapper retry transcript' "$repo_local_run/assembled-transcript-body.md" >/dev/null
+test "$(jq -r '.malformedResponses' "$repo_local_run/usage.json")" = "1"
 
 export FAKE_GEMINI_COUNTER="$tmp_dir/gemini-counter"
 export FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/bootstrap-marker"
@@ -176,10 +185,12 @@ HOME="$managed_home" "$script" \
   --skip-smoke-test >/dev/null
 
 test -f "$FAKE_GEMINI_BOOTSTRAP_MARKER"
-rg -n $'chunk_000.json\t8\t[0-9]+\tmissing_total_tokens' "$run_dir/validation.tsv" >/dev/null
+rg -n $'chunk_000.json\t8\t[0-9]+\tmissing_prompt_token_details' "$run_dir/validation.tsv" >/dev/null
 test ! -s "$run_dir/unresolved-parts.txt"
 rg -n 'Managed wrapper retry transcript' "$run_dir/assembled-transcript-body.md" >/dev/null
 test "$(jq -r '.malformedResponses' "$run_dir/usage.json")" = "1"
+test "$(jq -r '.requests' "$run_dir/usage.json")" -gt 0
+test "$(jq -r '.audioInputTokens' "$run_dir/usage.json")" -gt 0
 
 mkdir -p "$run_dir/rescue/000"
 printf '{stale rescue response\n' > "$run_dir/rescue/000/part_00.json"
