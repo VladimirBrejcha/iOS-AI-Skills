@@ -71,6 +71,19 @@ for symlink_work_path in "$symlink_work_dir/" "$symlink_work_dir/."; do
   test "$(cat "$symlink_target/existing.txt")" = "preserve me"
 done
 
+symlink_parent_target="$tmp_dir/symlink-parent-target"
+symlink_parent="$tmp_dir/symlink-parent"
+mkdir -p "$symlink_parent_target"
+ln -s "$symlink_parent_target" "$symlink_parent"
+physical_work_dir="$(cd "$symlink_parent_target" && pwd -P)/nested/work"
+reported_work_dir="$($script \
+  --input "$audio" \
+  --work-dir "$symlink_parent/nested/work" \
+  --chunk-seconds 10 \
+  --prepare-only | sed -n 's/^meeting-transcription: work directory: //p')"
+test "$reported_work_dir" = "$physical_work_dir"
+test -f "$physical_work_dir/run-config.json"
+
 managed_symlink_source="$tmp_dir/managed-symlink-source"
 "$script" \
   --input "$audio" \
@@ -337,6 +350,47 @@ if rg -n -- '--thinking-level' "$FAKE_GEMINI_ARG_LOG" >/dev/null; then
   exit 1
 fi
 
+for state_file in validation.tsv suspect-chunks.txt retry-validation.tsv unresolved-parts.txt; do
+  state_symlink_work="$tmp_dir/state-symlink-${state_file//[^A-Za-z0-9]/-}"
+  state_symlink_target="$tmp_dir/state-symlink-target-${state_file//[^A-Za-z0-9]/-}"
+  cp -R "$run_dir" "$state_symlink_work"
+  printf 'preserve state target\n' > "$state_symlink_target"
+  rm -f "$state_symlink_work/$state_file"
+  ln -s "$state_symlink_target" "$state_symlink_work/$state_file"
+  if HOME="$managed_home" "$script" \
+    --input "$audio" \
+    --work-dir "$state_symlink_work" \
+    --chunk-seconds 10 \
+    --retry-seconds 2 \
+    --skip-smoke-test \
+    --resume >/dev/null 2>&1; then
+    echo "expected symlinked managed state file to fail: $state_file" >&2
+    exit 1
+  fi
+  test "$(cat "$state_symlink_target")" = "preserve state target"
+done
+
+retry_shard_symlink_work="$tmp_dir/retry-shard-symlink-work"
+retry_shard_symlink_target="$tmp_dir/retry-shard-symlink-target"
+cp -R "$run_dir" "$retry_shard_symlink_work"
+rm -rf "$retry_shard_symlink_work/retry/000"
+mkdir -p "$retry_shard_symlink_target"
+chmod 755 "$retry_shard_symlink_target"
+printf 'preserve retry shard target\n' > "$retry_shard_symlink_target/existing.txt"
+ln -s "$retry_shard_symlink_target" "$retry_shard_symlink_work/retry/000"
+if HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$retry_shard_symlink_work" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null 2>&1; then
+  echo "expected symlinked retry shard directory to fail" >&2
+  exit 1
+fi
+test "$(mode_of "$retry_shard_symlink_target")" = "755"
+test "$(cat "$retry_shard_symlink_target/existing.txt")" = "preserve retry shard target"
+
 raw_tmp_target="$tmp_dir/raw-response-tmp-target"
 printf 'preserve raw target\n' > "$raw_tmp_target"
 ln -s "$raw_tmp_target" "$run_dir/raw/chunk_000.json.tmp"
@@ -363,6 +417,17 @@ HOME="$managed_home" "$script" \
   --skip-smoke-test \
   --resume >/dev/null
 test "$(cat "$retry_tmp_target")" = "preserve retry target"
+
+mv "$run_dir/retry/000/part_01.m4a" "$run_dir/retry/000/part_99.m4a"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+test -f "$run_dir/retry/000/part_01.m4a"
+test ! -e "$run_dir/retry/000/part_99.m4a"
 
 for ((index = 3; index <= 100; index += 1)); do
   number="$(printf '%02d' "$index")"

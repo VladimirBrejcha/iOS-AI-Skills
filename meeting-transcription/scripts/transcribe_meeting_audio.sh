@@ -161,6 +161,33 @@ while :; do
   work_dir="$normalized_work_dir"
 done
 test ! -L "$work_dir" || die "work directory must not be a symlink: $work_dir"
+work_dir="$(node - "$work_dir" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+
+const suffix = [];
+let existing = path.resolve(process.argv[2]);
+while (!fs.existsSync(existing)) {
+  const parent = path.dirname(existing);
+  if (parent === existing) break;
+  suffix.unshift(path.basename(existing));
+  existing = parent;
+}
+process.stdout.write(path.join(fs.realpathSync(existing), ...suffix));
+NODE
+)"
+
+for managed_state_file in \
+  run-config.json source.sha256 source-metadata.json \
+  validation.tsv suspect-chunks.txt retry-validation.tsv unresolved-parts.txt \
+  accepted-rescue-parts.txt accepted-rescue-parts.txt.tmp \
+  accepted-rescue-parts.txt.tmp.existing \
+  rescue-requested-parts.txt rescue-validation.tsv still-unresolved-parts.txt \
+  requested-still-unresolved-parts.txt accepted-still-unresolved-parts.txt \
+  assembled-transcript-body.md usage.json run-manifest.json; do
+  test ! -L "$work_dir/$managed_state_file" \
+    || die "managed state file must not be a symlink: $work_dir/$managed_state_file"
+done
 
 if test -d "$work_dir" && test "$(find "$work_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" != "" && test "$resume" -ne 1; then
   die "work directory is not empty; choose another path or pass --resume: $work_dir"
@@ -211,6 +238,10 @@ fi
 for managed_subdir in chunks raw text retry rescue; do
   test ! -L "$work_dir/$managed_subdir" \
     || die "managed work directory must not be a symlink: $work_dir/$managed_subdir"
+done
+for retry_dir in "$work_dir/retry"/*; do
+  test ! -L "$retry_dir" \
+    || die "retry shard directory must not be a symlink: $retry_dir"
 done
 
 mkdir -p "$work_dir" "$work_dir/chunks" "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
@@ -446,6 +477,7 @@ if test -s "$work_dir/suspect-chunks.txt"; then
   while IFS= read -r chunk_name; do
     test -n "$chunk_name" || continue
     retry_dir="$work_dir/retry/${chunk_name#chunk_}"
+    test ! -L "$retry_dir" || die "retry shard directory must not be a symlink: $retry_dir"
     mkdir -p "$retry_dir"
     retry_complete="$retry_dir/.complete"
     recorded_retry_count=""
@@ -453,7 +485,25 @@ if test -s "$work_dir/suspect-chunks.txt"; then
     if test -f "$retry_complete"; then
       recorded_retry_count="$(cat "$retry_complete")"
     fi
-    if test "$resume" -ne 1 || test -z "$recorded_retry_count" || test "$recorded_retry_count" != "$actual_retry_count" || test "$actual_retry_count" -eq 0; then
+    retry_set_complete=0
+    case "$recorded_retry_count" in
+      ''|*[!0-9]*) ;;
+      *)
+        if test "$resume" -eq 1 \
+          && test "$recorded_retry_count" = "$actual_retry_count" \
+          && test "$actual_retry_count" -gt 0; then
+          retry_set_complete=1
+          for ((retry_index = 0; retry_index < recorded_retry_count; retry_index += 1)); do
+            expected_part="$(printf '%s/part_%02d.m4a' "$retry_dir" "$retry_index")"
+            if test ! -f "$expected_part" || test -L "$expected_part"; then
+              retry_set_complete=0
+              break
+            fi
+          done
+        fi
+        ;;
+    esac
+    if test "$retry_set_complete" -ne 1; then
       rm -f "$retry_complete"
       rm -f "$retry_dir"/part_*.m4a "$retry_dir"/part_*.json
       ffmpeg -hide_banner -loglevel error -i "$work_dir/chunks/$chunk_name.m4a" \
