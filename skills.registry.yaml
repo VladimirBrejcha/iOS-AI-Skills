@@ -9,9 +9,9 @@ registry:
   purpose: >
     Versioned source and policy registry for reusable agent skills with a
     complete reviewed catalog, a shared-root baseline for Codex and OpenCode, a
-    proven Claude Code global baseline for all active registry-local skills,
-    plus planned/manual-review adapter coverage for repo-local and broader
-    machine-level consumers.
+    separate Claude Code global baseline for profile-selected skills whose
+    target clients are marked supported, plus planned/manual-review adapter
+    coverage for repo-local and broader machine-level consumers.
 
 rules:
   source_of_truth:

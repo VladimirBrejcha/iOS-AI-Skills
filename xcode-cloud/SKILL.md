@@ -52,7 +52,7 @@ Run `chmod +x ci_scripts/*.sh` after adding or editing scripts.
 
 ## Notes
 
-- Use the `apple-docs-research` skill when you need official Apple documentation on Xcode Cloud behavior or environment variables.
+- Research official Apple Developer Documentation and WWDC sources directly when you need exact Xcode Cloud behavior or environment variables, and retain the source URL with the conclusion.
 - Keep logs free of secrets; use Xcode Cloud secret environment variables for tokens.
 - Reference `references/xcode-cloud-notes.md` for quick reminders about doc lookups.
 - If you see `Project <Name>.xcodeproj does not exist at <path>`, Xcode Cloud validated the

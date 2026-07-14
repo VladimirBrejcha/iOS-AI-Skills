@@ -69,11 +69,12 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
 OpenCode support for the reviewed global skills currently comes through the
 same manager-owned `~/.agents/skills` root used by the pinned Codex command;
 verify it with `npx --yes skills@1.5.14 list --global --json` before treating a
-skill as installed for OpenCode. Claude Code support is currently proven for
-every active registry-local skill through the separate `~/.claude/skills`
-root. External-git entries such as `swift-concurrency` and `swiftui-pro`,
-repo-local consumers, and non-active entries remain manual-review until they
-move to reviewed support in the registry and profile examples.
+skill as installed for OpenCode. Claude Code support is currently proven
+through the separate `~/.claude/skills` root only for profile-selected skills
+whose Claude client status is `supported`. External-git entries such as
+`swift-concurrency` and `swiftui-pro`, repo-local consumers, planned client
+targets, and non-active entries remain manual-review until they move to
+reviewed support in the registry and profile examples.
 
 Install a reviewed Claude Code target:
 

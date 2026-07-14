@@ -138,10 +138,11 @@ Ten shared global manager-copy targets are already proven on the default
 example profile. The command currently uses `--agent codex` because that is the
 reviewed manager write path for `~/.agents/skills`; the upstream manager reports
 that same shared-root install as visible to OpenCode. Claude Code has ten
-separate proven global targets through `~/.claude/skills`, matching the active
-registry-local set. External-git entries such as `swift-concurrency` and
-`swiftui-pro`, repo-local consumers, and non-active top-level skills remain
-planned/manual-review until equivalent proof exists.
+separate proven global targets through `~/.claude/skills`, matching the
+profile-selected registry-local skills whose Claude client status is
+`supported`. External-git entries such as `swift-concurrency` and `swiftui-pro`,
+repo-local consumers, planned client targets, and non-active top-level skills
+remain manual-review until equivalent proof exists.
 
 | Skill | Manager command | Adapter target | Lock key |
 | --- | --- | --- | --- |

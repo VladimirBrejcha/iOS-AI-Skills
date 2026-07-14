@@ -1,4 +1,5 @@
 # Xcode Cloud Notes
 
-Use official Apple documentation when you need exact environment variables or workflow behavior.
-Prefer the `apple-docs-research` skill for those lookups.
+Use official Apple Developer Documentation and WWDC sources when you need exact
+environment variables or workflow behavior. Retain the source URL with the
+conclusion so time-sensitive platform guidance can be rechecked.
