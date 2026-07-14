@@ -68,6 +68,7 @@ Use `--prepare-only` to verify source metadata, hashing, and chunking without AP
 The primary response is suspect when it has:
 
 - empty text or invalid JSON;
+- any candidate finish reason other than `STOP`;
 - output tokens at the configured cap;
 - long generated runs of `I`, `Yeah`, or `uh`;
 - the same substantial line repeated at least five times.

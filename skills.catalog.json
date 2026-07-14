@@ -73,7 +73,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "gemini-files-api",
-        "digest_sha256": "5b5668b3bfadd79aeb14866ea7dd77ea8997855897c46d6a317f2499d89ac0bc"
+        "digest_sha256": "808a5ea3769d2bb5351ffdacddd1e55c6dc4143d30c8a29d13c3937df4626fac"
       },
       "install": {
         "manager_package": "skills@1.5.14",
@@ -143,7 +143,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "meeting-transcription",
-        "digest_sha256": "75380097dbe1da29faf777d4fe7ebd4114d6391724da4904f36bafa5e4490d0d"
+        "digest_sha256": "e38d318be5b35bb5039e2bb12dda5d71a279f23d33698e1434498d4c0bbf094b"
       },
       "install": {
         "manager_package": "skills@1.5.14",

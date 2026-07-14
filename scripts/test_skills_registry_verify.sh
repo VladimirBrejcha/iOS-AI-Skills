@@ -180,6 +180,8 @@ verify_requirements_output="$(
 assert_contains "$verify_requirements_output" "verify requirements ok"
 assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/transcribe_meeting_audio.sh"
 assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/test_transcribe_meeting_audio.sh"
+assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/bootstrap.sh"
+assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/gemini-mm.mjs"
 
 dependency_contract_output="$(
   ruby -ryaml -e '

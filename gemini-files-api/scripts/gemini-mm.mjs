@@ -561,6 +561,10 @@ async function buildRequestConfig(args) {
 
   config = deepMerge(config, compactObject(overlay) ?? {});
 
+  if (config.responseJsonSchema && !config.responseMimeType) {
+    config.responseMimeType = "application/json";
+  }
+
   if (args.disableTools) {
     config.tools = [];
   }
@@ -623,9 +627,7 @@ async function listModels(ai, jsonOutput) {
   }
 }
 
-async function uploadFiles(ai, filePaths) {
-  const uploads = [];
-
+async function uploadFiles(ai, filePaths, uploads) {
   for (const filePath of filePaths) {
     await ensureFileExists(filePath);
     const mimeType = guessMimeType(filePath);
@@ -636,14 +638,14 @@ async function uploadFiles(ai, filePaths) {
       }),
     );
 
-    uploads.push({
-      file: await waitForActiveFile(ai, uploaded),
+    const upload = {
+      file: uploaded,
       localPath: filePath,
       mimeType: uploaded.mimeType || mimeType,
-    });
+    };
+    uploads.push(upload);
+    upload.file = await waitForActiveFile(ai, uploaded);
   }
-
-  return uploads;
 }
 
 async function waitForActiveFile(ai, file) {
@@ -691,9 +693,11 @@ async function cleanupUploads(ai, uploads) {
 }
 
 async function analyze(ai, args) {
-  const uploads = await uploadFiles(ai, args.files);
+  const uploads = [];
 
   try {
+    await uploadFiles(ai, args.files, uploads);
+
     const parts = [args.prompt];
     for (const upload of uploads) {
       parts.push(createPartFromUri(upload.file.uri, upload.mimeType));

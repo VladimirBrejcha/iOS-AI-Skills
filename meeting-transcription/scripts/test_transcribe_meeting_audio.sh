@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+missing_commands=()
 for command in ffmpeg ffprobe; do
   if ! command -v "$command" >/dev/null 2>&1; then
-    echo "meeting transcription test failed: missing required command: $command" >&2
-    exit 1
+    missing_commands+=("$command")
   fi
 done
+if [[ ${#missing_commands[@]} -gt 0 ]]; then
+  echo "meeting transcription test skipped: missing runtime commands: ${missing_commands[*]}"
+  exit 0
+fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo_root/meeting-transcription/scripts/transcribe_meeting_audio.sh"
@@ -132,6 +136,7 @@ if (count === 0) {
   process.stdout.write(`${JSON.stringify({
     text: '[00:00:00] Response without required prompt token details.',
     modelVersion: 'fixture-model',
+    candidates: [{ finishReason: process.env.FAKE_GEMINI_FINISH_REASON || 'STOP' }],
     usageMetadata: {
       candidatesTokenCount: process.env.FAKE_GEMINI_BAD_TOKEN_COUNT
         ? Number(process.env.FAKE_GEMINI_BAD_TOKEN_COUNT)
@@ -141,7 +146,7 @@ if (count === 0) {
         ? { promptTokensDetails: [{ modality: 'AUDIO' }] }
         : process.env.FAKE_GEMINI_UNKNOWN_MODALITY
           ? { promptTokensDetails: [{ modality: 'audio', tokenCount: 8 }] }
-          : process.env.FAKE_GEMINI_BAD_TOKEN_COUNT
+          : process.env.FAKE_GEMINI_BAD_TOKEN_COUNT || process.env.FAKE_GEMINI_FINISH_REASON
             ? { promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 8 }] }
         : {}),
     },
@@ -150,6 +155,7 @@ if (count === 0) {
   process.stdout.write(`${JSON.stringify({
     text: shouldFail ? 'Yeah '.repeat(25) : '[00:00:00] Managed wrapper retry transcript.',
     modelVersion: 'fixture-model',
+    candidates: [{ finishReason: 'STOP' }],
     requestOrdinal: count,
     usageMetadata: {
       candidatesTokenCount: 8,
@@ -197,6 +203,19 @@ FAKE_GEMINI_UNKNOWN_MODALITY=1 \
   --skip-smoke-test >/dev/null
 rg -n $'chunk_000.json\t8\t[0-9]+\tinvalid_prompt_token_details' "$unknown_modality_run/validation.tsv" >/dev/null
 test "$(jq -r '.malformedResponses' "$unknown_modality_run/usage.json")" = "1"
+
+finish_reason_run="$tmp_dir/finish-reason-run"
+HOME="$repo_local_home" \
+FAKE_GEMINI_COUNTER="$tmp_dir/finish-reason-counter" \
+FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/finish-reason-bootstrap-marker" \
+FAKE_GEMINI_FINISH_REASON=SAFETY \
+  "$repo_local_meeting_scripts/transcribe_meeting_audio.sh" \
+  --input "$audio" \
+  --work-dir "$finish_reason_run" \
+  --chunk-seconds 10 \
+  --skip-smoke-test >/dev/null
+rg -n $'chunk_000.json\t8\t[0-9]+\tfinish_reason_safety' "$finish_reason_run/validation.tsv" >/dev/null
+rg -n 'Managed wrapper retry transcript' "$finish_reason_run/assembled-transcript-body.md" >/dev/null
 
 for bad_token_count in -1 1.5; do
   safe_bad_token_count="${bad_token_count//./_}"

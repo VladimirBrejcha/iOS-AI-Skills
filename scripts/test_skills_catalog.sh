@@ -1707,6 +1707,9 @@ assert_contains "$host_root_scp_manager_source_output" "registry.manager_source 
 digest_drift_dir="$tmp_dir/digest-drift"
 write_ok_fixture "$digest_drift_dir"
 run_catalog "$digest_drift_dir" --write
+mkdir -p "$digest_drift_dir/example-skill/node_modules/generated-package"
+printf 'generated dependency\n' >"$digest_drift_dir/example-skill/node_modules/generated-package/index.js"
+run_catalog "$digest_drift_dir" --check
 ruby -e '
   path = ARGV.fetch(0)
   File.write(path, File.read(path) + "\nMore body text.\n")

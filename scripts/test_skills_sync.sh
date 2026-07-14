@@ -436,6 +436,22 @@ assert_contains "$manager_copy_keep_output" "management=none"
 assert_contains "$manager_copy_keep_output" "manager-owned copy matches registry source digest"
 assert_not_contains "$manager_copy_keep_output" "manager_command="
 
+mkdir -p \
+  "$manager_copy_dir/example-skill/node_modules/generated-package" \
+  "$manager_copy_home/.agents/skills/example-skill/node_modules/generated-package"
+printf 'source generated dependency\n' >"$manager_copy_dir/example-skill/node_modules/generated-package/index.js"
+printf 'consumer generated dependency\n' >"$manager_copy_home/.agents/skills/example-skill/node_modules/generated-package/index.js"
+manager_copy_generated_output="$(
+  HOME="$manager_copy_home" \
+    ruby "$repo_root/scripts/skills_sync.rb" \
+    --plan \
+    --registry "$manager_copy_dir/skills.registry.yaml" \
+    --lock "$manager_copy_dir/skills.lock.yaml" \
+    --profile "$manager_copy_dir/profiles/machine/example.yaml"
+)"
+assert_contains "$manager_copy_generated_output" "keep | ok | codex_global_manager/example-skill"
+assert_contains "$manager_copy_generated_output" "manager-owned copy matches registry source digest"
+
 mkdir -p "$manager_copy_home/.claude/skills/example-skill/references"
 cp "$manager_copy_dir/example-skill/SKILL.md" "$manager_copy_home/.claude/skills/example-skill/SKILL.md"
 cp "$manager_copy_dir/example-skill/references/guide.md" "$manager_copy_home/.claude/skills/example-skill/references/guide.md"

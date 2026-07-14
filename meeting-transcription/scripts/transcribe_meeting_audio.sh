@@ -374,12 +374,20 @@ for (const file of walk(root).filter((item) => item.endsWith('.json')).sort()) {
       && knownPromptModalities.has(detail.modality)
       && isTokenCount(detail.tokenCount));
   const outputTokens = hasOutputTokens ? data.usageMetadata.candidatesTokenCount : 0;
+  const finishReasons = Array.isArray(data.candidates)
+    ? data.candidates
+      .map((candidate) => candidate && candidate.finishReason)
+      .filter((finishReason) => typeof finishReason === 'string')
+    : [];
   if (!text) reasons.push('empty_text');
   if (!hasUsageMetadata) reasons.push('missing_usage_metadata');
   if (hasUsageMetadata && !hasOutputTokens) reasons.push('missing_output_tokens');
   if (hasUsageMetadata && !hasTotalTokens) reasons.push('missing_total_tokens');
   if (hasUsageMetadata && !hasPromptTokenDetails) reasons.push('missing_prompt_token_details');
   if (hasPromptTokenDetails && !hasValidPromptTokenDetails) reasons.push('invalid_prompt_token_details');
+  for (const finishReason of new Set(finishReasons)) {
+    if (finishReason !== 'STOP') reasons.push(`finish_reason_${finishReason.toLowerCase()}`);
+  }
   if (outputTokens >= limit - 4) reasons.push('output_limit');
   if (/(?:\bI\b[\s,.]*){12,}/i.test(text)) reasons.push('repeated_i');
   if (/(?:\bYeah\b[\s,.]*){20,}/i.test(text)) reasons.push('repeated_yeah');

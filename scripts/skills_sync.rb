@@ -13,7 +13,7 @@ require "yaml"
 ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
-INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
+INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__ node_modules].freeze
 DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
 DEFAULT_MANAGER_SOURCE_BY_REGISTRY_ID = {
   "agent-skills" => "fiveonecode/agent-skills"
@@ -1323,6 +1323,11 @@ def adapter_directory_digest(dir)
   files = []
 
   Find.find(dir) do |entry|
+    if installer_excluded_entry?(entry, directory: File.directory?(entry))
+      Find.prune if File.directory?(entry)
+      next
+    end
+
     if File.symlink?(entry)
       Find.prune if File.directory?(entry)
       return [nil, "manager-owned copy contains a symlink and requires manual review"]
