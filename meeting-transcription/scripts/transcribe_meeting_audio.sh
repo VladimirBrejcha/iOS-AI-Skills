@@ -159,7 +159,9 @@ fi
 
 sha256="$(shasum -a 256 "$input" | awk '{print $1}')"
 config_tmp="$(mktemp "${TMPDIR:-/tmp}/meeting-transcription-run-config.XXXXXX")"
-trap 'rm -f "$config_tmp"' EXIT
+source_sha_tmp=""
+source_metadata_tmp=""
+trap 'rm -f "$config_tmp" "$source_sha_tmp" "$source_metadata_tmp"' EXIT
 jq -n \
   --arg input "$input" \
   --arg sha256 "$sha256" \
@@ -191,8 +193,9 @@ if test "$resume" -eq 1; then
   fi
   if test -n "$rescue_model" \
     && test -s "$work_dir/accepted-rescue-parts.txt" \
-    && test "$rescue_model" != "$(jq -r '.rescueModel // ""' "$work_dir/run-config.json")"; then
-    die "--resume cannot change --rescue-model while reusing accepted rescue outputs"
+    && { test "$rescue_model" != "$(jq -r '.rescueModel // ""' "$work_dir/run-config.json")" \
+      || test "$rescue_output_tokens" != "$(jq -r '.rescueOutputTokens' "$work_dir/run-config.json")"; }; then
+    die "--resume cannot change --rescue-model or --rescue-output-tokens while reusing accepted rescue outputs"
   fi
 fi
 
@@ -204,8 +207,8 @@ done
 mkdir -p "$work_dir" "$work_dir/chunks" "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
 chmod -R go-rwx "$work_dir"
 
-source_sha_tmp="$work_dir/source.sha256.tmp"
-source_metadata_tmp="$work_dir/source-metadata.json.tmp"
+source_sha_tmp="$(mktemp "$work_dir/.source.sha256.XXXXXX")"
+source_metadata_tmp="$(mktemp "$work_dir/.source-metadata.json.XXXXXX")"
 printf '%s\n' "$sha256" > "$source_sha_tmp"
 ffprobe -v error \
   -show_entries format=filename,duration,size,bit_rate:format_tags=creation_time \

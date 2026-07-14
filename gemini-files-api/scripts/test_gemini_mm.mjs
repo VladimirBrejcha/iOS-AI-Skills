@@ -100,10 +100,66 @@ export const createUserContent = (parts) => ({ role: "user", parts });
   await access(deleteMarker);
 }
 
+async function runCleanupFailureCase() {
+  const caseRoot = path.join(fixtureRoot, "cleanup-failure");
+  const fixtureScript = path.join(caseRoot, "scripts", "gemini-mm.mjs");
+  const packageRoot = path.join(caseRoot, "scripts", "node_modules", "@google", "genai");
+  const input = path.join(caseRoot, "fixture.m4a");
+
+  await mkdir(packageRoot, { recursive: true });
+  await cp(wrapper, fixtureScript);
+  await writeFile(input, "fixture audio");
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ name: "@google/genai", type: "module", exports: "./index.js" }),
+  );
+  await writeFile(
+    path.join(packageRoot, "index.js"),
+    `export class GoogleGenAI {
+  constructor() {
+    this.files = {
+      upload: async () => ({ name: "files/fixture", uri: "fixture://upload", state: "ACTIVE", mimeType: "audio/mp4" }),
+      get: async () => ({ name: "files/fixture", uri: "fixture://upload", state: "ACTIVE", mimeType: "audio/mp4" }),
+      delete: async () => { throw new Error("permission denied"); },
+    };
+    this.models = {
+      generateContent: async () => ({ text: "fixture response" }),
+    };
+  }
+}
+export const createPartFromUri = (uri, mimeType) => ({ fileData: { fileUri: uri, mimeType } });
+export const createUserContent = (parts) => ({ role: "user", parts });
+`,
+  );
+
+  const child = spawn(
+    process.execPath,
+    [fixtureScript, "--file", input, "--prompt", "fixture"],
+    {
+      env: { ...process.env, GEMINI_API_KEY: "fixture-key" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const result = await new Promise((resolve) => {
+    child.once("close", (code, exitSignal) => resolve({ code, exitSignal }));
+  });
+  assert.deepEqual(result, { code: 1, exitSignal: null }, stderr);
+  assert.match(
+    stderr,
+    /Failed to delete uploaded Gemini file files\/fixture: permission denied/,
+  );
+}
+
 try {
   await runSignalCase("SIGINT", 130);
   await runSignalCase("SIGTERM", 143);
-  process.stdout.write("gemini files signal cleanup test ok\n");
+  await runCleanupFailureCase();
+  process.stdout.write("gemini files cleanup test ok\n");
 } finally {
   await rm(fixtureRoot, { recursive: true, force: true });
 }

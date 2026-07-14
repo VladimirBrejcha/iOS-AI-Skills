@@ -117,6 +117,20 @@ test "$(mode_of "$prepare_dir/source-metadata.json")" = "600"
 
 original_source_sha="$(cat "$prepare_dir/source.sha256")"
 original_metadata_sha="$(shasum -a 256 "$prepare_dir/source-metadata.json" | awk '{print $1}')"
+evidence_symlink_target="$tmp_dir/evidence-symlink-target"
+metadata_symlink_target="$tmp_dir/metadata-symlink-target"
+printf 'preserve source target\n' > "$evidence_symlink_target"
+printf 'preserve metadata target\n' > "$metadata_symlink_target"
+ln -s "$evidence_symlink_target" "$prepare_dir/source.sha256.tmp"
+ln -s "$metadata_symlink_target" "$prepare_dir/source-metadata.json.tmp"
+"$script" \
+  --input "$audio" \
+  --work-dir "$prepare_dir" \
+  --chunk-seconds 2 \
+  --prepare-only \
+  --resume >/dev/null
+test "$(cat "$evidence_symlink_target")" = "preserve source target"
+test "$(cat "$metadata_symlink_target")" = "preserve metadata target"
 other_audio="$tmp_dir/other-fixture.m4a"
 ffmpeg -hide_banner -loglevel error \
   -f lavfi -i 'sine=frequency=880:duration=3.1' \
@@ -417,7 +431,7 @@ test "$(shasum -a 256 "$run_dir/accepted-rescue-parts.txt" | awk '{print $1}')" 
 test "$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')" = "$rescue_response_sha"
 test "$(jq -r '.rescueModel' "$run_dir/run-config.json")" = "fixture-rescue"
 
-HOME="$managed_home" "$script" \
+if HOME="$managed_home" "$script" \
   --input "$audio" \
   --work-dir "$run_dir" \
   --chunk-seconds 10 \
@@ -425,8 +439,21 @@ HOME="$managed_home" "$script" \
   --rescue-model fixture-rescue \
   --rescue-output-tokens 5000 \
   --skip-smoke-test \
+  --resume >/dev/null 2>&1; then
+  echo "expected rescue-output-tokens change with accepted rescues to fail" >&2
+  exit 1
+fi
+test "$(jq -r '.rescueOutputTokens' "$run_dir/run-config.json")" = "2400"
+test "$(shasum -a 256 "$run_dir/accepted-rescue-parts.txt" | awk '{print $1}')" = "$accepted_rescue_sha"
+
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --rescue-model fixture-rescue \
+  --skip-smoke-test \
   --resume >/dev/null
-test "$(jq -r '.rescueOutputTokens' "$run_dir/run-config.json")" = "5000"
 test "$(jq -r '.rescueModel' "$run_dir/run-manifest.json")" = "fixture-rescue"
 test ! -s "$run_dir/unresolved-parts.txt"
 rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
@@ -466,7 +493,6 @@ HOME="$managed_home" "$script" \
   --chunk-seconds 10 \
   --retry-seconds 2 \
   --rescue-model fixture-rescue \
-  --rescue-output-tokens 5000 \
   --skip-smoke-test \
   --resume >/dev/null
 test -f "$run_dir/rescue/000/part_00.json"
@@ -481,7 +507,6 @@ if HOME="$managed_home" "$script" \
   --chunk-seconds 10 \
   --retry-seconds 2 \
   --rescue-model fixture-rescue \
-  --rescue-output-tokens 5000 \
   --skip-smoke-test \
   --resume >/dev/null 2>&1; then
   echo "expected resume with an invalid accepted rescue to fail" >&2

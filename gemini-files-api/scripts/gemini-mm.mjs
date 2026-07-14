@@ -681,14 +681,24 @@ async function waitForActiveFile(ai, file) {
 }
 
 async function cleanupUploads(ai, uploads) {
+  const failures = [];
+
   for (const upload of uploads) {
     if (!upload.file.name) {
       continue;
     }
 
     try {
-      await ai.files.delete({ name: upload.file.name });
-    } catch {}
+      await withRetry(() => ai.files.delete({ name: upload.file.name }));
+    } catch (error) {
+      failures.push(
+        `Failed to delete uploaded Gemini file ${upload.file.name}: ${formatErrorMessage(error)}`,
+      );
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(failures.join("\n"));
   }
 }
 
@@ -706,7 +716,11 @@ function installSignalCleanup(cleanup) {
         return;
       }
       handlingSignal = true;
-      void cleanup().finally(() => process.exit(exitCode));
+      void cleanup()
+        .catch((error) => {
+          process.stderr.write(`${formatErrorMessage(error)}\n`);
+        })
+        .finally(() => process.exit(exitCode));
     };
     handlers.set(signal, handler);
     process.on(signal, handler);
