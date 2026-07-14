@@ -182,7 +182,8 @@ for managed_state_file in \
   validation.tsv suspect-chunks.txt retry-validation.tsv unresolved-parts.txt \
   accepted-rescue-parts.txt accepted-rescue-parts.txt.tmp \
   accepted-rescue-parts.txt.tmp.existing \
-  rescue-requested-parts.txt rescue-validation.tsv still-unresolved-parts.txt \
+  rescue-requested-parts.txt rescue-current-parts.txt \
+  rescue-validation.tsv still-unresolved-parts.txt \
   requested-still-unresolved-parts.txt accepted-still-unresolved-parts.txt \
   assembled-transcript-body.md usage.json run-manifest.json; do
   test ! -L "$work_dir/$managed_state_file" \
@@ -266,6 +267,8 @@ mv "$config_tmp" "$work_dir/run-config.json"
 chunks_complete="$work_dir/chunks/.complete"
 recorded_chunk_count=""
 actual_chunk_count="$(find "$work_dir/chunks" -maxdepth 1 -name 'chunk_*.m4a' | wc -l | tr -d ' ')"
+test ! -L "$chunks_complete" \
+  || die "completion marker must not be a symlink: $chunks_complete"
 if test -f "$chunks_complete"; then
   recorded_chunk_count="$(cat "$chunks_complete")"
 fi
@@ -434,6 +437,14 @@ if (scope === 'raw') {
     }
   }
   files = files.filter((file) => expected.has(path.relative(root, file).replace(/\\/g, '/')));
+} else if (scope === 'manifest') {
+  const expected = new Set(
+    fs.readFileSync(scopeArg, 'utf8')
+      .split(/\n/)
+      .filter((relative) => /^\d+\/part_\d+$/.test(relative))
+      .map((relative) => `${relative}.json`)
+  );
+  files = files.filter((file) => expected.has(path.relative(root, file).replace(/\\/g, '/')));
 }
 for (const file of files.sort()) {
   const relative = path.relative(root, file).replace(/\\/g, '/');
@@ -514,6 +525,8 @@ if test -s "$work_dir/suspect-chunks.txt"; then
     retry_complete="$retry_dir/.complete"
     recorded_retry_count=""
     actual_retry_count="$(find "$retry_dir" -maxdepth 1 -name 'part_*.m4a' | wc -l | tr -d ' ')"
+    test ! -L "$retry_complete" \
+      || die "completion marker must not be a symlink: $retry_complete"
     if test -f "$retry_complete"; then
       recorded_retry_count="$(cat "$retry_complete")"
     fi
@@ -563,18 +576,13 @@ else
 fi
 
 accepted_rescue_parts="$work_dir/accepted-rescue-parts.txt"
-if test "$resume" -eq 1 \
-  && test -s "$work_dir/unresolved-parts.txt" \
-  && test -z "$rescue_model" \
-  && test -s "$accepted_rescue_parts"; then
-  die "existing accepted rescue outputs require --rescue-model before rerunning unresolved parts"
-fi
 accepted_rescue_parts_tmp="$work_dir/accepted-rescue-parts.txt.tmp"
 if test "$resume" -eq 1 && test -s "$accepted_rescue_parts"; then
   sort -u "$accepted_rescue_parts" > "$accepted_rescue_parts_tmp"
   while IFS= read -r relative; do
     test -n "$relative" || continue
-    if test -f "$work_dir/rescue/$relative.json" \
+    if [[ "$relative" =~ ^[0-9]+/part_[0-9]+$ ]] \
+      && test -f "$work_dir/rescue/$relative.json" \
       && test ! -L "$work_dir/rescue/$relative.json"; then
       printf '%s\n' "$relative"
     fi
@@ -586,8 +594,9 @@ else
 fi
 mkdir -p "$work_dir/rescue"
 
+rescue_requested_parts="$work_dir/rescue-requested-parts.txt"
+: > "$rescue_requested_parts"
 if test -s "$work_dir/unresolved-parts.txt" && test -n "$rescue_model"; then
-  rescue_requested_parts="$work_dir/rescue-requested-parts.txt"
   comm -23 \
     <(sort -u "$work_dir/unresolved-parts.txt") \
     "$accepted_rescue_parts_tmp" \
@@ -600,34 +609,29 @@ if test -s "$work_dir/unresolved-parts.txt" && test -n "$rescue_model"; then
     echo "meeting-transcription: rescue $relative with $rescue_model"
     run_request "$rescue_model" "$rescue_output_tokens" "$retry_prompt" "$input_part" "$output_part"
   done < "$rescue_requested_parts"
-  validate_json_dir "$work_dir/rescue" "$rescue_output_tokens" "$work_dir/rescue-validation.tsv" "$work_dir/still-unresolved-parts.txt"
-  comm -12 \
-    <(sort -u "$rescue_requested_parts") \
-    <(sort -u "$work_dir/still-unresolved-parts.txt") \
-    > "$work_dir/requested-still-unresolved-parts.txt"
-  comm -12 \
-    "$accepted_rescue_parts_tmp" \
-    <(sort -u "$work_dir/still-unresolved-parts.txt") \
-    > "$work_dir/accepted-still-unresolved-parts.txt"
-  comm -23 \
-    "$accepted_rescue_parts_tmp" \
-    <(sort -u "$work_dir/accepted-still-unresolved-parts.txt") \
-    | sort -u -m - \
-      <(comm -23 \
-        <(sort -u "$rescue_requested_parts") \
-        <(sort -u "$work_dir/requested-still-unresolved-parts.txt")) \
-    > "$accepted_rescue_parts"
-  sort -u -m \
-    "$work_dir/accepted-still-unresolved-parts.txt" \
-    "$work_dir/requested-still-unresolved-parts.txt" \
-    > "$work_dir/unresolved-parts.txt"
-else
-  validate_json_dir "$work_dir/rescue" "$rescue_output_tokens" "$work_dir/rescue-validation.tsv" "$work_dir/still-unresolved-parts.txt"
-  comm -23 \
-    "$accepted_rescue_parts_tmp" \
-    <(sort -u "$work_dir/still-unresolved-parts.txt") \
-    > "$accepted_rescue_parts"
 fi
+
+rescue_current_parts="$work_dir/rescue-current-parts.txt"
+sort -u -m \
+  "$accepted_rescue_parts_tmp" \
+  "$rescue_requested_parts" \
+  > "$rescue_current_parts"
+validate_json_dir \
+  "$work_dir/rescue" \
+  "$rescue_output_tokens" \
+  "$work_dir/rescue-validation.tsv" \
+  "$work_dir/still-unresolved-parts.txt" \
+  manifest \
+  "$rescue_current_parts"
+comm -23 \
+  "$rescue_current_parts" \
+  <(sort -u "$work_dir/still-unresolved-parts.txt") \
+  > "$accepted_rescue_parts"
+comm -23 \
+  <(sort -u "$work_dir/unresolved-parts.txt") \
+  "$accepted_rescue_parts" \
+  > "$work_dir/requested-still-unresolved-parts.txt"
+mv "$work_dir/requested-still-unresolved-parts.txt" "$work_dir/unresolved-parts.txt"
 rm -f "$accepted_rescue_parts_tmp"
 
 if test -s "$work_dir/unresolved-parts.txt"; then

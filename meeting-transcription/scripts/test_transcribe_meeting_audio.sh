@@ -130,6 +130,23 @@ test "$(cat "$prepare_dir/chunks/.complete")" = "$initial_count"
 test "$(mode_of "$prepare_dir")" = "700"
 test "$(mode_of "$prepare_dir/source-metadata.json")" = "600"
 
+chunk_marker_symlink_work="$tmp_dir/chunk-marker-symlink-work"
+chunk_marker_symlink_target="$tmp_dir/chunk-marker-symlink-target"
+cp -R "$prepare_dir" "$chunk_marker_symlink_work"
+printf '%s\n' "$initial_count" > "$chunk_marker_symlink_target"
+rm "$chunk_marker_symlink_work/chunks/.complete"
+ln -s "$chunk_marker_symlink_target" "$chunk_marker_symlink_work/chunks/.complete"
+if "$script" \
+  --input "$audio" \
+  --work-dir "$chunk_marker_symlink_work" \
+  --chunk-seconds 2 \
+  --prepare-only \
+  --resume >/dev/null 2>&1; then
+  echo "expected symlinked chunk completion marker to fail" >&2
+  exit 1
+fi
+test "$(cat "$chunk_marker_symlink_target")" = "$initial_count"
+
 original_source_sha="$(cat "$prepare_dir/source.sha256")"
 original_metadata_sha="$(shasum -a 256 "$prepare_dir/source-metadata.json" | awk '{print $1}')"
 evidence_symlink_target="$tmp_dir/evidence-symlink-target"
@@ -349,6 +366,24 @@ if rg -n -- '--thinking-level' "$FAKE_GEMINI_ARG_LOG" >/dev/null; then
   echo "meeting transcription requests must not force a model-specific thinking level" >&2
   exit 1
 fi
+
+retry_marker_symlink_work="$tmp_dir/retry-marker-symlink-work"
+retry_marker_symlink_target="$tmp_dir/retry-marker-symlink-target"
+cp -R "$run_dir" "$retry_marker_symlink_work"
+cp "$retry_marker_symlink_work/retry/000/.complete" "$retry_marker_symlink_target"
+rm "$retry_marker_symlink_work/retry/000/.complete"
+ln -s "$retry_marker_symlink_target" "$retry_marker_symlink_work/retry/000/.complete"
+if HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$retry_marker_symlink_work" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null 2>&1; then
+  echo "expected symlinked retry completion marker to fail" >&2
+  exit 1
+fi
+test "$(cat "$retry_marker_symlink_target")" = "$(cat "$run_dir/retry/000/.complete")"
 
 usage_before_stale_resume="$(shasum -a 256 "$run_dir/usage.json" | awk '{print $1}')"
 printf '{stale response\n' > "$run_dir/raw/chunk_999.json"
@@ -643,6 +678,20 @@ rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 test "$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')" = "$rescue_response_sha"
 
+requests_before_completed_rescue_resume="$(cat "$FAKE_GEMINI_COUNTER")"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+test "$(cat "$FAKE_GEMINI_COUNTER")" = "$requests_before_completed_rescue_resume"
+test ! -s "$run_dir/unresolved-parts.txt"
+rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+test "$(jq -r '.rescueModel' "$run_dir/run-manifest.json")" = "fixture-rescue"
+
 symlinked_rescue_work="$tmp_dir/symlinked-accepted-rescue-work"
 symlinked_rescue_target="$tmp_dir/symlinked-accepted-rescue-target.json"
 cp -R "$run_dir" "$symlinked_rescue_work"
@@ -672,6 +721,23 @@ HOME="$managed_home" "$script" \
   --skip-smoke-test \
   --resume >/dev/null
 test "$(shasum -a 256 "$run_dir/usage.json" | awk '{print $1}')" = "$usage_before_stale_rescue"
+
+stale_rescue_symlink_target="$tmp_dir/stale-rescue-symlink-target.json"
+printf '{stale rescue symlink target\n' > "$stale_rescue_symlink_target"
+rm "$run_dir/rescue/999/part_00.json"
+ln -s "$stale_rescue_symlink_target" "$run_dir/rescue/999/part_00.json"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+if rg -n '^999/part_00' "$run_dir/rescue-validation.tsv" "$run_dir/still-unresolved-parts.txt" >/dev/null; then
+  echo "expected stale rescue symlink to be excluded from current rescue validation" >&2
+  exit 1
+fi
+test "$(cat "$stale_rescue_symlink_target")" = '{stale rescue symlink target'
 
 for retry_response in "$run_dir/retry/000/part_00.json" "$run_dir/retry/000/part_01.json"; do
   jq '.text = "A valid retry response retained beside accepted rescue evidence."' \
