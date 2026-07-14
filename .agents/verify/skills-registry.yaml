@@ -19,6 +19,8 @@ commands:
     run: scripts/test_skills_catalog.sh
   - id: skills-doctor-test
     run: scripts/test_skills_doctor.sh
+  - id: registry-dispositions
+    run: scripts/skills_doctor.rb
   - id: skills-provenance-audit-test
     run: scripts/test_skills_provenance_audit.sh
   - id: skills-registry-verify-test
@@ -270,6 +272,7 @@ required_pass_signals:
   - ruby-syntax
   - skills-catalog-test
   - skills-doctor-test
+  - registry-dispositions
   - skills-provenance-audit-test
   - skills-registry-verify-test
   - skills-setup-workflow-docs-test

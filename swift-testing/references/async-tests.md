@@ -22,7 +22,7 @@ For example, this code does some work inside a task, but there's no way to monit
 
 ```swift
 struct Worker {
-    func run(_ work: @escaping () -> Void) {
+    func run(_ work: @escaping @Sendable () -> Void) {
         Task {
             let start = CFAbsoluteTimeGetCurrent()
             work()
@@ -64,7 +64,7 @@ Alternatively, if the code cannot be changed to `async`, the internal `Task` sho
 
 ```swift
 struct Worker {
-    func run(_ work: @escaping () -> Void) -> Task<Void, Never> {
+    func run(_ work: @escaping @Sendable () -> Void) -> Task<Void, Never> {
         Task {
             let start = CFAbsoluteTimeGetCurrent()
             work()
@@ -213,10 +213,19 @@ To do this, create a protocol that knows how to perform a network fetch. As an e
 
 ```swift
 protocol URLSessionProtocol {
-    func data(from url: URL) async throws -> (Data, URLResponse)
+    func data(
+        from url: URL,
+        delegate: (any URLSessionTaskDelegate)?
+    ) async throws -> (Data, URLResponse)
 }
 
 extension URLSession: URLSessionProtocol { }
+
+extension URLSessionProtocol {
+    func data(from url: URL) async throws -> (Data, URLResponse) {
+        try await data(from: url, delegate: nil)
+    }
+}
 ```
 
 You can then create a mock type conforming to the same protocol, which throws an error if provided or returns the test data otherwise:
@@ -226,7 +235,10 @@ class URLSessionMock: URLSessionProtocol {
     var testData: Data?
     var testError: (any Error)?
 
-    func data(from url: URL) async throws -> (Data, URLResponse) {
+    func data(
+        from url: URL,
+        delegate: (any URLSessionTaskDelegate)?
+    ) async throws -> (Data, URLResponse) {
         if let testError {
             throw testError
         } else {

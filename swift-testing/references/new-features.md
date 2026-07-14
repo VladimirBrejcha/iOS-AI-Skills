@@ -225,7 +225,7 @@ When it comes to writing a test, make sure the default name matches the value we
 
 That test will fail when it runs because the character name is different, and Swift Testing will surface the attachments as part of the test results.
 
-Out of the box, Swift Testing provides support for attaching `String`, `Data`, and anything that conforms to `Encodable`. Unless the user has Swift 6.3 available, it does *not* support attaching images.
+Out of the box, Swift Testing provides support for attaching `String` and `Data`. Custom values must conform to `Attachable`; adding `Encodable` supplies the default attachment encoding but does not opt a type into attachments by itself. Unless the user has Swift 6.3 available, Swift Testing does *not* support attaching images.
 
 **Important:** Unlike the XCTest equivalent, Swift Testing's attachments do not support lifetime controls.
 

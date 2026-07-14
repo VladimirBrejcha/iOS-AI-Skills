@@ -140,7 +140,7 @@ reviewed manager write path for `~/.agents/skills`; the upstream manager reports
 that same shared-root install as visible to OpenCode. Claude Code has ten
 separate proven global targets through `~/.claude/skills`, matching the active
 registry-local set. External-git entries such as `swift-concurrency` and
-`swiftui-pro`, repo-local consumers, and unclassified top-level skills remain
+`swiftui-pro`, repo-local consumers, and non-active top-level skills remain
 planned/manual-review until equivalent proof exists.
 
 | Skill | Manager command | Adapter target | Lock key |
@@ -246,7 +246,7 @@ Known limits that should keep local automation conservative:
 1. Continue managed-profile expansion only when the pre-write sync plan emits
    exact pinned manager commands and the post-write proof can verify manager
    ownership by digest.
-2. Keep legacy Codex symlink roots, repo-local updates, unclassified skills,
+2. Keep legacy Codex symlink roots, repo-local updates, non-active skills,
    and external-git imports in manual review until their own evidence exists.
    Keep OpenCode tied to proven shared-root manager evidence rather than adding
    a separate local writer.

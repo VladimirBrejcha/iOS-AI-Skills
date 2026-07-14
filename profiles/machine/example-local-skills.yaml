@@ -177,13 +177,6 @@ selected_skills:
       claude_user:
         adapter: manager-copy
         status: proven-manager-copy
-  - skill_id: swiftui-pro
-    expose_to:
-      - agents_user
-      - codex_legacy_user
-      - claude_user
-    state: pending-import-review
-
 repo_profile_candidates:
   - repo: path/to/product-repo
     reason: example repo-local skill surface
