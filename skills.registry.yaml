@@ -819,8 +819,8 @@ skills:
         Also use when the user asks for 'marketing ideas,' 'growth ideas,' 'how to market,' 'marketing strategies,'
         'marketing tactics,' 'ways to promote,' 'ideas to grow,' 'what else can I try,' 'I don't know how
         to market this,' 'brainstorm marketing,' or 'what marketing should I do.' Use this as a starting
-        point whenever someone is stuck or looking for inspiration on how to grow. For specific channel
-        execution, see the relevant skill (ads, social, emails, etc.).
+        point whenever someone is stuck or looking for inspiration on how to grow. Use a registered
+        channel-specific skill such as ads, social, or emails for execution.
     notes:
     - Replaces stale checked-in capability `marketing-ideas` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.

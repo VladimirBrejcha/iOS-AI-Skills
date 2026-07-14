@@ -56,6 +56,9 @@ which is MIT licensed and now publishes a tagged, consolidated catalog. All
 retained capabilities are pinned to `v2.6.0` at
 `2815104d5459357d44c5f9031fcca0525b00c991`. Current upstream names replace
 the stale local names so the source package remains authoritative.
+Catalog-facing descriptions omit cross-links to capabilities outside this
+registry; generated catalog validation requires explicit `see skill-id`
+references to resolve to active entries.
 
 | Final skill | Replaces |
 | --- | --- |

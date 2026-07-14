@@ -132,7 +132,7 @@ For Codex GitHub code review, flag only high-impact issues:
 Do not block on style nits, broad rewrites, or speculative skill packaging ideas.
 
 ## New Skills
-- `apple-hig-designer`: Design iOS apps following Apple's HIG, including native components, accessibility validation, and the clarity/deference/depth principles. Use its `skills.registry.yaml` entry and `skills.lock.yaml` pin to locate the reviewed upstream workflow.
+- `apple-hig-designer`: Design iOS apps following Apple's HIG, including native components, accessibility validation, and the clarity/deference/depth principles. Use its registry and lock entries to locate the reviewed upstream workflow; this repository does not keep a local mirror.
 - `ios-xcodegen`: Manage XcodeGen projects—regenerate `project.yml`, wire assets, configure tests, and resolve packaging issues without editing the generated `.xcodeproj`. Read `ios-xcodegen/SKILL.md` before touching builds.
 - `xcode-build`: Run native `xcodebuild`/`xcrun simctl` commands to build, launch, and test iOS/macOS apps; the skill enforces command-line patterns defined in `xcode-build/SKILL.md`.
 - `xcode-cloud`: Configure and debug Xcode Cloud workflows, especially around XcodeGen projects and custom `ci_scripts`. Use the templates and guidance stored in `xcode-cloud/SKILL.md`.

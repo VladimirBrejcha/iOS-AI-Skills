@@ -201,6 +201,10 @@ catalog-facing description in registry metadata before they can appear in the
 catalog. The generator fails on stale catalog artifacts, private paths, missing
 descriptions, missing dispositions, missing lock entries for resolved sources,
 locks for unresolved sources, stale locks, and unpinned external metadata.
+An explicit `see skill-id` cross-skill reference in a catalog-facing
+description must resolve to an active entry in this registry. Omit upstream
+cross-links to skills outside the curated registry instead of publishing a
+dangling route.
 
 Do not edit generated catalog artifacts by hand:
 

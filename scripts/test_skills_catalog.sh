@@ -305,6 +305,39 @@ assert_contains "$markdown_output" "## Installable Active Skills"
 assert_contains "$markdown_output" "refresh \`skills.lock.yaml\` if source contents changed"
 assert_contains "$markdown_output" "for the current reviewed example profile."
 
+dangling_reference_dir="$tmp_dir/dangling-reference"
+write_ok_fixture "$dangling_reference_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  external = data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }
+  external.fetch("catalog")["description"] = "External fixture. For unsupported work, see missing-skill."
+  File.write(path, data.to_yaml)
+' "$dangling_reference_dir/skills.registry.yaml"
+dangling_reference_output="$(expect_failure run_catalog "$dangling_reference_dir" --json)"
+assert_contains "$dangling_reference_output" "external-skill: catalog description references unregistered skill missing-skill"
+
+non_active_reference_dir="$tmp_dir/non-active-reference"
+write_ok_fixture "$non_active_reference_dir"
+ruby -ryaml -e '
+  registry_path, lock_path, profile_path = ARGV
+  registry = YAML.safe_load(File.read(registry_path), aliases: false)
+  registry.fetch("skills").find { |skill| skill.fetch("id") == "manual-review-skill" }["status"] = "legacy"
+  external = registry.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }
+  external.fetch("catalog")["description"] = "External fixture. For old work, see manual-review-skill."
+  File.write(registry_path, registry.to_yaml)
+
+  lock = YAML.safe_load(File.read(lock_path), aliases: false)
+  lock.fetch("skills").reject! { |skill| skill.fetch("id") == "manual-review-skill" }
+  File.write(lock_path, lock.to_yaml)
+
+  profile = YAML.safe_load(File.read(profile_path), aliases: false)
+  profile.fetch("selected_skills").reject! { |skill| skill.fetch("skill_id") == "manual-review-skill" }
+  File.write(profile_path, profile.to_yaml)
+' "$non_active_reference_dir/skills.registry.yaml" "$non_active_reference_dir/skills.lock.yaml" "$non_active_reference_dir/profiles/machine/example-local-skills.yaml"
+non_active_reference_output="$(expect_failure run_catalog "$non_active_reference_dir" --json)"
+assert_contains "$non_active_reference_output" "external-skill: catalog description references non-active skill manual-review-skill"
+
 ruby -rjson -e '
   parsed = JSON.parse(File.read(ARGV.fetch(0)))
   raise "wrong schema" unless parsed.fetch("schema_version") == "0.1"
@@ -1758,19 +1791,6 @@ ruby -ryaml -e '
 ' "$duplicate_skill_id_dir/skills.registry.yaml"
 duplicate_skill_id_output="$(expect_failure run_catalog "$duplicate_skill_id_dir" --json)"
 assert_contains "$duplicate_skill_id_output" "duplicate skill id example-skill"
-
-dangling_catalog_reference_dir="$tmp_dir/dangling-catalog-reference"
-write_ok_fixture "$dangling_catalog_reference_dir"
-ruby -ryaml -e '
-  path = ARGV.fetch(0)
-  data = YAML.safe_load(File.read(path), aliases: false)
-  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] =
-    "For unsupported follow-up work, see missing-skill."
-  File.write(path, data.to_yaml)
-' "$dangling_catalog_reference_dir/skills.registry.yaml"
-dangling_catalog_reference_output="$(expect_failure run_catalog "$dangling_catalog_reference_dir" --json)"
-assert_contains "$dangling_catalog_reference_output" \
-  "external-skill: catalog description references non-active or unregistered skill missing-skill"
 
 duplicate_export_name_dir="$tmp_dir/duplicate-export-name"
 write_ok_fixture "$duplicate_export_name_dir"
