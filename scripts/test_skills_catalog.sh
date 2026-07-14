@@ -1903,6 +1903,33 @@ ruby -rjson -e '
 ' <<<"$disposition_json"
 assert_not_contains "$(cat "$disposition_dir/skills.lock.yaml")" "legacy-skill"
 
+finalized_pending_dir="$tmp_dir/finalized-pending"
+cp -R "$disposition_dir" "$finalized_pending_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data["status"] = "catalog-dispositions-finalized"
+  data.fetch("skills") << {
+    "id" => "pending-skill",
+    "status" => "needs-import-review",
+    "source" => {
+      "type" => "external-git",
+      "url" => "https://github.com/example/pending-skill.git",
+      "path" => "pending-skill",
+      "pinned_tag" => "1.0.0",
+      "observed_commit" => "3333333333333333333333333333333333333333",
+      "observed_at" => "2026-07-14"
+    },
+    "exported_names" => ["pending-skill"],
+    "scopes" => ["machine"],
+    "update_policy" => "external-reviewed",
+    "catalog" => { "description" => "Pending fixture." }
+  }
+  File.write(path, data.to_yaml)
+' "$finalized_pending_dir/skills.registry.yaml"
+finalized_pending_output="$(expect_failure run_catalog "$finalized_pending_dir" --json)"
+assert_contains "$finalized_pending_output" "registry status catalog-dispositions-finalized cannot contain pending skill dispositions: pending-skill"
+
 unresolved_exposure_dir="$tmp_dir/unresolved-exposure"
 cp -R "$disposition_dir" "$unresolved_exposure_dir"
 ruby -ryaml -e '

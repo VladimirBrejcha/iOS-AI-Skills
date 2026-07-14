@@ -1,7 +1,7 @@
 # Registry Contract
 
-Status: inventory-complete-review-pending
-Last updated: 2026-07-11
+Status: catalog-dispositions-finalized
+Last updated: 2026-07-14
 
 Related: [README](../README.md), [Usage](usage.md),
 [Setup And Update Workflow](setup-update-workflow.md),
@@ -28,8 +28,15 @@ The non-negotiable contract is:
 
 ## Coverage State
 
-The registry is the complete disposition inventory. Source review and
-installation coverage are intentionally narrower than inventory coverage.
+The registry is the complete disposition inventory. The initial source review
+is complete; installation coverage remains intentionally narrower and is
+expanded through separately proven consumer profiles.
+
+- The current baseline contains 42 active, reviewed entries and no pending or
+  legacy dispositions.
+- `catalog-dispositions-finalized` is mechanically incompatible with
+  `needs-source-review` or `needs-import-review`; doctor and catalog generation
+  fail if the declared review state and entries disagree.
 
 - Every top-level `*/SKILL.md` folder must appear exactly once in
   `skills.registry.yaml` as `registry-local` or `unresolved-local`.

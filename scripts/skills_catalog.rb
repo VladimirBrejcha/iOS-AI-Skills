@@ -18,6 +18,8 @@ CATALOG_SCHEMA_VERSION = "0.1"
 GENERATOR = "scripts/skills_catalog.rb"
 SKILL_STATUSES = %w[active needs-import-review needs-source-review legacy].freeze
 UNRESOLVED_LOCAL_STATUSES = %w[needs-source-review legacy].freeze
+FINALIZED_REGISTRY_STATUS = "catalog-dispositions-finalized"
+PENDING_SKILL_STATUSES = %w[needs-import-review needs-source-review].freeze
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 DEFAULT_INSTALL_PROFILE = File.join("profiles", "machine", "example-local-skills.yaml").freeze
 SHARED_AGENTS_USER_ROOT = File.expand_path("~/.agents/skills").freeze
@@ -1232,6 +1234,16 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   unless raw_skills.is_a?(Array)
     reporter.error("skills.registry.yaml skills must be an array")
     raw_skills = []
+  end
+  if registry_status == FINALIZED_REGISTRY_STATUS
+    pending_ids = raw_skills.map do |entry|
+      next unless entry.is_a?(Hash)
+
+      entry["id"] if PENDING_SKILL_STATUSES.include?(entry["status"])
+    end.compact
+    unless pending_ids.empty?
+      reporter.error("registry status #{FINALIZED_REGISTRY_STATUS} cannot contain pending skill dispositions: #{pending_ids.join(', ')}")
+    end
   end
   registry_skill_ids = raw_skills.each_with_object({}) do |entry, memo|
     next unless entry.is_a?(Hash) && safe_non_path_identifier?(entry["id"])

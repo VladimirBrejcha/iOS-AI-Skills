@@ -1,7 +1,7 @@
 # Usage
 
-Status: inventory-complete-review-pending
-Last updated: 2026-07-11
+Status: catalog-dispositions-finalized
+Last updated: 2026-07-14
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Setup And Update Workflow](setup-update-workflow.md),
@@ -24,7 +24,8 @@ cd agent-skills
 
 `skills.registry.yaml` contains every top-level skill disposition. Install only
 entries whose generated catalog record has `status: active` and an `install`
-object; unreviewed and legacy entries are inventory-only.
+object. The current catalog has no pending or legacy entries, but those states
+remain inventory-only whenever they are used for future intake.
 
 Install one skill into the reviewed shared global manager root:
 

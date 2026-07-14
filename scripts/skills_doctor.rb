@@ -41,6 +41,8 @@ INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__ node_modules].freez
 DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
 SKILL_STATUSES = %w[active needs-import-review needs-source-review legacy].freeze
 UNRESOLVED_LOCAL_STATUSES = %w[needs-source-review legacy].freeze
+FINALIZED_REGISTRY_STATUS = "catalog-dispositions-finalized"
+PENDING_SKILL_STATUSES = %w[needs-import-review needs-source-review].freeze
 
 class Reporter
   attr_reader :errors, :warnings
@@ -882,6 +884,7 @@ def validate_registry(registry_path, registry, options, reporter)
   id = registry_metadata["id"]
   name = registry_metadata["name"]
   skills = registry_skills(raw_skills, reporter)
+  registry_status = registry["status"]
   reporter.ok("registry #{id || "(missing id)"} / #{name || "(missing name)"} declares #{skills.length} skill entries")
 
   reporter.error("registry.id must be a string") unless id.nil? || id.is_a?(String)
@@ -889,6 +892,14 @@ def validate_registry(registry_path, registry, options, reporter)
   reporter.error("registry.id is required") if !id.is_a?(String) || id.empty?
   reporter.error("registry.name is required") if !name.is_a?(String) || name.empty?
   reporter.error("skills must be a non-empty array") unless raw_skills.is_a?(Array) && !raw_skills.empty?
+  if registry_status == FINALIZED_REGISTRY_STATUS
+    pending_ids = skills.map do |skill|
+      skill["id"] if PENDING_SKILL_STATUSES.include?(skill["status"])
+    end.compact
+    unless pending_ids.empty?
+      reporter.error("registry status #{FINALIZED_REGISTRY_STATUS} cannot contain pending skill dispositions: #{pending_ids.join(', ')}")
+    end
+  end
 
   ids = {}
   resolved = {}
