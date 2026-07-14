@@ -155,10 +155,75 @@ export const createUserContent = (parts) => ({ role: "user", parts });
   );
 }
 
+async function runMissingUploadStateCase() {
+  const caseRoot = path.join(fixtureRoot, "missing-upload-state");
+  const fixtureScript = path.join(caseRoot, "scripts", "gemini-mm.mjs");
+  const packageRoot = path.join(caseRoot, "scripts", "node_modules", "@google", "genai");
+  const input = path.join(caseRoot, "fixture.m4a");
+
+  await mkdir(packageRoot, { recursive: true });
+  await cp(wrapper, fixtureScript);
+  await writeFile(input, "fixture audio");
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ name: "@google/genai", type: "module", exports: "./index.js" }),
+  );
+  await writeFile(
+    path.join(packageRoot, "index.js"),
+    `let activeFileChecked = false;
+export class GoogleGenAI {
+  constructor() {
+    this.files = {
+      upload: async () => ({ name: "files/fixture", uri: "fixture://upload", mimeType: "audio/mp4" }),
+      get: async () => {
+        activeFileChecked = true;
+        return { name: "files/fixture", uri: "fixture://upload", state: "ACTIVE", mimeType: "audio/mp4" };
+      },
+      delete: async () => {},
+    };
+    this.models = {
+      generateContent: async () => {
+        if (!activeFileChecked) throw new Error("generation started before upload state was checked");
+        return { candidates: [{ content: { parts: [{ text: "fixture response" }] } }] };
+      },
+    };
+  }
+}
+export const createPartFromUri = (uri, mimeType) => ({ fileData: { fileUri: uri, mimeType } });
+export const createUserContent = (parts) => ({ role: "user", parts });
+`,
+  );
+
+  const child = spawn(
+    process.execPath,
+    [fixtureScript, "--file", input, "--prompt", "fixture"],
+    {
+      env: { ...process.env, GEMINI_API_KEY: "fixture-key" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const result = await new Promise((resolve) => {
+    child.once("close", (code, exitSignal) => resolve({ code, exitSignal }));
+  });
+  assert.deepEqual(result, { code: 0, exitSignal: null }, stderr);
+  assert.equal(stdout, "fixture response\n");
+}
+
 try {
   await runSignalCase("SIGINT", 130);
   await runSignalCase("SIGTERM", 143);
   await runCleanupFailureCase();
+  await runMissingUploadStateCase();
   process.stdout.write("gemini files cleanup test ok\n");
 } finally {
   await rm(fixtureRoot, { recursive: true, force: true });

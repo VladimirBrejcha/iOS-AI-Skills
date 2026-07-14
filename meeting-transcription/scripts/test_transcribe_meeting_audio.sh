@@ -354,7 +354,8 @@ usage_before_stale_resume="$(shasum -a 256 "$run_dir/usage.json" | awk '{print $
 printf '{stale response\n' > "$run_dir/raw/chunk_999.json"
 mkdir -p "$run_dir/retry/999"
 jq '.usageMetadata.totalTokenCount = 999999
-  | .usageMetadata.promptTokensDetails[0].tokenCount = 999999' \
+  | .usageMetadata.promptTokensDetails[0].tokenCount = 999999
+  | .text = ("Yeah " * 25)' \
   "$run_dir/retry/000/part_00.json" > "$run_dir/retry/999/part_00.json"
 HOME="$managed_home" "$script" \
   --input "$audio" \
@@ -365,6 +366,10 @@ HOME="$managed_home" "$script" \
   --resume >/dev/null
 if rg -n 'chunk_999' "$run_dir/suspect-chunks.txt" >/dev/null; then
   echo "expected stale raw response to be excluded from resume validation" >&2
+  exit 1
+fi
+if rg -n '^999/part_00' "$run_dir/retry-validation.tsv" "$run_dir/unresolved-parts.txt" >/dev/null; then
+  echo "expected stale retry response to be excluded from resume validation" >&2
   exit 1
 fi
 test "$(shasum -a 256 "$run_dir/usage.json" | awk '{print $1}')" = "$usage_before_stale_resume"
@@ -637,6 +642,23 @@ test ! -s "$run_dir/unresolved-parts.txt"
 rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 test "$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')" = "$rescue_response_sha"
+
+symlinked_rescue_work="$tmp_dir/symlinked-accepted-rescue-work"
+symlinked_rescue_target="$tmp_dir/symlinked-accepted-rescue-target.json"
+cp -R "$run_dir" "$symlinked_rescue_work"
+cp "$run_dir/rescue/000/part_00.json" "$symlinked_rescue_target"
+rm "$symlinked_rescue_work/rescue/000/part_00.json"
+ln -s "$symlinked_rescue_target" "$symlinked_rescue_work/rescue/000/part_00.json"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$symlinked_rescue_work" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --rescue-model fixture-rescue \
+  --skip-smoke-test \
+  --resume >/dev/null
+test ! -L "$symlinked_rescue_work/rescue/000/part_00.json"
+test "$(shasum -a 256 "$symlinked_rescue_target" | awk '{print $1}')" = "$rescue_response_sha"
 
 usage_before_stale_rescue="$(shasum -a 256 "$run_dir/usage.json" | awk '{print $1}')"
 mkdir -p "$run_dir/rescue/999"

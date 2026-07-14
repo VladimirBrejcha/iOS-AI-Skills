@@ -655,12 +655,9 @@ async function waitForActiveFile(ai, file) {
 
   const startedAt = Date.now();
   let current = file;
+  let state = String(current.state || "").toUpperCase();
 
-  while (
-    current.state &&
-    current.state !== "ACTIVE" &&
-    current.state !== "FAILED"
-  ) {
+  while (state !== "ACTIVE" && state !== "FAILED") {
     if (Date.now() - startedAt > FILE_ACTIVE_TIMEOUT_MS) {
       throw new Error(
         `Timed out waiting for ${file.name} to become ACTIVE. Last state: ${current.state}.`,
@@ -669,9 +666,10 @@ async function waitForActiveFile(ai, file) {
 
     await sleep(FILE_ACTIVE_POLL_MS);
     current = await withRetry(() => ai.files.get({ name: file.name }));
+    state = String(current.state || "").toUpperCase();
   }
 
-  if (current.state === "FAILED") {
+  if (state === "FAILED") {
     const errorMessage =
       current.error?.message || `File ${file.name} failed during processing.`;
     throw new Error(errorMessage);

@@ -387,9 +387,9 @@ validate_json_dir() {
   validation_report="$3"
   validation_suspects="$4"
   validation_scope="${5:-all}"
-  validation_count="${6:-0}"
+  validation_scope_arg="${6:-0}"
 
-  node - "$validation_dir" "$validation_limit" "$validation_report" "$validation_suspects" "$validation_scope" "$validation_count" <<'NODE'
+  node - "$validation_dir" "$validation_limit" "$validation_report" "$validation_suspects" "$validation_scope" "$validation_scope_arg" <<'NODE'
 const fs = require('fs');
 const path = require('path');
 
@@ -398,7 +398,7 @@ const limit = Number(process.argv[3]);
 const reportPath = process.argv[4];
 const suspectPath = process.argv[5];
 const scope = process.argv[6];
-const expectedCount = Number(process.argv[7]);
+const scopeArg = process.argv[7];
 const knownPromptModalities = new Set(['AUDIO', 'TEXT']);
 const isTokenCount = (value) => Number.isInteger(value) && value >= 0;
 
@@ -414,9 +414,25 @@ const rows = [];
 const suspects = [];
 let files = walk(root).filter((item) => item.endsWith('.json'));
 if (scope === 'raw') {
+  const expectedCount = Number(scopeArg);
   const expected = new Set(
     Array.from({ length: expectedCount }, (_, index) => `chunk_${String(index).padStart(3, '0')}.json`)
   );
+  files = files.filter((file) => expected.has(path.relative(root, file).replace(/\\/g, '/')));
+} else if (scope === 'retry') {
+  const expected = new Set();
+  const currentChunks = fs.readFileSync(scopeArg, 'utf8').split(/\n/).filter(Boolean);
+  for (const chunkName of currentChunks) {
+    if (!/^chunk_\d+$/.test(chunkName)) continue;
+    const shard = chunkName.replace(/^chunk_/, '');
+    const shardDir = path.join(root, shard);
+    if (!fs.existsSync(shardDir)) continue;
+    for (const entry of fs.readdirSync(shardDir, { withFileTypes: true })) {
+      if (entry.isFile() && /^part_\d+\.m4a$/.test(entry.name)) {
+        expected.add(`${shard}/${entry.name.replace(/\.m4a$/, '.json')}`);
+      }
+    }
+  }
   files = files.filter((file) => expected.has(path.relative(root, file).replace(/\\/g, '/')));
 }
 for (const file of files.sort()) {
@@ -540,7 +556,7 @@ if test -s "$work_dir/suspect-chunks.txt"; then
     done
   done < "$work_dir/suspect-chunks.txt"
 
-  validate_json_dir "$work_dir/retry" "$retry_output_tokens" "$work_dir/retry-validation.tsv" "$work_dir/unresolved-parts.txt"
+  validate_json_dir "$work_dir/retry" "$retry_output_tokens" "$work_dir/retry-validation.tsv" "$work_dir/unresolved-parts.txt" retry "$work_dir/suspect-chunks.txt"
 else
   printf 'file\toutput_tokens\ttext_chars\tstatus\n' > "$work_dir/retry-validation.tsv"
   : > "$work_dir/unresolved-parts.txt"
@@ -558,7 +574,8 @@ if test "$resume" -eq 1 && test -s "$accepted_rescue_parts"; then
   sort -u "$accepted_rescue_parts" > "$accepted_rescue_parts_tmp"
   while IFS= read -r relative; do
     test -n "$relative" || continue
-    if test -f "$work_dir/rescue/$relative.json"; then
+    if test -f "$work_dir/rescue/$relative.json" \
+      && test ! -L "$work_dir/rescue/$relative.json"; then
       printf '%s\n' "$relative"
     fi
   done < "$accepted_rescue_parts_tmp" > "$accepted_rescue_parts_tmp.existing"
