@@ -196,6 +196,11 @@ if test "$resume" -eq 1; then
   fi
 fi
 
+for managed_subdir in chunks raw text retry rescue; do
+  test ! -L "$work_dir/$managed_subdir" \
+    || die "managed work directory must not be a symlink: $work_dir/$managed_subdir"
+done
+
 mkdir -p "$work_dir" "$work_dir/chunks" "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
 chmod -R go-rwx "$work_dir"
 
@@ -506,8 +511,11 @@ if test -s "$work_dir/unresolved-parts.txt" && test -n "$rescue_model"; then
     "$work_dir/requested-still-unresolved-parts.txt" \
     > "$work_dir/unresolved-parts.txt"
 else
-  mv "$accepted_rescue_parts_tmp" "$accepted_rescue_parts"
-  printf 'file\toutput_tokens\ttext_chars\tstatus\n' > "$work_dir/rescue-validation.tsv"
+  validate_json_dir "$work_dir/rescue" "$rescue_output_tokens" "$work_dir/rescue-validation.tsv" "$work_dir/still-unresolved-parts.txt"
+  comm -23 \
+    "$accepted_rescue_parts_tmp" \
+    <(sort -u "$work_dir/still-unresolved-parts.txt") \
+    > "$accepted_rescue_parts"
 fi
 rm -f "$accepted_rescue_parts_tmp"
 

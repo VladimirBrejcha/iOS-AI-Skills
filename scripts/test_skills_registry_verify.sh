@@ -177,6 +177,7 @@ verify_requirements_output="$(
     missing << "required_pass_signal skills-provenance-audit-test" unless required_pass_signals.include?("skills-provenance-audit-test")
     missing << "required_pass_signal provenance-audit" unless required_pass_signals.include?("provenance-audit")
     missing << "required_pass_signal meeting-transcription-test" unless required_pass_signals.include?("meeting-transcription-test")
+    missing << "required_pass_signal gemini-files-api-test" unless required_pass_signals.include?("gemini-files-api-test")
     abort(missing.join("\n")) unless missing.empty?
     puts "verify requirements ok"
   ' "$repo_root/.agents/verify/skills-registry.yaml"
@@ -187,6 +188,7 @@ assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/test_transcri
 assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/bootstrap.sh"
 assert_contains "$shell_syntax_cmd" "npm ci --ignore-scripts"
 assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/gemini-mm.mjs"
+assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/test_gemini_mm.mjs"
 
 dependency_contract_output="$(
   ruby -ryaml -e '

@@ -14,6 +14,7 @@ commands:
       bash -n gemini-files-api/scripts/bootstrap.sh
       grep -Fx 'npm ci --ignore-scripts' gemini-files-api/scripts/bootstrap.sh
       node --check gemini-files-api/scripts/gemini-mm.mjs
+      node --check gemini-files-api/scripts/test_gemini_mm.mjs
   - id: ruby-syntax
     run: ruby -c scripts/skills_catalog.rb && ruby -c scripts/skills_doctor.rb && ruby -c scripts/skills_provenance_audit.rb && ruby -c scripts/skills_sync.rb && ruby -c scripts/skills_upstream_updates.rb
   - id: skills-catalog-test
@@ -34,6 +35,8 @@ commands:
     run: scripts/test_skills_upstream_updates.sh
   - id: meeting-transcription-test
     run: meeting-transcription/scripts/test_transcribe_meeting_audio.sh
+  - id: gemini-files-api-test
+    run: node gemini-files-api/scripts/test_gemini_mm.mjs
   - id: provenance-audit
     run: scripts/skills_provenance_audit.rb --json > "{artifactsDir}/skills-provenance-audit.json"
   - id: catalog-check
@@ -281,6 +284,7 @@ required_pass_signals:
   - skills-sync-test
   - skills-upstream-updates-test
   - meeting-transcription-test
+  - gemini-files-api-test
   - provenance-audit
   - catalog-check
   - catalog-artifacts

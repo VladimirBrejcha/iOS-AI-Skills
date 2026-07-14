@@ -692,8 +692,44 @@ async function cleanupUploads(ai, uploads) {
   }
 }
 
+function installSignalCleanup(cleanup) {
+  let handlingSignal = false;
+  const handlers = new Map();
+  const exitCodes = new Map([
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ]);
+
+  for (const [signal, exitCode] of exitCodes) {
+    const handler = () => {
+      if (handlingSignal) {
+        return;
+      }
+      handlingSignal = true;
+      void cleanup().finally(() => process.exit(exitCode));
+    };
+    handlers.set(signal, handler);
+    process.on(signal, handler);
+  }
+
+  return () => {
+    for (const [signal, handler] of handlers) {
+      process.removeListener(signal, handler);
+    }
+  };
+}
+
 async function analyze(ai, args) {
   const uploads = [];
+  let cleanupPromise;
+  const cleanup = () => {
+    if (args.keepFiles) {
+      return Promise.resolve();
+    }
+    cleanupPromise ??= cleanupUploads(ai, uploads);
+    return cleanupPromise;
+  };
+  const removeSignalCleanup = installSignalCleanup(cleanup);
 
   try {
     await uploadFiles(ai, args.files, uploads);
@@ -744,9 +780,8 @@ async function analyze(ai, args) {
 
     process.stdout.write(`${text}\n`);
   } finally {
-    if (!args.keepFiles) {
-      await cleanupUploads(ai, uploads);
-    }
+    await cleanup();
+    removeSignalCleanup();
   }
 }
 

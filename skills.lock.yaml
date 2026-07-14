@@ -11,7 +11,7 @@ skills:
 - id: gemini-files-api
   source_type: registry-local
   path: gemini-files-api
-  digest_sha256: 6f579a5f1e828a1b428509f01203e5b8b51680887957816d008c9653147056a9
+  digest_sha256: 6f84ca01d5f9ca8c30c82e890dd2a3698d62757cad5341b18ecb7207d7b09de8
   exported_names:
   - gemini-files-api
 - id: harness-engineering
@@ -29,7 +29,7 @@ skills:
 - id: meeting-transcription
   source_type: registry-local
   path: meeting-transcription
-  digest_sha256: 05fafb25c66c9cf01f293e21e0f9122504c5c01a959fa88dd8865eb9fd7ddd76
+  digest_sha256: 8074b1db72dd88e0fe1190aab380b95a02e90f7dfe47eec8275183dc22e463ba
   exported_names:
   - meeting-transcription
 - id: spec-creation-updating

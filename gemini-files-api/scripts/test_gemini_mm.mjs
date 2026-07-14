@@ -1,0 +1,109 @@
+#!/usr/bin/env node
+
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import {
+  access,
+  cp,
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const wrapper = path.join(scriptDir, "gemini-mm.mjs");
+const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "gemini-mm-test-"));
+
+async function waitForFile(file, child) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`wrapper exited before reaching generation: ${child.exitCode ?? child.signalCode}`);
+    }
+    try {
+      await access(file);
+      return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`timed out waiting for fixture marker: ${file}`);
+}
+
+async function runSignalCase(signal, expectedExitCode) {
+  const caseRoot = path.join(fixtureRoot, signal.toLowerCase());
+  const fixtureScript = path.join(caseRoot, "scripts", "gemini-mm.mjs");
+  const packageRoot = path.join(caseRoot, "scripts", "node_modules", "@google", "genai");
+  const input = path.join(caseRoot, "fixture.m4a");
+  const generationMarker = path.join(caseRoot, "generation-started");
+  const deleteMarker = path.join(caseRoot, "upload-deleted");
+
+  await mkdir(packageRoot, { recursive: true });
+  await cp(wrapper, fixtureScript);
+  await writeFile(input, "fixture audio");
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ name: "@google/genai", type: "module", exports: "./index.js" }),
+  );
+  await writeFile(
+    path.join(packageRoot, "index.js"),
+    `import { writeFile } from "node:fs/promises";
+export class GoogleGenAI {
+  constructor() {
+    this.files = {
+      upload: async () => ({ name: "files/fixture", uri: "fixture://upload", state: "ACTIVE", mimeType: "audio/mp4" }),
+      get: async () => ({ name: "files/fixture", uri: "fixture://upload", state: "ACTIVE", mimeType: "audio/mp4" }),
+      delete: async () => { await writeFile(process.env.DELETE_MARKER, "deleted"); },
+    };
+    this.models = {
+      generateContent: async () => {
+        await writeFile(process.env.GENERATION_MARKER, "started");
+        await new Promise((resolve) => setTimeout(resolve, 60_000));
+        return { text: "late response" };
+      },
+    };
+  }
+}
+export const createPartFromUri = (uri, mimeType) => ({ fileData: { fileUri: uri, mimeType } });
+export const createUserContent = (parts) => ({ role: "user", parts });
+`,
+  );
+
+  const child = spawn(
+    process.execPath,
+    [fixtureScript, "--file", input, "--prompt", "fixture"],
+    {
+      env: {
+        ...process.env,
+        GEMINI_API_KEY: "fixture-key",
+        GENERATION_MARKER: generationMarker,
+        DELETE_MARKER: deleteMarker,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  await waitForFile(generationMarker, child);
+  assert.equal(child.kill(signal), true);
+  const result = await new Promise((resolve) => {
+    child.once("close", (code, exitSignal) => resolve({ code, exitSignal }));
+  });
+  assert.deepEqual(result, { code: expectedExitCode, exitSignal: null }, stderr);
+  await access(deleteMarker);
+}
+
+try {
+  await runSignalCase("SIGINT", 130);
+  await runSignalCase("SIGTERM", 143);
+  process.stdout.write("gemini files signal cleanup test ok\n");
+} finally {
+  await rm(fixtureRoot, { recursive: true, force: true });
+}

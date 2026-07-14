@@ -56,6 +56,8 @@ tool, upload-retention, and file options.
 - `scripts/bootstrap.sh` recreates dependencies with `npm ci --ignore-scripts` so reviewed packages cannot execute lifecycle scripts during setup.
 - Uploaded Gemini Files API objects are deleted after each run unless
   `--keep-files` is explicitly passed.
+- `node scripts/test_gemini_mm.mjs` verifies that SIGINT and SIGTERM wait for
+  uploaded-file cleanup before the wrapper exits.
 - Consumer copies must be refreshed through the pinned skills manager; do not
   edit installed copies by hand.
 

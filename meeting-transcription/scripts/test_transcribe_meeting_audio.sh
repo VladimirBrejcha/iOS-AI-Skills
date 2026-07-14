@@ -69,6 +69,34 @@ fi
 test "$(mode_of "$symlink_target")" = "755"
 test "$(cat "$symlink_target/existing.txt")" = "preserve me"
 
+managed_symlink_source="$tmp_dir/managed-symlink-source"
+"$script" \
+  --input "$audio" \
+  --work-dir "$managed_symlink_source" \
+  --chunk-seconds 10 \
+  --prepare-only >/dev/null
+for managed_subdir in chunks raw text retry rescue; do
+  managed_symlink_work="$tmp_dir/managed-symlink-$managed_subdir"
+  managed_symlink_target="$tmp_dir/managed-symlink-target-$managed_subdir"
+  cp -R "$managed_symlink_source" "$managed_symlink_work"
+  rm -rf "$managed_symlink_work/$managed_subdir"
+  mkdir -p "$managed_symlink_target"
+  chmod 755 "$managed_symlink_target"
+  printf 'preserve me\n' > "$managed_symlink_target/existing.txt"
+  ln -s "$managed_symlink_target" "$managed_symlink_work/$managed_subdir"
+  if "$script" \
+    --input "$audio" \
+    --work-dir "$managed_symlink_work" \
+    --chunk-seconds 10 \
+    --prepare-only \
+    --resume >/dev/null 2>&1; then
+    echo "expected symlinked managed directory to fail: $managed_subdir" >&2
+    exit 1
+  fi
+  test "$(mode_of "$managed_symlink_target")" = "755"
+  test "$(cat "$managed_symlink_target/existing.txt")" = "preserve me"
+done
+
 prepare_dir="$tmp_dir/prepare"
 mkdir -p "$prepare_dir"
 chmod 755 "$prepare_dir"
@@ -410,6 +438,7 @@ for retry_response in "$run_dir/retry/000/part_00.json" "$run_dir/retry/000/part
     "$retry_response" > "$retry_response.tmp"
   mv "$retry_response.tmp" "$retry_response"
 done
+printf '{truncated accepted rescue\n' > "$run_dir/rescue/000/part_00.json"
 HOME="$managed_home" "$script" \
   --input "$audio" \
   --work-dir "$run_dir" \
@@ -419,6 +448,12 @@ HOME="$managed_home" "$script" \
   --resume >/dev/null
 test "$(jq -r '.rescueModel' "$run_dir/run-config.json")" = "fixture-rescue"
 test "$(jq -r '.rescueModel' "$run_dir/run-manifest.json")" = "fixture-rescue"
+if rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null; then
+  echo "expected invalid accepted rescue to fall back to the valid retry" >&2
+  exit 1
+fi
+rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
+rg -n 'A valid retry response retained beside accepted rescue evidence\.' "$run_dir/assembled-transcript-body.md" >/dev/null
 for retry_response in "$run_dir/retry/000/part_00.json" "$run_dir/retry/000/part_01.json"; do
   jq '.text = ("Yeah " * 25)' "$retry_response" > "$retry_response.tmp"
   mv "$retry_response.tmp" "$retry_response"
