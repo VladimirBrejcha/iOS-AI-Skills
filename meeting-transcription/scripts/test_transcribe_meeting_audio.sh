@@ -17,6 +17,23 @@ script="$repo_root/meeting-transcription/scripts/transcribe_meeting_audio.sh"
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/meeting-transcription-test.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
 
+bootstrap_fixture="$tmp_dir/bootstrap-fixture"
+mkdir -p "$bootstrap_fixture/scripts" "$bootstrap_fixture/fake-bin"
+cp "$repo_root/gemini-files-api/scripts/bootstrap.sh" "$bootstrap_fixture/scripts/bootstrap.sh"
+cp "$repo_root/gemini-files-api/scripts/package-lock.json" "$bootstrap_fixture/scripts/package-lock.json"
+cat > "$bootstrap_fixture/fake-bin/npm" <<'NPM'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" > "${FAKE_NPM_ARGS:?}"
+mkdir -p node_modules
+NPM
+chmod +x "$bootstrap_fixture/fake-bin/npm"
+FAKE_NPM_ARGS="$bootstrap_fixture/npm-args.txt" \
+PATH="$bootstrap_fixture/fake-bin:$PATH" \
+  bash "$bootstrap_fixture/scripts/bootstrap.sh" >/dev/null
+test "$(cat "$bootstrap_fixture/npm-args.txt")" = "ci --ignore-scripts"
+test -f "$bootstrap_fixture/scripts/node_modules/.gemini-files-api-lock-sha256"
+
 if grep -F 'require_command rg' "$script" >/dev/null; then
   echo "meeting transcription runtime must not require unused ripgrep" >&2
   exit 1
@@ -126,6 +143,9 @@ const count = fs.existsSync(counterPath)
   ? Number(fs.readFileSync(counterPath, 'utf8'))
   : 0;
 fs.writeFileSync(counterPath, `${count + 1}\n`);
+if (process.env.FAKE_GEMINI_ARG_LOG) {
+  fs.appendFileSync(process.env.FAKE_GEMINI_ARG_LOG, `${JSON.stringify(process.argv.slice(2))}\n`);
+}
 
 const fileIndex = process.argv.indexOf('--file');
 const inputFile = fileIndex >= 0 ? process.argv[fileIndex + 1] : '';
@@ -236,6 +256,7 @@ done
 
 export FAKE_GEMINI_COUNTER="$tmp_dir/gemini-counter"
 export FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/bootstrap-marker"
+export FAKE_GEMINI_ARG_LOG="$tmp_dir/gemini-args.jsonl"
 export GEMINI_MM="$managed_root/gemini-mm.mjs"
 export GEMINI_MM_BOOTSTRAP="$managed_root/bootstrap.sh"
 run_dir="$tmp_dir/run"
@@ -253,6 +274,10 @@ rg -n 'Managed wrapper retry transcript' "$run_dir/assembled-transcript-body.md"
 test "$(jq -r '.malformedResponses' "$run_dir/usage.json")" = "1"
 test "$(jq -r '.requests' "$run_dir/usage.json")" -gt 0
 test "$(jq -r '.audioInputTokens' "$run_dir/usage.json")" -gt 0
+if rg -n -- '--thinking-level' "$FAKE_GEMINI_ARG_LOG" >/dev/null; then
+  echo "meeting transcription requests must not force a model-specific thinking level" >&2
+  exit 1
+fi
 
 for ((index = 3; index <= 100; index += 1)); do
   number="$(printf '%02d' "$index")"
@@ -379,6 +404,25 @@ test ! -s "$run_dir/unresolved-parts.txt"
 rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 test "$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')" = "$rescue_response_sha"
+
+for retry_response in "$run_dir/retry/000/part_00.json" "$run_dir/retry/000/part_01.json"; do
+  jq '.text = "A valid retry response retained beside accepted rescue evidence."' \
+    "$retry_response" > "$retry_response.tmp"
+  mv "$retry_response.tmp" "$retry_response"
+done
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+test "$(jq -r '.rescueModel' "$run_dir/run-config.json")" = "fixture-rescue"
+test "$(jq -r '.rescueModel' "$run_dir/run-manifest.json")" = "fixture-rescue"
+for retry_response in "$run_dir/retry/000/part_00.json" "$run_dir/retry/000/part_01.json"; do
+  jq '.text = ("Yeah " * 25)' "$retry_response" > "$retry_response.tmp"
+  mv "$retry_response.tmp" "$retry_response"
+done
 
 rm "$run_dir/rescue/000/part_00.json"
 HOME="$managed_home" "$script" \

@@ -23,5 +23,5 @@ if [[ -d node_modules && -f "$LOCK_MARKER" && "$(cat "$LOCK_MARKER")" == "$lock_
 fi
 
 echo "[gemini-files-api] Installing dependencies in $SCRIPT_DIR"
-npm ci
+npm ci --ignore-scripts
 printf '%s\n' "$lock_sha256" > "$LOCK_MARKER"

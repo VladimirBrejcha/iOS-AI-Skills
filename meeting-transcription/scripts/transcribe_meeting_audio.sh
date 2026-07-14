@@ -292,7 +292,6 @@ run_request() {
   if ! node "$wrapper" \
     --model "$request_model" \
     --temperature 0 \
-    --thinking-level minimal \
     --max-output-tokens "$request_tokens" \
     --json \
     --prompt "$request_prompt" \
@@ -661,7 +660,7 @@ jq -n \
   --arg sha256 "$sha256" \
   --arg duration "$duration" \
   --arg model "$model" \
-  --arg rescueModel "$rescue_model" \
+  --arg rescueModel "$(jq -r '.rescueModel // ""' "$work_dir/run-config.json")" \
   --arg workDir "$work_dir" \
   --arg transcriptBody "$work_dir/assembled-transcript-body.md" \
   --argjson chunkCount "$chunk_count" \

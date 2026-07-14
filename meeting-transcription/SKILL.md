@@ -40,7 +40,7 @@ The script resolves the Gemini wrapper from:
 The bootstrap script follows the same root order and can be overridden with
 `GEMINI_MM_BOOTSTRAP`.
 
-The wrapper must support `--model`, `--temperature`, `--thinking-level`, `--max-output-tokens`, `--json`, `--prompt`, and `--file`, and return JSON containing `text` plus `usageMetadata`.
+The wrapper must support `--model`, `--temperature`, `--max-output-tokens`, `--json`, `--prompt`, and `--file`, and return JSON containing `text` plus `usageMetadata`. The orchestration script intentionally omits model-specific thinking controls because supported knobs and levels vary by Gemini model family; a caller-selected model uses its compatible default.
 
 ## Canonical Command
 

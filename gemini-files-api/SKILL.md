@@ -53,7 +53,7 @@ tool, upload-retention, and file options.
 
 - `node_modules` is never committed or copied as source.
 - `scripts/package-lock.json` is the reviewed dependency pin.
-- `scripts/bootstrap.sh` recreates dependencies with `npm ci`.
+- `scripts/bootstrap.sh` recreates dependencies with `npm ci --ignore-scripts` so reviewed packages cannot execute lifecycle scripts during setup.
 - Uploaded Gemini Files API objects are deleted after each run unless
   `--keep-files` is explicitly passed.
 - Consumer copies must be refreshed through the pinned skills manager; do not
