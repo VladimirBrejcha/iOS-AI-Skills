@@ -39,6 +39,14 @@ public_safety_cmd="$(
   ' "$repo_root/.agents/verify/skills-registry.yaml"
 )"
 
+shell_syntax_cmd="$(
+  ruby -ryaml -e '
+    config = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
+    command = config.fetch("commands").find { |entry| entry.fetch("id") == "shell-syntax" }
+    puts command.fetch("run")
+  ' "$repo_root/.agents/verify/skills-registry.yaml"
+)"
+
 registry_yaml_cmd="$(
   ruby -ryaml -e '
     config = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
@@ -152,6 +160,9 @@ ok_registry_output="$(run_registry_yaml "$ok_dir")"
 assert_contains "$ok_registry_output" "registry YAML parsed"
 ok_frontmatter_output="$(run_skill_frontmatter "$ok_dir")"
 assert_contains "$ok_frontmatter_output" "validated 1 skill entrypoints"
+mkdir -p "$ok_dir/example-skill/scripts/node_modules/example-package"
+printf '/%s/%s/private-dependency-path\n' 'Users' 'alice' \
+  > "$ok_dir/example-skill/scripts/node_modules/example-package/README.md"
 ok_output="$(run_public_safety "$ok_dir")"
 assert_contains "$ok_output" "public-safety scan ok"
 
@@ -165,11 +176,42 @@ verify_requirements_output="$(
     missing << "required_pass_signal registry-dispositions" unless required_pass_signals.include?("registry-dispositions")
     missing << "required_pass_signal skills-provenance-audit-test" unless required_pass_signals.include?("skills-provenance-audit-test")
     missing << "required_pass_signal provenance-audit" unless required_pass_signals.include?("provenance-audit")
+    missing << "required_pass_signal meeting-transcription-test" unless required_pass_signals.include?("meeting-transcription-test")
+    missing << "required_pass_signal gemini-files-api-test" unless required_pass_signals.include?("gemini-files-api-test")
     abort(missing.join("\n")) unless missing.empty?
     puts "verify requirements ok"
   ' "$repo_root/.agents/verify/skills-registry.yaml"
 )"
 assert_contains "$verify_requirements_output" "verify requirements ok"
+assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/transcribe_meeting_audio.sh"
+assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/test_transcribe_meeting_audio.sh"
+assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/bootstrap.sh"
+assert_contains "$shell_syntax_cmd" "npm ci --ignore-scripts"
+assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/gemini-mm.mjs"
+assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/test_gemini_mm.mjs"
+
+dependency_contract_output="$(
+  ruby -ryaml -e '
+    repo_root = ARGV.fetch(0)
+    registry = YAML.safe_load(File.read(File.join(repo_root, "skills.registry.yaml")), aliases: false)
+    profile = YAML.safe_load(File.read(File.join(repo_root, "profiles/machine/example-local-skills.yaml")), aliases: false)
+    skills = registry.fetch("skills").to_h { |entry| [entry.fetch("id"), entry] }
+    dependency = skills.fetch("gemini-files-api")
+    meeting = skills.fetch("meeting-transcription")
+    abort "gemini-files-api must be registry-local" unless dependency.dig("source", "type") == "registry-local"
+    abort "gemini-files-api must own its top-level source" unless dependency.dig("source", "path") == "gemini-files-api"
+    abort "meeting-transcription must declare gemini-files-api" unless meeting.fetch("notes").any? { |note| note.include?("gemini-files-api") }
+    selected = profile.fetch("selected_skills").to_h { |entry| [entry.fetch("skill_id"), entry] }
+    ["gemini-files-api", "meeting-transcription"].each do |skill_id|
+      entry = selected.fetch(skill_id)
+      abort "#{skill_id} must be active" unless entry.fetch("state") == "active"
+      abort "#{skill_id} must be manager-owned for agents_user" unless entry.dig("consumer_overrides", "agents_user", "adapter") == "manager-copy"
+      abort "#{skill_id} must be manager-owned for claude_user" unless entry.dig("consumer_overrides", "claude_user", "adapter") == "manager-copy"
+    end
+    puts "meeting transcription dependency contract ok"
+  ' "$repo_root"
+)"
+assert_contains "$dependency_contract_output" "meeting transcription dependency contract ok"
 
 unquoted_hash_dir="$tmp_dir/unquoted-hash"
 cp -R "$ok_dir/." "$unquoted_hash_dir/"

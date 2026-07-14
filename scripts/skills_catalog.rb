@@ -45,7 +45,7 @@ SPECIAL_USE_IPV6_ADDRESS_RANGES = [
   IPAddr.new("ff00::/8")
 ].freeze
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
-INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
+INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__ node_modules].freeze
 DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
 
 PUBLIC_UNSAFE_PATTERNS = {

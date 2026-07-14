@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gemini Files API"
+  short_description: "Use Gemini for multimodal files, params, tools, and troubleshooting"
+  default_prompt: "Use $gemini-files-api to analyze local files or run a Gemini request with the right model, tools, JSON settings, and auth setup."

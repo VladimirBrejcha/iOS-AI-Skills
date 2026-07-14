@@ -1,0 +1,4 @@
+interface:
+  display_name: "Meeting Transcription"
+  short_description: "Transcribe long audio with validated targeted retries."
+  default_prompt: "Transcribe this meeting audio, validate outliers, and return an assembled rough transcript with usage evidence."

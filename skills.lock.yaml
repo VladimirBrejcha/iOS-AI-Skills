@@ -8,6 +8,12 @@ skills:
   digest_sha256: f4edb7ea8b8e0791d2203a21880c6d37cb77a9a2242a32de7cf664214c3e761f
   exported_names:
   - code-review
+- id: gemini-files-api
+  source_type: registry-local
+  path: gemini-files-api
+  digest_sha256: 80597ebbcf59fa462be7e1ae7669f760e1bde844413c5f468cd37d03913e3635
+  exported_names:
+  - gemini-files-api
 - id: harness-engineering
   source_type: registry-local
   path: harness-engineering
@@ -20,6 +26,12 @@ skills:
   digest_sha256: 8cb369d77201d30bdd79cba8cdb8886675a6cfc3962d34469203d76f590fdec9
   exported_names:
   - ios-xcodegen
+- id: meeting-transcription
+  source_type: registry-local
+  path: meeting-transcription
+  digest_sha256: 2e3fd87e0102db5bfbeee75cdda023fac8a22e834e9e93b2170ec707fb1165fe
+  exported_names:
+  - meeting-transcription
 - id: spec-creation-updating
   source_type: registry-local
   path: spec-creation-updating

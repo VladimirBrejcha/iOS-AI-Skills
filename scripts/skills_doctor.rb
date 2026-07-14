@@ -37,7 +37,7 @@ DEFAULT_MANAGER_REGISTRY_SOURCE_TYPE = ENV.fetch("SKILLS_DOCTOR_MANAGER_REGISTRY
 SUPPORTED_GLOBAL_MANAGER_LOCK_VERSION = 3
 SUPPORTED_PROJECT_MANAGER_LOCK_VERSION = 1
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
-INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__].freeze
+INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__ node_modules].freeze
 DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
 SKILL_STATUSES = %w[active needs-import-review needs-source-review legacy].freeze
 UNRESOLVED_LOCAL_STATUSES = %w[needs-source-review legacy].freeze
@@ -442,6 +442,11 @@ def adapter_directory_digest(dir)
   files = []
 
   Find.find(dir) do |entry|
+    if installer_excluded_entry?(entry, directory: File.directory?(entry))
+      Find.prune if File.directory?(entry)
+      next
+    end
+
     if File.symlink?(entry)
       Find.prune if File.directory?(entry)
       return [nil, "manager-owned copy contains a symlink"]
@@ -625,7 +630,8 @@ def git_path_status_entries(root, pathspec)
     "-C",
     root.to_s,
     "status",
-    "--porcelain",
+    "--porcelain=v1",
+    "-z",
     "--ignored=matching",
     "--untracked-files=all",
     "--",
@@ -638,7 +644,15 @@ def git_path_status_entries(root, pathspec)
     return nil
   end
 
-  stdout.lines.map(&:chomp).reject(&:empty?)
+  stdout.split("\0").reject(&:empty?).reject do |entry|
+    status_code = entry[0, 2]
+    status_path = entry[3..].to_s.delete_suffix("/")
+    path_parts = Pathname.new(status_path).each_filename.to_a
+    status_code == "!!" && (
+      INSTALLER_EXCLUDED_FILES.include?(path_parts.last) ||
+      path_parts.any? { |part| INSTALLER_EXCLUDED_DIRS.include?(part) }
+    )
+  end
 rescue SystemCallError => error
   yield(redact_local_paths(error.message)) if block_given?
   nil

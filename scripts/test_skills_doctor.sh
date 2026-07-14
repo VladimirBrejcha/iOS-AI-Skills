@@ -172,6 +172,7 @@ mkdir -p \
   "$manager_copy_dir/example-skill/.git" \
   "$manager_copy_dir/example-skill/__pycache__" \
   "$manager_copy_dir/example-skill/__pypackages__" \
+  "$manager_copy_dir/example-skill/node_modules/generated-package" \
   "$manager_copy_dir/example-skill/references"
 
 cat >"$manager_copy_dir/example-skill/SKILL.md" <<'SKILL'
@@ -187,6 +188,7 @@ printf '{"ignored":true}\n' >"$manager_copy_dir/example-skill/metadata.json"
 printf '[core]\n\trepositoryformatversion = 0\n' >"$manager_copy_dir/example-skill/.git/config"
 printf 'compiled\n' >"$manager_copy_dir/example-skill/__pycache__/ignored.pyc"
 printf 'package cache\n' >"$manager_copy_dir/example-skill/__pypackages__/ignored.txt"
+printf 'source install\n' >"$manager_copy_dir/example-skill/node_modules/generated-package/index.js"
 printf 'kept\n' >"$manager_copy_dir/example-skill/references/guide.md"
 
 cat >"$manager_copy_dir/skills.registry.yaml" <<'YAML'
@@ -222,9 +224,11 @@ selected_skills:
     state: active
 YAML
 
-mkdir -p "$manager_copy_dir/consumer-root/example-skill/references"
+mkdir -p "$manager_copy_dir/consumer-root/example-skill/references" \
+  "$manager_copy_dir/consumer-root/example-skill/node_modules/generated-package"
 cp "$manager_copy_dir/example-skill/SKILL.md" "$manager_copy_dir/consumer-root/example-skill/SKILL.md"
 cp "$manager_copy_dir/example-skill/references/guide.md" "$manager_copy_dir/consumer-root/example-skill/references/guide.md"
+printf 'consumer install with different generated content\n' >"$manager_copy_dir/consumer-root/example-skill/node_modules/generated-package/index.js"
 manager_copy_ok_output="$(
   ruby "$repo_root/scripts/skills_doctor.rb" \
     --registry "$manager_copy_dir/skills.registry.yaml" \
@@ -5312,6 +5316,41 @@ printf '\n# local change\n' >>"$dirty_manifest_dir/skills.registry.yaml"
 
 dirty_manifest_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$dirty_manifest_dir/skills.registry.yaml" --print-lock)"
 assert_contains "$dirty_manifest_output" "registry manifest has unreviewed git changes; commit or clean changes before --print-lock"
+
+ignored_dependencies_dir="$tmp_dir/ignored-dependencies"
+mkdir -p "$ignored_dependencies_dir/example-skill/scripts"
+cat >"$ignored_dependencies_dir/example-skill/SKILL.md" <<'SKILL'
+---
+name: example-skill
+description: Ignored dependency fixture.
+---
+
+# Example Skill
+SKILL
+cat >"$ignored_dependencies_dir/skills.registry.yaml" <<'YAML'
+schema_version: 0.1
+status: fixture
+registry:
+  id: ignored-dependencies
+  name: Ignored Dependencies
+skills:
+  - id: example-skill
+    status: active
+    source:
+      type: registry-local
+      path: example-skill
+    exported_names:
+      - example-skill
+YAML
+printf 'example-skill/scripts/node_modules/\n' >"$ignored_dependencies_dir/.gitignore"
+git -C "$ignored_dependencies_dir" init -q
+git -C "$ignored_dependencies_dir" add .gitignore skills.registry.yaml example-skill/SKILL.md
+git -C "$ignored_dependencies_dir" -c user.name=Test -c user.email=test@example.com commit -q -m init
+mkdir -p "$ignored_dependencies_dir/example-skill/scripts/node_modules/generated-package"
+printf 'generated dependency\n' >"$ignored_dependencies_dir/example-skill/scripts/node_modules/generated-package/index.js"
+
+ignored_dependencies_output="$(ruby "$repo_root/scripts/skills_doctor.rb" --registry "$ignored_dependencies_dir/skills.registry.yaml" --print-lock)"
+assert_contains "$ignored_dependencies_output" "generated_by: scripts/skills_doctor.rb --print-lock"
 
 git_status_repo_env_dir="$tmp_dir/git-status-repo-env"
 mkdir -p "$git_status_repo_env_dir/example-skill" "$git_status_repo_env_dir/clean-repo" "$git_status_repo_env_dir/bin"

@@ -60,6 +60,30 @@ skills:
         to ~/.claude/skills for this skill; additional Claude Code targets stay
         planned until separately promoted.
 
+  - id: gemini-files-api
+    status: active
+    source:
+      type: registry-local
+      path: gemini-files-api
+    exported_names:
+      - gemini-files-api
+    clients:
+      codex: supported
+      opencode: supported
+      claude: supported
+    scopes:
+      - machine
+      - repo
+    update_policy: internal-reviewed
+    notes:
+      - Canonical 51Code-owned Gemini Files API wrapper source. Consumer copies
+        are managed adapters and must not be edited as source.
+      - The reviewed npm dependency graph is pinned by
+        gemini-files-api/scripts/package-lock.json and restored with the
+        bundled bootstrap script.
+      - Required runtime dependency for meeting-transcription; both skills are
+        selected in the reviewed machine and historical proof profiles.
+
   - id: harness-engineering
     status: active
     source:
@@ -81,6 +105,29 @@ skills:
       - Claude Code support is proven through a pinned upstream manager write
         to ~/.claude/skills for this skill; additional Claude Code targets stay
         planned until separately promoted.
+
+  - id: meeting-transcription
+    status: active
+    source:
+      type: registry-local
+      path: meeting-transcription
+    exported_names:
+      - meeting-transcription
+    clients:
+      codex: supported
+      opencode: supported
+      claude: supported
+    scopes:
+      - machine
+      - repo
+    update_policy: internal-reviewed
+    notes:
+      - Public generic audio-processing source only; private account, CRM,
+        knowledge-base, and company-memory behavior belongs in repo overlays.
+      - Requires the separately owned and pinned gemini-files-api skill; do not
+        vendor the wrapper into meeting-transcription.
+      - Shared-root Codex/OpenCode and separate Claude Code manager copies are
+        promoted through the reviewed example machine profile.
 
   - id: spec-creation-updating
     status: active

@@ -1,0 +1,12 @@
+{
+  "name": "fiveonecode-gemini-files-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "analyze": "node ./gemini-mm.mjs",
+    "check": "node ./gemini-mm.mjs --help >/dev/null"
+  },
+  "dependencies": {
+    "@google/genai": "^1.46.0"
+  }
+}

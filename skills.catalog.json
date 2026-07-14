@@ -49,6 +49,41 @@
       }
     },
     {
+      "id": "gemini-files-api",
+      "name": "gemini-files-api",
+      "description": "Use Google Gemini through a managed Files API wrapper for multimodal local files, configurable generation parameters, structured JSON output, optional Gemini tools, and reproducible authentication setup.",
+      "status": "active",
+      "source": {
+        "type": "registry-local",
+        "path": "gemini-files-api"
+      },
+      "update_policy": "internal-reviewed",
+      "exported_names": [
+        "gemini-files-api"
+      ],
+      "clients": {
+        "claude": "supported",
+        "codex": "supported",
+        "opencode": "supported"
+      },
+      "scopes": [
+        "machine",
+        "repo"
+      ],
+      "lock": {
+        "source_type": "registry-local",
+        "path": "gemini-files-api",
+        "digest_sha256": "80597ebbcf59fa462be7e1ae7669f760e1bde844413c5f468cd37d03913e3635"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "gemini-files-api",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill gemini-files-api --agent codex --global --yes",
+        "claude_code_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill gemini-files-api --agent claude-code --global --yes"
+      }
+    },
+    {
       "id": "harness-engineering",
       "name": "harness-engineering",
       "description": "Build and improve agent-first engineering harnesses where AI agents perform most implementation work and humans steer architecture, constraints, and review. Use when defining or upgrading AGENTS.md rules, repository conventions, task decomposition, CI guardrails, merge strategy, quality gates, or cleanup loops to increase autonomous coding throughput and reliability.",
@@ -81,6 +116,41 @@
         "skill": "harness-engineering",
         "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes",
         "claude_code_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent claude-code --global --yes"
+      }
+    },
+    {
+      "id": "meeting-transcription",
+      "name": "meeting-transcription",
+      "description": "Transcribe long local meeting audio into a validated rough transcript with bounded chunking, repetition and output-limit detection, targeted retries, optional stronger-model rescue, and auditable token usage. Use when a user provides an audio recording or asks for reliable multilingual meeting transcription.",
+      "status": "active",
+      "source": {
+        "type": "registry-local",
+        "path": "meeting-transcription"
+      },
+      "update_policy": "internal-reviewed",
+      "exported_names": [
+        "meeting-transcription"
+      ],
+      "clients": {
+        "claude": "supported",
+        "codex": "supported",
+        "opencode": "supported"
+      },
+      "scopes": [
+        "machine",
+        "repo"
+      ],
+      "lock": {
+        "source_type": "registry-local",
+        "path": "meeting-transcription",
+        "digest_sha256": "2e3fd87e0102db5bfbeee75cdda023fac8a22e834e9e93b2170ec707fb1165fe"
+      },
+      "install": {
+        "manager_package": "skills@1.5.14",
+        "registry_source": "fiveonecode/agent-skills",
+        "skill": "meeting-transcription",
+        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill meeting-transcription --agent codex --global --yes",
+        "claude_code_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill meeting-transcription --agent claude-code --global --yes"
       }
     },
     {

@@ -47,7 +47,33 @@ selected_skills:
       claude_user:
         adapter: manager-copy
         status: proven-manager-copy
+  - skill_id: gemini-files-api
+    expose_to:
+      - agents_user
+      - codex_legacy_user
+      - claude_user
+    state: active
+    consumer_overrides:
+      agents_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+      claude_user:
+        adapter: manager-copy
+        status: proven-manager-copy
   - skill_id: harness-engineering
+    expose_to:
+      - agents_user
+      - codex_legacy_user
+      - claude_user
+    state: active
+    consumer_overrides:
+      agents_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+      claude_user:
+        adapter: manager-copy
+        status: proven-manager-copy
+  - skill_id: meeting-transcription
     expose_to:
       - agents_user
       - codex_legacy_user
