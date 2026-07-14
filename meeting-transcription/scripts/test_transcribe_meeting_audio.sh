@@ -8,8 +8,8 @@ for command in ffmpeg ffprobe; do
   fi
 done
 if [[ ${#missing_commands[@]} -gt 0 ]]; then
-  echo "meeting transcription test skipped: missing runtime commands: ${missing_commands[*]}"
-  exit 0
+  echo "meeting transcription test requires runtime commands: ${missing_commands[*]}" >&2
+  exit 1
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -252,10 +252,9 @@ const shouldFail = process.env.FAKE_GEMINI_FAIL_FILE
   && inputFile.endsWith(process.env.FAKE_GEMINI_FAIL_FILE);
 
 if (count === 0) {
-  process.stdout.write(`${JSON.stringify({
+  const response = {
     text: '[00:00:00] Response without required prompt token details.',
     modelVersion: 'fixture-model',
-    candidates: [{ finishReason: process.env.FAKE_GEMINI_FINISH_REASON || 'STOP' }],
     usageMetadata: {
       candidatesTokenCount: process.env.FAKE_GEMINI_BAD_TOKEN_COUNT
         ? Number(process.env.FAKE_GEMINI_BAD_TOKEN_COUNT)
@@ -269,11 +268,17 @@ if (count === 0) {
             ? { promptTokensDetails: [{ modality: 'TEXT', tokenCount: 8 }] }
             : process.env.FAKE_GEMINI_ZERO_AUDIO_TOKENS
               ? { promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 0 }] }
-          : process.env.FAKE_GEMINI_BAD_TOKEN_COUNT || process.env.FAKE_GEMINI_FINISH_REASON
+          : process.env.FAKE_GEMINI_BAD_TOKEN_COUNT
+              || process.env.FAKE_GEMINI_FINISH_REASON
+              || process.env.FAKE_GEMINI_MISSING_CANDIDATES
             ? { promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 8 }] }
         : {}),
     },
-  })}\n`);
+  };
+  if (!process.env.FAKE_GEMINI_MISSING_CANDIDATES) {
+    response.candidates = [{ finishReason: process.env.FAKE_GEMINI_FINISH_REASON || 'STOP' }];
+  }
+  process.stdout.write(`${JSON.stringify(response)}\n`);
 } else {
   process.stdout.write(`${JSON.stringify({
     text: shouldFail ? 'Yeah '.repeat(25) : '[00:00:00] Managed wrapper retry transcript.',
@@ -360,6 +365,21 @@ FAKE_GEMINI_FINISH_REASON=SAFETY \
 rg -n $'chunk_000.json\t8\t[0-9]+\tfinish_reason_safety' "$finish_reason_run/validation.tsv" >/dev/null
 rg -n 'Managed wrapper retry transcript' "$finish_reason_run/assembled-transcript-body.md" >/dev/null
 
+missing_finish_reason_run="$tmp_dir/missing-finish-reason-run"
+HOME="$repo_local_home" \
+FAKE_GEMINI_COUNTER="$tmp_dir/missing-finish-reason-counter" \
+FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/missing-finish-reason-bootstrap-marker" \
+FAKE_GEMINI_MISSING_CANDIDATES=1 \
+  "$repo_local_meeting_scripts/transcribe_meeting_audio.sh" \
+  --input "$audio" \
+  --work-dir "$missing_finish_reason_run" \
+  --chunk-seconds 10 \
+  --skip-smoke-test >/dev/null
+rg -n $'chunk_000.json\t8\t[0-9]+\tmissing_finish_reasons' \
+  "$missing_finish_reason_run/validation.tsv" >/dev/null
+rg -n 'Managed wrapper retry transcript' \
+  "$missing_finish_reason_run/assembled-transcript-body.md" >/dev/null
+
 for bad_token_count in -1 1.5; do
   safe_bad_token_count="${bad_token_count//./_}"
   bad_token_run="$tmp_dir/bad-token-$safe_bad_token_count-run"
@@ -401,6 +421,32 @@ if rg -n -- '--thinking-level' "$FAKE_GEMINI_ARG_LOG" >/dev/null; then
   echo "meeting transcription requests must not force a model-specific thinking level" >&2
   exit 1
 fi
+
+cache_invalidation_work="$tmp_dir/cache-invalidation-work"
+cp -R "$run_dir" "$cache_invalidation_work"
+printf '%s\n' "$initial_count" > "$cache_invalidation_work/chunks/.complete"
+rm -f "$cache_invalidation_work/chunks/chunk_000.m4a"
+jq '.text = "STALE RAW TRANSCRIPT"' \
+  "$run_dir/retry/000/part_00.json" > "$cache_invalidation_work/raw/chunk_000.json"
+mkdir -p "$cache_invalidation_work/retry/999" "$cache_invalidation_work/rescue/999"
+printf 'stale retry\n' > "$cache_invalidation_work/retry/999/part_00.json"
+printf 'stale rescue\n' > "$cache_invalidation_work/rescue/999/part_00.json"
+cache_requests_before="$(cat "$FAKE_GEMINI_COUNTER")"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$cache_invalidation_work" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+test "$(cat "$FAKE_GEMINI_COUNTER")" -gt "$cache_requests_before"
+if rg -n 'STALE RAW TRANSCRIPT' \
+  "$cache_invalidation_work/assembled-transcript-body.md" >/dev/null; then
+  echo "expected regenerated chunks to invalidate cached transcripts" >&2
+  exit 1
+fi
+test ! -e "$cache_invalidation_work/retry/999/part_00.json"
+test ! -e "$cache_invalidation_work/rescue/999/part_00.json"
 
 retry_marker_symlink_work="$tmp_dir/retry-marker-symlink-work"
 retry_marker_symlink_target="$tmp_dir/retry-marker-symlink-target"
@@ -473,6 +519,23 @@ for state_file in validation.tsv suspect-chunks.txt retry-validation.tsv unresol
   fi
   test "$(cat "$state_symlink_target")" = "preserve state target"
 done
+
+nonregular_state_work="$tmp_dir/nonregular-state-work"
+cp -R "$run_dir" "$nonregular_state_work"
+rm -f "$nonregular_state_work/validation.tsv"
+mkdir "$nonregular_state_work/validation.tsv"
+if HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$nonregular_state_work" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >"$tmp_dir/nonregular-state.stdout" 2>"$tmp_dir/nonregular-state.stderr"; then
+  echo "expected non-regular managed state path to fail" >&2
+  exit 1
+fi
+rg -n 'managed state path must be a regular file' \
+  "$tmp_dir/nonregular-state.stderr" >/dev/null
 
 retry_shard_symlink_work="$tmp_dir/retry-shard-symlink-work"
 retry_shard_symlink_target="$tmp_dir/retry-shard-symlink-target"

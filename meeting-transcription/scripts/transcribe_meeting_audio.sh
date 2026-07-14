@@ -186,8 +186,11 @@ for managed_state_file in \
   rescue-validation.tsv still-unresolved-parts.txt \
   requested-still-unresolved-parts.txt accepted-still-unresolved-parts.txt \
   assembled-transcript-body.md usage.json run-manifest.json; do
-  test ! -L "$work_dir/$managed_state_file" \
-    || die "managed state file must not be a symlink: $work_dir/$managed_state_file"
+  managed_state_path="$work_dir/$managed_state_file"
+  if test -e "$managed_state_path" || test -L "$managed_state_path"; then
+    test -f "$managed_state_path" && test ! -L "$managed_state_path" \
+      || die "managed state path must be a regular file: $managed_state_path"
+  fi
 done
 
 if test -d "$work_dir" && test "$(find "$work_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" != "" && test "$resume" -ne 1; then
@@ -291,6 +294,22 @@ fi
 if test "$chunk_set_complete" -ne 1; then
   rm -f "$chunks_complete"
   rm -f "$work_dir/chunks"/chunk_*.m4a
+  rm -rf "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
+  mkdir -p "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
+  rm -f \
+    "$work_dir/validation.tsv" "$work_dir/suspect-chunks.txt" \
+    "$work_dir/retry-validation.tsv" "$work_dir/unresolved-parts.txt" \
+    "$work_dir/accepted-rescue-parts.txt" \
+    "$work_dir/accepted-rescue-parts.txt.tmp" \
+    "$work_dir/accepted-rescue-parts.txt.tmp.existing" \
+    "$work_dir/rescue-requested-parts.txt" \
+    "$work_dir/rescue-current-parts.txt" \
+    "$work_dir/rescue-validation.tsv" \
+    "$work_dir/still-unresolved-parts.txt" \
+    "$work_dir/requested-still-unresolved-parts.txt" \
+    "$work_dir/accepted-still-unresolved-parts.txt" \
+    "$work_dir/assembled-transcript-body.md" \
+    "$work_dir/usage.json" "$work_dir/run-manifest.json"
   ffmpeg -hide_banner -loglevel error -i "$input" \
     -ac 1 -ar 16000 -c:a aac -b:a 48k \
     -f segment -segment_time "$chunk_seconds" -reset_timestamps 1 \
@@ -482,10 +501,16 @@ for (const file of files.sort()) {
     && promptTokenDetails.some((detail) => detail.modality === 'AUDIO'
       && detail.tokenCount > 0);
   const outputTokens = hasOutputTokens ? data.usageMetadata.candidatesTokenCount : 0;
-  const finishReasons = Array.isArray(data.candidates)
+  const hasFinishReasons = Array.isArray(data.candidates)
+    && data.candidates.length > 0
+    && data.candidates.every((candidate) => candidate
+      && typeof candidate === 'object'
+      && !Array.isArray(candidate)
+      && typeof candidate.finishReason === 'string'
+      && candidate.finishReason.length > 0);
+  const finishReasons = hasFinishReasons
     ? data.candidates
-      .map((candidate) => candidate && candidate.finishReason)
-      .filter((finishReason) => typeof finishReason === 'string')
+      .map((candidate) => candidate.finishReason)
     : [];
   if (!text) reasons.push('empty_text');
   if (!hasUsageMetadata) reasons.push('missing_usage_metadata');
@@ -494,6 +519,7 @@ for (const file of files.sort()) {
   if (hasUsageMetadata && !hasPromptTokenDetails) reasons.push('missing_prompt_token_details');
   if (hasPromptTokenDetails && !hasValidPromptTokenDetails) reasons.push('invalid_prompt_token_details');
   if (hasValidPromptTokenDetails && !hasAudioInputTokens) reasons.push('missing_audio_input_tokens');
+  if (!hasFinishReasons) reasons.push('missing_finish_reasons');
   for (const finishReason of new Set(finishReasons)) {
     if (finishReason !== 'STOP') reasons.push(`finish_reason_${finishReason.toLowerCase()}`);
   }
