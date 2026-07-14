@@ -12,6 +12,7 @@ commands:
       bash -n meeting-transcription/scripts/transcribe_meeting_audio.sh
       bash -n meeting-transcription/scripts/test_transcribe_meeting_audio.sh
       bash -n gemini-files-api/scripts/bootstrap.sh
+      grep -Fx 'npm ci --ignore-scripts' gemini-files-api/scripts/bootstrap.sh
       node --check gemini-files-api/scripts/gemini-mm.mjs
   - id: ruby-syntax
     run: ruby -c scripts/skills_catalog.rb && ruby -c scripts/skills_doctor.rb && ruby -c scripts/skills_provenance_audit.rb && ruby -c scripts/skills_sync.rb && ruby -c scripts/skills_upstream_updates.rb
@@ -238,6 +239,7 @@ commands:
         }
         failures = []
         files.each do |file|
+          next if file.split("/").include?("node_modules")
           next unless File.file?(file)
           text = File.binread(file).force_encoding(Encoding::UTF_8).scrub
           if [".agents/verify/skills-registry.yaml", "scripts/skills_catalog.rb"].include?(file)

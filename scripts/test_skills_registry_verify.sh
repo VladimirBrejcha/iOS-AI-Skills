@@ -160,6 +160,9 @@ ok_registry_output="$(run_registry_yaml "$ok_dir")"
 assert_contains "$ok_registry_output" "registry YAML parsed"
 ok_frontmatter_output="$(run_skill_frontmatter "$ok_dir")"
 assert_contains "$ok_frontmatter_output" "validated 1 skill entrypoints"
+mkdir -p "$ok_dir/example-skill/scripts/node_modules/example-package"
+printf '/%s/%s/private-dependency-path\n' 'Users' 'alice' \
+  > "$ok_dir/example-skill/scripts/node_modules/example-package/README.md"
 ok_output="$(run_public_safety "$ok_dir")"
 assert_contains "$ok_output" "public-safety scan ok"
 
@@ -182,6 +185,7 @@ assert_contains "$verify_requirements_output" "verify requirements ok"
 assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/transcribe_meeting_audio.sh"
 assert_contains "$shell_syntax_cmd" "meeting-transcription/scripts/test_transcribe_meeting_audio.sh"
 assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/bootstrap.sh"
+assert_contains "$shell_syntax_cmd" "npm ci --ignore-scripts"
 assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/gemini-mm.mjs"
 
 dependency_contract_output="$(
