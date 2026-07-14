@@ -350,7 +350,12 @@ if rg -n -- '--thinking-level' "$FAKE_GEMINI_ARG_LOG" >/dev/null; then
   exit 1
 fi
 
+usage_before_stale_resume="$(shasum -a 256 "$run_dir/usage.json" | awk '{print $1}')"
 printf '{stale response\n' > "$run_dir/raw/chunk_999.json"
+mkdir -p "$run_dir/retry/999"
+jq '.usageMetadata.totalTokenCount = 999999
+  | .usageMetadata.promptTokensDetails[0].tokenCount = 999999' \
+  "$run_dir/retry/000/part_00.json" > "$run_dir/retry/999/part_00.json"
 HOME="$managed_home" "$script" \
   --input "$audio" \
   --work-dir "$run_dir" \
@@ -362,6 +367,7 @@ if rg -n 'chunk_999' "$run_dir/suspect-chunks.txt" >/dev/null; then
   echo "expected stale raw response to be excluded from resume validation" >&2
   exit 1
 fi
+test "$(shasum -a 256 "$run_dir/usage.json" | awk '{print $1}')" = "$usage_before_stale_resume"
 
 cp "$run_dir/retry/000/part_00.m4a" "$run_dir/retry/000/scratch.m4a"
 HOME="$managed_home" "$script" \
@@ -631,6 +637,19 @@ test ! -s "$run_dir/unresolved-parts.txt"
 rg -n '^000/part_00$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 rg -n '^000/part_01$' "$run_dir/accepted-rescue-parts.txt" >/dev/null
 test "$(shasum -a 256 "$run_dir/rescue/000/part_00.json" | awk '{print $1}')" = "$rescue_response_sha"
+
+usage_before_stale_rescue="$(shasum -a 256 "$run_dir/usage.json" | awk '{print $1}')"
+mkdir -p "$run_dir/rescue/999"
+cp "$run_dir/rescue/000/part_00.json" "$run_dir/rescue/999/part_00.json"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --rescue-model fixture-rescue \
+  --skip-smoke-test \
+  --resume >/dev/null
+test "$(shasum -a 256 "$run_dir/usage.json" | awk '{print $1}')" = "$usage_before_stale_rescue"
 
 for retry_response in "$run_dir/retry/000/part_00.json" "$run_dir/retry/000/part_01.json"; do
   jq '.text = "A valid retry response retained beside accepted rescue evidence."' \

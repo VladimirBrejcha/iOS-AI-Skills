@@ -688,20 +688,38 @@ for (let index = 0; index < chunkCount; index += 1) {
 fs.writeFileSync(path.join(root, 'assembled-transcript-body.md'), output.join('\n'));
 NODE
 
-node - "$work_dir" <<'NODE'
+node - "$work_dir" "$chunk_count" <<'NODE'
 const fs = require('fs');
 const path = require('path');
 
 const root = process.argv[2];
-const responseRoots = ['raw', 'retry', 'rescue'].map((name) => path.join(root, name));
+const chunkCount = Number(process.argv[3]);
 const knownPromptModalities = new Set(['AUDIO', 'TEXT']);
+const suspects = new Set(
+  fs.readFileSync(path.join(root, 'suspect-chunks.txt'), 'utf8').split(/\n/).filter(Boolean)
+);
+const acceptedRescues = new Set(
+  fs.readFileSync(path.join(root, 'accepted-rescue-parts.txt'), 'utf8').split(/\n/).filter(Boolean)
+);
 
-function walk(dir) {
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = path.join(dir, entry.name);
-    return entry.isDirectory() ? walk(full) : [full];
-  });
+const responseFiles = [];
+for (let index = 0; index < chunkCount; index += 1) {
+  const number = String(index).padStart(3, '0');
+  const chunkName = `chunk_${number}`;
+  responseFiles.push(path.join(root, 'raw', `${chunkName}.json`));
+  if (!suspects.has(chunkName)) continue;
+
+  const retryDir = path.join(root, 'retry', number);
+  const parts = fs.readdirSync(retryDir)
+    .filter((name) => /^part_\d+\.m4a$/.test(name))
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  for (const part of parts) {
+    const stem = part.replace(/\.m4a$/, '');
+    responseFiles.push(path.join(retryDir, `${stem}.json`));
+    if (acceptedRescues.has(`${number}/${stem}`)) {
+      responseFiles.push(path.join(root, 'rescue', number, `${stem}.json`));
+    }
+  }
 }
 
 const usage = {
@@ -715,7 +733,7 @@ const usage = {
 };
 const isTokenCount = (value) => Number.isInteger(value) && value >= 0;
 
-for (const file of responseRoots.flatMap(walk).filter((item) => item.endsWith('.json'))) {
+for (const file of responseFiles) {
   let data;
   try {
     data = JSON.parse(fs.readFileSync(file, 'utf8'));
