@@ -350,6 +350,29 @@ if rg -n -- '--thinking-level' "$FAKE_GEMINI_ARG_LOG" >/dev/null; then
   exit 1
 fi
 
+printf '{stale response\n' > "$run_dir/raw/chunk_999.json"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+if rg -n 'chunk_999' "$run_dir/suspect-chunks.txt" >/dev/null; then
+  echo "expected stale raw response to be excluded from resume validation" >&2
+  exit 1
+fi
+
+cp "$run_dir/retry/000/part_00.m4a" "$run_dir/retry/000/scratch.m4a"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+rm "$run_dir/retry/000/scratch.m4a"
+
 for state_file in validation.tsv suspect-chunks.txt retry-validation.tsv unresolved-parts.txt; do
   state_symlink_work="$tmp_dir/state-symlink-${state_file//[^A-Za-z0-9]/-}"
   state_symlink_target="$tmp_dir/state-symlink-target-${state_file//[^A-Za-z0-9]/-}"
@@ -391,6 +414,45 @@ fi
 test "$(mode_of "$retry_shard_symlink_target")" = "755"
 test "$(cat "$retry_shard_symlink_target/existing.txt")" = "preserve retry shard target"
 
+rescue_shard_symlink_work="$tmp_dir/rescue-shard-symlink-work"
+rescue_shard_symlink_target="$tmp_dir/rescue-shard-symlink-target"
+cp -R "$run_dir" "$rescue_shard_symlink_work"
+rm -rf "$rescue_shard_symlink_work/rescue/000"
+mkdir -p "$rescue_shard_symlink_target"
+chmod 755 "$rescue_shard_symlink_target"
+printf 'preserve rescue shard target\n' > "$rescue_shard_symlink_target/existing.txt"
+ln -s "$rescue_shard_symlink_target" "$rescue_shard_symlink_work/rescue/000"
+if HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$rescue_shard_symlink_work" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null 2>&1; then
+  echo "expected symlinked rescue shard directory to fail" >&2
+  exit 1
+fi
+test "$(mode_of "$rescue_shard_symlink_target")" = "755"
+test "$(cat "$rescue_shard_symlink_target/existing.txt")" = "preserve rescue shard target"
+
+cached_response_symlink_work="$tmp_dir/cached-response-symlink-work"
+cached_response_symlink_target="$tmp_dir/cached-response-symlink-target"
+cp -R "$run_dir" "$cached_response_symlink_work"
+printf 'preserve cached response target\n' > "$cached_response_symlink_target"
+rm "$cached_response_symlink_work/raw/chunk_000.json"
+ln -s "$cached_response_symlink_target" "$cached_response_symlink_work/raw/chunk_000.json"
+if HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$cached_response_symlink_work" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null 2>&1; then
+  echo "expected symlinked cached response to fail" >&2
+  exit 1
+fi
+test "$(cat "$cached_response_symlink_target")" = "preserve cached response target"
+
 raw_tmp_target="$tmp_dir/raw-response-tmp-target"
 printf 'preserve raw target\n' > "$raw_tmp_target"
 ln -s "$raw_tmp_target" "$run_dir/raw/chunk_000.json.tmp"
@@ -403,6 +465,7 @@ HOME="$managed_home" "$script" \
   --skip-smoke-test \
   --resume >/dev/null
 test "$(cat "$raw_tmp_target")" = "preserve raw target"
+rm -f "$run_dir/raw/chunk_000.json.tmp"
 
 retry_tmp_target="$tmp_dir/retry-response-tmp-target"
 printf 'preserve retry target\n' > "$retry_tmp_target"
@@ -417,6 +480,7 @@ HOME="$managed_home" "$script" \
   --skip-smoke-test \
   --resume >/dev/null
 test "$(cat "$retry_tmp_target")" = "preserve retry target"
+rm -f "$run_dir/retry/000/part_00.json.tmp"
 
 mv "$run_dir/retry/000/part_01.m4a" "$run_dir/retry/000/part_99.m4a"
 HOME="$managed_home" "$script" \

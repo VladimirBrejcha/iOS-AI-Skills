@@ -630,7 +630,8 @@ def git_path_status_entries(root, pathspec)
     "-C",
     root.to_s,
     "status",
-    "--porcelain",
+    "--porcelain=v1",
+    "-z",
     "--ignored=matching",
     "--untracked-files=all",
     "--",
@@ -643,7 +644,15 @@ def git_path_status_entries(root, pathspec)
     return nil
   end
 
-  stdout.lines.map(&:chomp).reject(&:empty?)
+  stdout.split("\0").reject(&:empty?).reject do |entry|
+    status_code = entry[0, 2]
+    status_path = entry[3..].to_s.delete_suffix("/")
+    path_parts = Pathname.new(status_path).each_filename.to_a
+    status_code == "!!" && (
+      INSTALLER_EXCLUDED_FILES.include?(path_parts.last) ||
+      path_parts.any? { |part| INSTALLER_EXCLUDED_DIRS.include?(part) }
+    )
+  end
 rescue SystemCallError => error
   yield(redact_local_paths(error.message)) if block_given?
   nil

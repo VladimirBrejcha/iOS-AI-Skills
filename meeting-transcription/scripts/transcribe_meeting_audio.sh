@@ -243,6 +243,10 @@ for retry_dir in "$work_dir/retry"/*; do
   test ! -L "$retry_dir" \
     || die "retry shard directory must not be a symlink: $retry_dir"
 done
+for rescue_dir in "$work_dir/rescue"/*; do
+  test ! -L "$rescue_dir" \
+    || die "rescue shard directory must not be a symlink: $rescue_dir"
+done
 
 mkdir -p "$work_dir" "$work_dir/chunks" "$work_dir/raw" "$work_dir/text" "$work_dir/retry" "$work_dir/rescue"
 chmod -R go-rwx "$work_dir"
@@ -368,6 +372,7 @@ run_request() {
 for chunk in "$work_dir"/chunks/chunk_*.m4a; do
   chunk_name="$(basename "$chunk" .m4a)"
   output="$work_dir/raw/$chunk_name.json"
+  test ! -L "$output" || die "cached response must not be a symlink: $output"
   if test "$resume" -eq 1 && test -f "$output"; then
     echo "meeting-transcription: reuse $chunk_name"
     continue
@@ -381,8 +386,10 @@ validate_json_dir() {
   validation_limit="$2"
   validation_report="$3"
   validation_suspects="$4"
+  validation_scope="${5:-all}"
+  validation_count="${6:-0}"
 
-  node - "$validation_dir" "$validation_limit" "$validation_report" "$validation_suspects" <<'NODE'
+  node - "$validation_dir" "$validation_limit" "$validation_report" "$validation_suspects" "$validation_scope" "$validation_count" <<'NODE'
 const fs = require('fs');
 const path = require('path');
 
@@ -390,6 +397,8 @@ const root = process.argv[2];
 const limit = Number(process.argv[3]);
 const reportPath = process.argv[4];
 const suspectPath = process.argv[5];
+const scope = process.argv[6];
+const expectedCount = Number(process.argv[7]);
 const knownPromptModalities = new Set(['AUDIO', 'TEXT']);
 const isTokenCount = (value) => Number.isInteger(value) && value >= 0;
 
@@ -403,7 +412,14 @@ function walk(dir) {
 
 const rows = [];
 const suspects = [];
-for (const file of walk(root).filter((item) => item.endsWith('.json')).sort()) {
+let files = walk(root).filter((item) => item.endsWith('.json'));
+if (scope === 'raw') {
+  const expected = new Set(
+    Array.from({ length: expectedCount }, (_, index) => `chunk_${String(index).padStart(3, '0')}.json`)
+  );
+  files = files.filter((file) => expected.has(path.relative(root, file).replace(/\\/g, '/')));
+}
+for (const file of files.sort()) {
   const relative = path.relative(root, file).replace(/\\/g, '/');
   const reasons = [];
   let data;
@@ -471,7 +487,7 @@ fs.writeFileSync(suspectPath, suspects.length ? `${suspects.join('\n')}\n` : '')
 NODE
 }
 
-validate_json_dir "$work_dir/raw" "$max_output_tokens" "$work_dir/validation.tsv" "$work_dir/suspect-chunks.txt"
+validate_json_dir "$work_dir/raw" "$max_output_tokens" "$work_dir/validation.tsv" "$work_dir/suspect-chunks.txt" raw "$chunk_count"
 
 if test -s "$work_dir/suspect-chunks.txt"; then
   while IFS= read -r chunk_name; do
@@ -515,6 +531,7 @@ if test -s "$work_dir/suspect-chunks.txt"; then
     fi
     for part in "$retry_dir"/part_*.m4a; do
       output="${part%.m4a}.json"
+      test ! -L "$output" || die "cached response must not be a symlink: $output"
       if test "$resume" -eq 1 && test -f "$output"; then
         continue
       fi
@@ -657,7 +674,7 @@ for (let index = 0; index < chunkCount; index += 1) {
 
   const retryDir = path.join(root, 'retry', number);
   const parts = fs.readdirSync(retryDir)
-    .filter((name) => name.endsWith('.m4a'))
+    .filter((name) => /^part_\d+\.m4a$/.test(name))
     .sort(compareRetryParts);
   parts.forEach((part, partIndex) => {
     const stem = part.replace(/\.m4a$/, '');
