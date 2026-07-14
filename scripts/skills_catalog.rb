@@ -49,6 +49,7 @@ SPECIAL_USE_IPV6_ADDRESS_RANGES = [
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__ node_modules].freeze
 DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
+CATALOG_REFERENCE_STOP_WORDS = %w[a an the this relevant].freeze
 
 PUBLIC_UNSAFE_PATTERNS = {
   "macOS user path" => %r{/Users/[A-Za-z0-9._-]+}i,
@@ -1176,6 +1177,12 @@ def catalog_description(skill, metadata, source_type)
   ""
 end
 
+def catalog_skill_references(description)
+  description.to_s.scan(/\bsee\s+([a-z][a-z0-9-]*)/i).flatten.map(&:downcase).reject do |reference|
+    CATALOG_REFERENCE_STOP_WORDS.include?(reference)
+  end.uniq
+end
+
 def catalog_name(skill, metadata, exported_names, source_type)
   catalog = skill["catalog"]
   if source_type == "external-git" && catalog.is_a?(Hash) && valid_string?(catalog["name"])
@@ -1465,6 +1472,11 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     description = catalog_description(skill, metadata, source_type)
     manager_skill_name = source_type == "registry-local" ? manager_selected_skill_name(metadata) : nil
     reporter.error("#{skill_id}: catalog description is required") unless valid_string?(description)
+    catalog_skill_references(description).each do |reference|
+      next if registry_skill_ids[reference] == "active"
+
+      reporter.error("#{skill_id}: catalog description references non-active or unregistered skill #{reference}")
+    end
 
     install = nil
     installable_by_manager = source_type == "registry-local" &&

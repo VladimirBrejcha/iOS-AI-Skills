@@ -1759,6 +1759,19 @@ ruby -ryaml -e '
 duplicate_skill_id_output="$(expect_failure run_catalog "$duplicate_skill_id_dir" --json)"
 assert_contains "$duplicate_skill_id_output" "duplicate skill id example-skill"
 
+dangling_catalog_reference_dir="$tmp_dir/dangling-catalog-reference"
+write_ok_fixture "$dangling_catalog_reference_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("catalog")["description"] =
+    "For unsupported follow-up work, see missing-skill."
+  File.write(path, data.to_yaml)
+' "$dangling_catalog_reference_dir/skills.registry.yaml"
+dangling_catalog_reference_output="$(expect_failure run_catalog "$dangling_catalog_reference_dir" --json)"
+assert_contains "$dangling_catalog_reference_output" \
+  "external-skill: catalog description references non-active or unregistered skill missing-skill"
+
 duplicate_export_name_dir="$tmp_dir/duplicate-export-name"
 write_ok_fixture "$duplicate_export_name_dir"
 ruby -ryaml -e '

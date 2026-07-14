@@ -419,8 +419,7 @@ skills:
         LinkedIn, Twitter/X, or other ad platforms. Also use when the user mentions 'PPC,' 'paid media,'
         'ROAS,' 'CPA,' 'ad campaign,' 'retargeting,' 'audience targeting,' 'Google Ads,' 'Facebook ads,'
         'LinkedIn ads,' 'ad budget,' 'cost per click,' 'ad spend,' or 'should I run ads.' Use this for campaign
-        strategy, audience targeting, bidding, and optimization. For bulk ad creative generation and iteration,
-        see ad-creative. For landing page optimization, see cro.
+        strategy, audience targeting, bidding, and optimization. For landing page optimization, see cro.
     notes:
     - Replaces stale checked-in capability `paid-ads` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.
@@ -552,7 +551,7 @@ skills:
         page,' '[Product] vs [Product],' '[Product] alternative,' 'competitive landing pages,' 'how do we
         compare to X,' 'battle card,' or 'competitor teardown.' Use this for any content that positions
         your product against competitors. Covers four formats: singular alternative, plural alternatives,
-        you vs competitor, and competitor vs competitor. For sales-specific competitor docs, see sales-enablement.
+        you vs competitor, and competitor vs competitor.
     notes:
     - >-
       Replaces stale checked-in capability `competitor-alternatives` with the current upstream name and
@@ -621,8 +620,7 @@ skills:
         "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold,"
         "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever
         someone is working on website text that needs to persuade or convert. For email copy, see emails.
-        For popup copy, see popups. For editing existing copy, see copy-editing. For the offer underneath
-        the copy (bonuses, guarantees, value framing), see offers.
+        For popup copy, see popups. For editing existing copy, see copy-editing.
     notes:
     - Replaces stale checked-in capability `copywriting` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.
@@ -723,7 +721,7 @@ skills:
         sequence," "onboarding emails," "welcome sequence," "re-engagement emails," "email automation,"
         "lifecycle emails," "trigger-based emails," "email funnel," "email workflow," "what emails should
         I send," "welcome series," or "email cadence." Use this for any multi-email automated flow. For
-        cold outreach emails, see cold-email. For in-app onboarding, see onboarding.
+        in-app onboarding, see onboarding.
     notes:
     - Replaces stale checked-in capability `email-sequence` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.
@@ -756,8 +754,7 @@ skills:
         tool," "marketing tool," "calculator," "generator," "interactive tool," "lead gen tool," "build
         a tool for leads," "free resource," "ROI calculator," "grader tool," "audit tool," "should I build
         a free tool," or "tools for lead gen." Use this whenever someone wants to build something useful
-        and give it away to attract leads or earn links. For downloadable content lead magnets (ebooks,
-        checklists, templates), see lead-magnets.
+        and give it away to attract leads or earn links.
     notes:
     - >-
       Replaces stale checked-in capability `free-tool-strategy` with the current upstream name and package.
@@ -790,8 +787,7 @@ skills:
         when the user mentions 'launch,' 'Product Hunt,' 'feature release,' 'announcement,' 'go-to-market,'
         'beta launch,' 'early access,' 'waitlist,' 'product update,' 'how do I launch this,' 'launch checklist,'
         'GTM plan,' or 'we're about to ship.' Use this whenever someone is preparing to release something
-        publicly. For ongoing marketing after launch, see marketing-ideas. For the offer being launched
-        (bonuses, guarantees, scarcity, naming), see offers.
+        publicly. For ongoing marketing after launch, see marketing-ideas.
     notes:
     - Replaces stale checked-in capability `launch-strategy` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.
@@ -1017,8 +1013,7 @@ skills:
         'value metric,' 'Van Westendorp,' 'willingness to pay,' 'monetization,' 'how much should I charge,'
         'my pricing is wrong,' 'pricing page,' 'annual vs monthly,' 'per seat pricing,' or 'should I offer
         a free plan.' Use this whenever someone is figuring out what to charge or how to structure their
-        plans. For in-app upgrade screens, see paywalls. For offer construction (bonuses, guarantees, value
-        framing, naming) on services/courses/coaching/high-ticket B2B, see offers.
+        plans. For in-app upgrade screens, see paywalls.
     notes:
     - Replaces stale checked-in capability `pricing-strategy` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.
@@ -1051,7 +1046,7 @@ skills:
         pages," "[keyword] + [city] pages," "comparison pages," "integration pages," "building many pages
         for SEO," "pSEO," "generate 100 pages," "data-driven pages," or "templated landing pages." Use this
         whenever someone wants to create many similar pages targeting different keywords or locations. For
-        auditing existing SEO issues, see seo-audit. For content strategy planning, see content-strategy.
+        auditing existing SEO issues, see seo-audit.
     notes:
     - Replaces stale checked-in capability `programmatic-seo` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.
@@ -1146,8 +1141,7 @@ skills:
         use when the user mentions "schema markup," "structured data," "JSON-LD," "rich snippets," "schema.org,"
         "FAQ schema," "product schema," "review schema," "breadcrumb schema," "Google rich results," "knowledge
         panel," "star ratings in search," or "add structured data." Use this whenever someone wants their
-        pages to show enhanced results in Google. For broader SEO issues, see seo-audit. For AI search optimization,
-        see ai-seo.
+        pages to show enhanced results in Google. For broader SEO issues, see seo-audit.
     notes:
     - Replaces stale checked-in capability `schema-markup` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.
@@ -1205,7 +1199,7 @@ skills:
         "site isn't ranking," "Google update hit me," "page speed," "core web vitals," "crawl errors," or
         "indexing issues." Use this even if the user just says something vague like "my SEO is bad" or "help
         with SEO" — start with an audit. For building pages at scale to target keywords, see programmatic-seo.
-        For adding structured data, see schema. For AI search optimization, see ai-seo.
+        For adding structured data, see schema.
     notes:
     - Replaces stale checked-in capability `seo-audit` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.
@@ -1299,8 +1293,8 @@ skills:
         'TikTok video,' 'Reels,' 'Shorts,' 'video script,' 'video hook,' 'short-form video,' 'create a reel,'
         'social listening,' 'brand mentions,' 'competitor monitoring,' 'top posts to comment on,' or 'find
         people asking for.' Use this for social media content creation, repurposing, scheduling, short-form
-        video scripting, and social listening. For broader content strategy, see content-strategy. For paid
-        ads, see ad-creative. For earned media, see public-relations.
+        video scripting, and social listening. For broader marketing planning, see marketing-ideas. For paid
+        advertising strategy, see ads.
     notes:
     - Replaces stale checked-in capability `social-content` with the current upstream name and package.
     - Source owner, tag, content, and MIT license reviewed on 2026-07-14.

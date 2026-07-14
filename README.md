@@ -15,12 +15,12 @@ source ownership and lock/version metadata. Only `active` entries are eligible
 for installation, and profile/client proof remains a separate rollout gate.
 The current catalog has no pending or legacy dispositions; those lifecycle
 states remain available for future reviewed intake. The shared
-`~/.agents/skills` manager path is the current reviewed
-baseline for Codex and OpenCode; every active registry-local skill also has a
-reviewed Claude Code baseline through `~/.claude/skills`. Repo-local
+`~/.agents/skills` manager path and `~/.claude/skills` copies are reviewed
+baselines only for profile-selected registry-local skills whose target client
+is marked `supported`. Client/skill combinations marked `planned`, repo-local
 consumers, external-git entries such as `swift-concurrency` and `swiftui-pro`,
-and non-active entries remain manual-review until their registry disposition is
-promoted through a reviewed source decision.
+and non-active entries remain manual-review until their registry disposition
+and consumer exposure are promoted through a reviewed decision.
 
 The contract is documented in:
 
