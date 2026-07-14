@@ -44,8 +44,12 @@ Checklist:
 ## D1 verification (Cloudflare)
 
 ```bash
-npx wrangler d1 execute dailysquares --remote --command "SELECT device_id, environment, substr(apns_token,1,8) AS token_prefix, last_push_at, updated_at FROM device_push_tokens ORDER BY updated_at DESC LIMIT 5;"
+D1_DATABASE_NAME="your-d1-database"
+npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --command "SELECT device_id, environment, substr(apns_token,1,8) AS token_prefix, last_push_at, updated_at FROM device_push_tokens ORDER BY updated_at DESC LIMIT 5;"
 ```
+
+Replace the database name, table, and columns with the project's reviewed D1
+schema before running the query.
 
 ## Known issues and fixes
 

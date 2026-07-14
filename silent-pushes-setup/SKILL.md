@@ -66,7 +66,7 @@ Use this skill when the user asks about:
 - [ ] APNs request returns 200 and backend records `last_push_at`.
 - [ ] App receives background push and updates widget.
 
-## Common issues and fixes (from recent work)
+## Common issues and fixes
 
 - **Error: “no valid aps‑environment entitlement string found”**
   - Root cause: wrong entitlement key or profile stripping it.
@@ -75,17 +75,11 @@ Use this skill when the user asks about:
 - **Push capability shows in Xcode but still failing**
   - XcodeGen projects can ignore UI toggles. Ensure entitlements are correct in source and the signed app contains `aps-environment`.
 
-- **Duplicate push token registration (UNIQUE constraint)**
-  - Backend should treat `/v1/device/push/register` as idempotent (upsert + update timestamp).
+- **Duplicate push token registration**
+  - Treat registration as idempotent: upsert the token, environment, and update timestamp.
 
-- **No push after manual refresh**
-  - Pushes are only sent when data changes and when the backend path actually triggers `sendPushes` (often cron). This is expected.
-
-- **Posts show on previous day**
-  - Cause: local cache normalized to UTC. Fix: store/display days using local day boundary.
-
-- **Wrangler tail error on close**
-  - Tail session deletion can fail; this is a Wrangler cleanup issue, not a backend bug.
+- **No push after a server-side refresh**
+  - Confirm the refresh actually changed data and reached the code path that sends APNs requests. A successful refresh alone does not imply that a push was sent.
 
 ## References
 

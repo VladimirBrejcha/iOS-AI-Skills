@@ -161,6 +161,14 @@ commands:
           end
         end
 
+        missing_agent_guide_paths = File.read("AGENTS.md")
+          .scan(/`([^`\n]+\/SKILL\.md)`/)
+          .flatten
+          .reject { |path| File.file?(path) }
+        unless missing_agent_guide_paths.empty?
+          raise "AGENTS.md references missing skill entrypoints: #{missing_agent_guide_paths.join(", ")}"
+        end
+
         puts "validated #{files.length} skill entrypoints"
       '
   - id: public-safety-docs

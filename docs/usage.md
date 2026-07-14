@@ -1,7 +1,7 @@
 # Usage
 
-Status: inventory-complete-review-pending
-Last updated: 2026-07-11
+Status: catalog-dispositions-finalized
+Last updated: 2026-07-14
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Setup And Update Workflow](setup-update-workflow.md),
@@ -24,7 +24,8 @@ cd agent-skills
 
 `skills.registry.yaml` contains every top-level skill disposition. Install only
 entries whose generated catalog record has `status: active` and an `install`
-object; unreviewed and legacy entries are inventory-only.
+object. The current catalog has no pending or legacy entries, but those states
+remain inventory-only whenever they are used for future intake.
 
 Install one skill into the reviewed shared global manager root:
 
@@ -68,11 +69,12 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
 OpenCode support for the reviewed global skills currently comes through the
 same manager-owned `~/.agents/skills` root used by the pinned Codex command;
 verify it with `npx --yes skills@1.5.14 list --global --json` before treating a
-skill as installed for OpenCode. Claude Code support is currently proven for
-every active registry-local skill through the separate `~/.claude/skills`
-root. External-git entries such as `swift-concurrency` and `swiftui-pro`,
-repo-local consumers, and non-active entries remain manual-review until they
-move to reviewed support in the registry and profile examples.
+skill as installed for OpenCode. Claude Code support is currently proven
+through the separate `~/.claude/skills` root only for profile-selected skills
+whose Claude client status is `supported`. External-git entries such as
+`swift-concurrency` and `swiftui-pro`, repo-local consumers, planned client
+targets, and non-active entries remain manual-review until they move to
+reviewed support in the registry and profile examples.
 
 Install a reviewed Claude Code target:
 

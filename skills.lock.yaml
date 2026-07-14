@@ -2,12 +2,108 @@
 schema_version: 0.1
 generated_by: scripts/skills_doctor.rb --print-lock
 skills:
+- id: ab-testing
+  source_type: external-git
+  path: skills/ab-testing
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - ab-testing
+- id: ads
+  source_type: external-git
+  path: skills/ads
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - ads
+- id: analytics
+  source_type: external-git
+  path: skills/analytics
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - analytics
+- id: apple-hig-designer
+  source_type: external-git
+  path: skills/apple-hig-designer
+  url: https://github.com/jamesrochabrun/skills.git
+  pinned_tag: 2.1.1
+  observed_commit: 2482c176372299c92af01f8414a67172f324e8db
+  exported_names:
+  - apple-hig-designer
+- id: aso
+  source_type: external-git
+  path: skills/aso
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - aso
 - id: code-review
   source_type: registry-local
   path: code-review
   digest_sha256: f4edb7ea8b8e0791d2203a21880c6d37cb77a9a2242a32de7cf664214c3e761f
   exported_names:
   - code-review
+- id: competitors
+  source_type: external-git
+  path: skills/competitors
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - competitors
+- id: copy-editing
+  source_type: external-git
+  path: skills/copy-editing
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - copy-editing
+- id: copywriting
+  source_type: external-git
+  path: skills/copywriting
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - copywriting
+- id: cro
+  source_type: external-git
+  path: skills/cro
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - cro
+- id: design-brief-generator
+  source_type: external-git
+  path: skills/design-brief-generator
+  url: https://github.com/jamesrochabrun/skills.git
+  pinned_tag: 2.1.1
+  observed_commit: 2482c176372299c92af01f8414a67172f324e8db
+  exported_names:
+  - design-brief-generator
+- id: emails
+  source_type: external-git
+  path: skills/emails
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - emails
+- id: free-tools
+  source_type: external-git
+  path: skills/free-tools
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - free-tools
 - id: gemini-files-api
   source_type: registry-local
   path: gemini-files-api
@@ -26,12 +122,142 @@ skills:
   digest_sha256: 8cb369d77201d30bdd79cba8cdb8886675a6cfc3962d34469203d76f590fdec9
   exported_names:
   - ios-xcodegen
+- id: launch
+  source_type: external-git
+  path: skills/launch
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - launch
+- id: marketing-ideas
+  source_type: external-git
+  path: skills/marketing-ideas
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - marketing-ideas
+- id: marketing-psychology
+  source_type: external-git
+  path: skills/marketing-psychology
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - marketing-psychology
+- id: mechanism-audit
+  source_type: registry-local
+  path: mechanism-audit
+  digest_sha256: bdf2a2c41e20f46500724712df95da4cfa80d550a32b00d850d91e2bca5dc919
+  exported_names:
+  - mechanism-audit
 - id: meeting-transcription
   source_type: registry-local
   path: meeting-transcription
   digest_sha256: 2e3fd87e0102db5bfbeee75cdda023fac8a22e834e9e93b2170ec707fb1165fe
   exported_names:
   - meeting-transcription
+- id: onboarding
+  source_type: external-git
+  path: skills/onboarding
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - onboarding
+- id: paywalls
+  source_type: external-git
+  path: skills/paywalls
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - paywalls
+- id: popups
+  source_type: external-git
+  path: skills/popups
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - popups
+- id: pricing
+  source_type: external-git
+  path: skills/pricing
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - pricing
+- id: programmatic-seo
+  source_type: external-git
+  path: skills/programmatic-seo
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - programmatic-seo
+- id: referrals
+  source_type: external-git
+  path: skills/referrals
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - referrals
+- id: revenuecat
+  source_type: external-git
+  path: revenuecat/skills/revenuecat
+  url: https://github.com/RevenueCat/ai-toolkit.git
+  pinned_tag: v2.1.0
+  observed_commit: b34f9bebe02ceb7e3f32e6d7d081cdfb2e7c37a6
+  exported_names:
+  - revenuecat
+- id: schema
+  source_type: external-git
+  path: skills/schema
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - schema
+- id: screenshot-analyze-verification
+  source_type: registry-local
+  path: screenshot-analyze-verification
+  digest_sha256: 4c7516b0c0f9c909731e93bd24d1209f7738f954ca9f580723585745c84b678b
+  exported_names:
+  - screenshot-analyze-verification
+- id: seo-audit
+  source_type: external-git
+  path: skills/seo-audit
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - seo-audit
+- id: signup
+  source_type: external-git
+  path: skills/signup
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - signup
+- id: silent-pushes-setup
+  source_type: registry-local
+  path: silent-pushes-setup
+  digest_sha256: fca5a281a686aa5d6e63ccf246f1f62750b41f77d97fc41c85426bc20d7f6720
+  exported_names:
+  - silent-pushes-setup
+- id: social
+  source_type: external-git
+  path: skills/social
+  url: https://github.com/coreyhaines31/marketingskills.git
+  pinned_tag: v2.6.0
+  observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
+  exported_names:
+  - social
 - id: spec-creation-updating
   source_type: registry-local
   path: spec-creation-updating
@@ -52,6 +278,14 @@ skills:
   digest_sha256: aec1fc0b032122fd08c04d35b5d42d6f95bed87e2c1340371c46c2c40d1a09b9
   exported_names:
   - swift-testing
+- id: swiftui-animation
+  source_type: external-git
+  path: skills/swiftui-animation
+  url: https://github.com/jamesrochabrun/skills.git
+  pinned_tag: 2.1.1
+  observed_commit: 2482c176372299c92af01f8414a67172f324e8db
+  exported_names:
+  - swiftui-animation
 - id: swiftui-pro
   source_type: external-git
   path: swiftui-pro
@@ -75,6 +309,6 @@ skills:
 - id: xcode-cloud
   source_type: registry-local
   path: xcode-cloud
-  digest_sha256: 64807117128a7d5365ff2aaab3658a47d49b03f411424f981aaacac2c2de515b
+  digest_sha256: 9ca461291d4d748ee6fc9c3f99fc89a4e51cd923e03051530337141321dbb431
   exported_names:
   - xcode-cloud

@@ -18,6 +18,8 @@ CATALOG_SCHEMA_VERSION = "0.1"
 GENERATOR = "scripts/skills_catalog.rb"
 SKILL_STATUSES = %w[active needs-import-review needs-source-review legacy].freeze
 UNRESOLVED_LOCAL_STATUSES = %w[needs-source-review legacy].freeze
+FINALIZED_REGISTRY_STATUS = "catalog-dispositions-finalized"
+PENDING_SKILL_STATUSES = %w[needs-import-review needs-source-review].freeze
 DEFAULT_SKILLS_CLI_PACKAGE = "skills@1.5.14"
 DEFAULT_INSTALL_PROFILE = File.join("profiles", "machine", "example-local-skills.yaml").freeze
 SHARED_AGENTS_USER_ROOT = File.expand_path("~/.agents/skills").freeze
@@ -47,6 +49,7 @@ SPECIAL_USE_IPV6_ADDRESS_RANGES = [
 INSTALLER_EXCLUDED_FILES = %w[metadata.json].freeze
 INSTALLER_EXCLUDED_DIRS = %w[.git __pycache__ __pypackages__ node_modules].freeze
 DESCRIPTION_FRONTMATTER_KEY_PATTERN = /\A(?<indent>\s*)(?:"description"|'description'|description)\s*:(?<value>.*)\z/
+CATALOG_SKILL_REFERENCE_PATTERN = /\bsee\s+`?([a-z][a-z0-9-]*)`?/i
 
 PUBLIC_UNSAFE_PATTERNS = {
   "macOS user path" => %r{/Users/[A-Za-z0-9._-]+}i,
@@ -1174,6 +1177,12 @@ def catalog_description(skill, metadata, source_type)
   ""
 end
 
+def catalog_skill_references(description)
+  return [] unless valid_text_string?(description)
+
+  description.scan(CATALOG_SKILL_REFERENCE_PATTERN).flatten.map(&:downcase).uniq
+end
+
 def catalog_name(skill, metadata, exported_names, source_type)
   catalog = skill["catalog"]
   if source_type == "external-git" && catalog.is_a?(Hash) && valid_string?(catalog["name"])
@@ -1232,6 +1241,16 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
   unless raw_skills.is_a?(Array)
     reporter.error("skills.registry.yaml skills must be an array")
     raw_skills = []
+  end
+  if registry_status == FINALIZED_REGISTRY_STATUS
+    pending_ids = raw_skills.map do |entry|
+      next unless entry.is_a?(Hash)
+
+      entry["id"] if PENDING_SKILL_STATUSES.include?(entry["status"])
+    end.compact
+    unless pending_ids.empty?
+      reporter.error("registry status #{FINALIZED_REGISTRY_STATUS} cannot contain pending skill dispositions: #{pending_ids.join(', ')}")
+    end
   end
   registry_skill_ids = raw_skills.each_with_object({}) do |entry, memo|
     next unless entry.is_a?(Hash) && safe_non_path_identifier?(entry["id"])
@@ -1453,6 +1472,14 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
     description = catalog_description(skill, metadata, source_type)
     manager_skill_name = source_type == "registry-local" ? manager_selected_skill_name(metadata) : nil
     reporter.error("#{skill_id}: catalog description is required") unless valid_string?(description)
+    catalog_skill_references(description).each do |reference|
+      referenced_status = registry_skill_ids[reference]
+      if referenced_status.nil?
+        reporter.error("#{skill_id}: catalog description references unregistered skill #{reference}")
+      elsif referenced_status != "active"
+        reporter.error("#{skill_id}: catalog description references non-active skill #{reference}")
+      end
+    end
 
     install = nil
     installable_by_manager = source_type == "registry-local" &&

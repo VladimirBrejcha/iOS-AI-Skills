@@ -475,6 +475,17 @@ YAML
 ruby "$repo_root/scripts/skills_doctor.rb" --registry "$missing_lock_entry_dir/skills.registry.yaml" --print-lock >"$missing_lock_entry_dir/good.lock.yaml"
 assert_not_contains "$(cat "$missing_lock_entry_dir/good.lock.yaml")" "new-skill"
 
+finalized_pending_dir="$tmp_dir/finalized-pending"
+cp -R "$missing_lock_entry_dir/." "$finalized_pending_dir/"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  data = YAML.safe_load(File.read(path), aliases: false)
+  data["status"] = "catalog-dispositions-finalized"
+  File.write(path, data.to_yaml)
+' "$finalized_pending_dir/skills.registry.yaml"
+finalized_pending_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$finalized_pending_dir/skills.registry.yaml" --print-lock)"
+assert_contains "$finalized_pending_output" "registry status catalog-dispositions-finalized cannot contain pending skill dispositions: new-skill"
+
 unresolved_exposure_dir="$tmp_dir/unresolved-exposure"
 cp -R "$missing_lock_entry_dir/." "$unresolved_exposure_dir/"
 ruby -ryaml -e '

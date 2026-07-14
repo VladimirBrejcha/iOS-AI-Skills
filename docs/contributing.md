@@ -1,7 +1,7 @@
 # Contributing
 
-Status: inventory-complete-review-pending
-Last updated: 2026-07-11
+Status: catalog-dispositions-finalized
+Last updated: 2026-07-14
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Usage](usage.md), [Setup And Update Workflow](setup-update-workflow.md),
@@ -30,7 +30,9 @@ Every top-level skill folder must have one disposition in
 origin or ownership is not yet reviewed, and `legacy` when retained but no
 longer offered. Resolved-source entries that are not legacy receive lock
 metadata. Only active resolved-source entries may appear in profiles or emit
-install commands.
+install commands. When pending intake exists, change the top-level registry
+status away from `catalog-dispositions-finalized`; doctor and catalog checks
+reject a false finalized claim.
 
 ## Add A New 51Code-Owned Skill
 
