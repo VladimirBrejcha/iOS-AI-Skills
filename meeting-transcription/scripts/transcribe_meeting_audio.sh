@@ -478,6 +478,9 @@ for (const file of files.sort()) {
       && typeof detail.modality === 'string'
       && knownPromptModalities.has(detail.modality)
       && isTokenCount(detail.tokenCount));
+  const hasAudioInputTokens = hasValidPromptTokenDetails
+    && promptTokenDetails.some((detail) => detail.modality === 'AUDIO'
+      && detail.tokenCount > 0);
   const outputTokens = hasOutputTokens ? data.usageMetadata.candidatesTokenCount : 0;
   const finishReasons = Array.isArray(data.candidates)
     ? data.candidates
@@ -490,6 +493,7 @@ for (const file of files.sort()) {
   if (hasUsageMetadata && !hasTotalTokens) reasons.push('missing_total_tokens');
   if (hasUsageMetadata && !hasPromptTokenDetails) reasons.push('missing_prompt_token_details');
   if (hasPromptTokenDetails && !hasValidPromptTokenDetails) reasons.push('invalid_prompt_token_details');
+  if (hasValidPromptTokenDetails && !hasAudioInputTokens) reasons.push('missing_audio_input_tokens');
   for (const finishReason of new Set(finishReasons)) {
     if (finishReason !== 'STOP') reasons.push(`finish_reason_${finishReason.toLowerCase()}`);
   }
@@ -774,7 +778,9 @@ for (const file of responseFiles) {
       || Array.isArray(detail)
       || typeof detail.modality !== 'string'
       || !knownPromptModalities.has(detail.modality)
-      || !isTokenCount(detail.tokenCount))) {
+      || !isTokenCount(detail.tokenCount))
+    || !data.usageMetadata.promptTokensDetails.some((detail) => detail.modality === 'AUDIO'
+      && detail.tokenCount > 0)) {
     usage.malformedResponses += 1;
     continue;
   }

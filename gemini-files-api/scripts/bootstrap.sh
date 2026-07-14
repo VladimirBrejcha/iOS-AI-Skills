@@ -11,6 +11,11 @@ if [[ "${1:-}" == "--force" ]]; then
   rm -rf node_modules
 fi
 
+if [[ -L node_modules ]]; then
+  echo "[gemini-files-api] Replacing symlinked dependency directory at $SCRIPT_DIR/node_modules"
+  rm -f node_modules
+fi
+
 lock_sha256="$(node -e '
   const crypto = require("node:crypto");
   const fs = require("node:fs");

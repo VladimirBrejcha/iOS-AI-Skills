@@ -34,6 +34,17 @@ PATH="$bootstrap_fixture/fake-bin:$PATH" \
 test "$(cat "$bootstrap_fixture/npm-args.txt")" = "ci --ignore-scripts"
 test -f "$bootstrap_fixture/scripts/node_modules/.gemini-files-api-lock-sha256"
 
+external_node_modules="$tmp_dir/external-node-modules"
+mv "$bootstrap_fixture/scripts/node_modules" "$external_node_modules"
+ln -s "$external_node_modules" "$bootstrap_fixture/scripts/node_modules"
+rm "$bootstrap_fixture/npm-args.txt"
+FAKE_NPM_ARGS="$bootstrap_fixture/npm-args.txt" \
+PATH="$bootstrap_fixture/fake-bin:$PATH" \
+  bash "$bootstrap_fixture/scripts/bootstrap.sh" >/dev/null
+test ! -L "$bootstrap_fixture/scripts/node_modules"
+test "$(cat "$bootstrap_fixture/npm-args.txt")" = "ci --ignore-scripts"
+test -f "$bootstrap_fixture/scripts/node_modules/.gemini-files-api-lock-sha256"
+
 if grep -F 'require_command rg' "$script" >/dev/null; then
   echo "meeting transcription runtime must not require unused ripgrep" >&2
   exit 1
@@ -254,6 +265,10 @@ if (count === 0) {
         ? { promptTokensDetails: [{ modality: 'AUDIO' }] }
         : process.env.FAKE_GEMINI_UNKNOWN_MODALITY
           ? { promptTokensDetails: [{ modality: 'audio', tokenCount: 8 }] }
+          : process.env.FAKE_GEMINI_TEXT_ONLY_PROMPT_DETAILS
+            ? { promptTokensDetails: [{ modality: 'TEXT', tokenCount: 8 }] }
+            : process.env.FAKE_GEMINI_ZERO_AUDIO_TOKENS
+              ? { promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 0 }] }
           : process.env.FAKE_GEMINI_BAD_TOKEN_COUNT || process.env.FAKE_GEMINI_FINISH_REASON
             ? { promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 8 }] }
         : {}),
@@ -311,6 +326,26 @@ FAKE_GEMINI_UNKNOWN_MODALITY=1 \
   --skip-smoke-test >/dev/null
 rg -n $'chunk_000.json\t8\t[0-9]+\tinvalid_prompt_token_details' "$unknown_modality_run/validation.tsv" >/dev/null
 test "$(jq -r '.malformedResponses' "$unknown_modality_run/usage.json")" = "1"
+
+for audio_evidence_mode in TEXT_ONLY_PROMPT_DETAILS ZERO_AUDIO_TOKENS; do
+  audio_evidence_slug="$(printf '%s' "$audio_evidence_mode" | tr '[:upper:]_' '[:lower:]-')"
+  audio_evidence_run="$tmp_dir/$audio_evidence_slug-run"
+  env \
+    HOME="$repo_local_home" \
+    FAKE_GEMINI_COUNTER="$tmp_dir/$audio_evidence_slug-counter" \
+    FAKE_GEMINI_BOOTSTRAP_MARKER="$tmp_dir/$audio_evidence_slug-bootstrap-marker" \
+    "FAKE_GEMINI_$audio_evidence_mode=1" \
+    "$repo_local_meeting_scripts/transcribe_meeting_audio.sh" \
+    --input "$audio" \
+    --work-dir "$audio_evidence_run" \
+    --chunk-seconds 10 \
+    --skip-smoke-test >/dev/null
+  rg -n $'chunk_000.json\t8\t[0-9]+\tmissing_audio_input_tokens' \
+    "$audio_evidence_run/validation.tsv" >/dev/null
+  rg -n 'Managed wrapper retry transcript' \
+    "$audio_evidence_run/assembled-transcript-body.md" >/dev/null
+  test "$(jq -r '.malformedResponses' "$audio_evidence_run/usage.json")" = "1"
+done
 
 finish_reason_run="$tmp_dir/finish-reason-run"
 HOME="$repo_local_home" \

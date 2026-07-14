@@ -13,8 +13,8 @@ import {
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const DEFAULT_KEYCHAIN_SERVICE =
   process.env.GEMINI_KEYCHAIN_SERVICE || "gemini_api_key";
-const FILE_ACTIVE_TIMEOUT_MS = 60_000;
-const FILE_ACTIVE_POLL_MS = 1_000;
+const DEFAULT_FILE_ACTIVE_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_FILE_ACTIVE_POLL_MS = 1_000;
 const RETRY_ATTEMPTS = 3;
 const INVOCATION_PATH = process.argv[1]
   ? path.resolve(process.argv[1])
@@ -81,6 +81,12 @@ Options:
   --list-models      List available model names for the current API key.
   --help, -h         Show this help message.
 
+Environment:
+  GEMINI_FILE_ACTIVE_TIMEOUT_MS  Files API activation timeout in milliseconds.
+                                 Default: ${DEFAULT_FILE_ACTIVE_TIMEOUT_MS}
+  GEMINI_FILE_ACTIVE_POLL_MS     Files API activation poll interval in milliseconds.
+                                 Default: ${DEFAULT_FILE_ACTIVE_POLL_MS}
+
 Authentication:
   1. GEMINI_API_KEY environment variable
   2. GOOGLE_API_KEY environment variable
@@ -119,6 +125,14 @@ function parseArgs(argv) {
     thinkingBudget: undefined,
     thinkingLevel: "",
     includeThoughts: false,
+    fileActiveTimeoutMs: parsePositiveIntegerEnv(
+      "GEMINI_FILE_ACTIVE_TIMEOUT_MS",
+      DEFAULT_FILE_ACTIVE_TIMEOUT_MS,
+    ),
+    fileActivePollMs: parsePositiveIntegerEnv(
+      "GEMINI_FILE_ACTIVE_POLL_MS",
+      DEFAULT_FILE_ACTIVE_POLL_MS,
+    ),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -266,6 +280,20 @@ function parseArgs(argv) {
   }
 
   return parsed;
+}
+
+function parsePositiveIntegerEnv(name, fallback) {
+  const rawValue = process.env[name];
+  if (rawValue === undefined || rawValue === "") {
+    return fallback;
+  }
+
+  const value = Number(rawValue);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} expects a positive integer, got "${rawValue}".`);
+  }
+
+  return value;
 }
 
 function parseNumberArg(flag, argv, index) {
@@ -627,7 +655,7 @@ async function listModels(ai, jsonOutput) {
   }
 }
 
-async function uploadFiles(ai, filePaths, uploads) {
+async function uploadFiles(ai, filePaths, uploads, activeTimeoutMs, activePollMs) {
   for (const filePath of filePaths) {
     await ensureFileExists(filePath);
     const mimeType = guessMimeType(filePath);
@@ -644,11 +672,16 @@ async function uploadFiles(ai, filePaths, uploads) {
       mimeType: uploaded.mimeType || mimeType,
     };
     uploads.push(upload);
-    upload.file = await waitForActiveFile(ai, uploaded);
+    upload.file = await waitForActiveFile(
+      ai,
+      uploaded,
+      activeTimeoutMs,
+      activePollMs,
+    );
   }
 }
 
-async function waitForActiveFile(ai, file) {
+async function waitForActiveFile(ai, file, activeTimeoutMs, activePollMs) {
   if (!file.name) {
     return file;
   }
@@ -658,13 +691,13 @@ async function waitForActiveFile(ai, file) {
   let state = String(current.state || "").toUpperCase();
 
   while (state !== "ACTIVE" && state !== "FAILED") {
-    if (Date.now() - startedAt > FILE_ACTIVE_TIMEOUT_MS) {
+    if (Date.now() - startedAt > activeTimeoutMs) {
       throw new Error(
         `Timed out waiting for ${file.name} to become ACTIVE. Last state: ${current.state}.`,
       );
     }
 
-    await sleep(FILE_ACTIVE_POLL_MS);
+    await sleep(activePollMs);
     current = await withRetry(() => ai.files.get({ name: file.name }));
     state = String(current.state || "").toUpperCase();
   }
@@ -744,7 +777,13 @@ async function analyze(ai, args) {
   const removeSignalCleanup = installSignalCleanup(cleanup);
 
   try {
-    await uploadFiles(ai, args.files, uploads);
+    await uploadFiles(
+      ai,
+      args.files,
+      uploads,
+      args.fileActiveTimeoutMs,
+      args.fileActivePollMs,
+    );
 
     const parts = [args.prompt];
     for (const upload of uploads) {

@@ -219,11 +219,76 @@ export const createUserContent = (parts) => ({ role: "user", parts });
   assert.equal(stdout, "fixture response\n");
 }
 
+async function runActivationTimeoutCase() {
+  const caseRoot = path.join(fixtureRoot, "activation-timeout");
+  const fixtureScript = path.join(caseRoot, "scripts", "gemini-mm.mjs");
+  const packageRoot = path.join(caseRoot, "scripts", "node_modules", "@google", "genai");
+  const input = path.join(caseRoot, "fixture.m4a");
+
+  await mkdir(packageRoot, { recursive: true });
+  await cp(wrapper, fixtureScript);
+  await writeFile(input, "fixture audio");
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ name: "@google/genai", type: "module", exports: "./index.js" }),
+  );
+  await writeFile(
+    path.join(packageRoot, "index.js"),
+    `export class GoogleGenAI {
+  constructor() {
+    this.files = {
+      upload: async () => ({ name: "files/fixture", uri: "fixture://upload", state: "PROCESSING", mimeType: "audio/mp4" }),
+      get: async () => ({ name: "files/fixture", uri: "fixture://upload", state: "PROCESSING", mimeType: "audio/mp4" }),
+      delete: async () => {},
+    };
+    this.models = {
+      generateContent: async () => ({ text: "unexpected response" }),
+    };
+  }
+}
+export const createPartFromUri = (uri, mimeType) => ({ fileData: { fileUri: uri, mimeType } });
+export const createUserContent = (parts) => ({ role: "user", parts });
+`,
+  );
+
+  const child = spawn(
+    process.execPath,
+    [fixtureScript, "--file", input, "--prompt", "fixture"],
+    {
+      env: {
+        ...process.env,
+        GEMINI_API_KEY: "fixture-key",
+        GEMINI_FILE_ACTIVE_TIMEOUT_MS: "20",
+        GEMINI_FILE_ACTIVE_POLL_MS: "5",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const result = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("configurable activation timeout was not honored"));
+    }, 2_000);
+    child.once("close", (code, exitSignal) => {
+      clearTimeout(timer);
+      resolve({ code, exitSignal });
+    });
+  });
+  assert.deepEqual(result, { code: 1, exitSignal: null }, stderr);
+  assert.match(stderr, /Timed out waiting for files\/fixture to become ACTIVE/);
+}
+
 try {
   await runSignalCase("SIGINT", 130);
   await runSignalCase("SIGTERM", 143);
   await runCleanupFailureCase();
   await runMissingUploadStateCase();
+  await runActivationTimeoutCase();
   process.stdout.write("gemini files cleanup test ok\n");
 } finally {
   await rm(fixtureRoot, { recursive: true, force: true });
