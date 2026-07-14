@@ -247,7 +247,7 @@ skills:
 - id: silent-pushes-setup
   source_type: registry-local
   path: silent-pushes-setup
-  digest_sha256: 87413d496a7c5776ca07946f161b975fc83a323a1c0783acb38559c9e9247d75
+  digest_sha256: fca5a281a686aa5d6e63ccf246f1f62750b41f77d97fc41c85426bc20d7f6720
   exported_names:
   - silent-pushes-setup
 - id: social
@@ -309,6 +309,6 @@ skills:
 - id: xcode-cloud
   source_type: registry-local
   path: xcode-cloud
-  digest_sha256: 64807117128a7d5365ff2aaab3658a47d49b03f411424f981aaacac2c2de515b
+  digest_sha256: 9ca461291d4d748ee6fc9c3f99fc89a4e51cd923e03051530337141321dbb431
   exported_names:
   - xcode-cloud
