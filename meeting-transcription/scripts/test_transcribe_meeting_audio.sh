@@ -59,15 +59,17 @@ mkdir -p "$symlink_target"
 chmod 755 "$symlink_target"
 printf 'preserve me\n' > "$symlink_target/existing.txt"
 ln -s "$symlink_target" "$symlink_work_dir"
-if "$script" \
-  --input "$audio" \
-  --work-dir "$symlink_work_dir/" \
-  --prepare-only >/dev/null 2>&1; then
-  echo "expected symlinked work directory with trailing slash to fail" >&2
-  exit 1
-fi
-test "$(mode_of "$symlink_target")" = "755"
-test "$(cat "$symlink_target/existing.txt")" = "preserve me"
+for symlink_work_path in "$symlink_work_dir/" "$symlink_work_dir/."; do
+  if "$script" \
+    --input "$audio" \
+    --work-dir "$symlink_work_path" \
+    --prepare-only >/dev/null 2>&1; then
+    echo "expected symlinked work directory path to fail: $symlink_work_path" >&2
+    exit 1
+  fi
+  test "$(mode_of "$symlink_target")" = "755"
+  test "$(cat "$symlink_target/existing.txt")" = "preserve me"
+done
 
 managed_symlink_source="$tmp_dir/managed-symlink-source"
 "$script" \
@@ -165,6 +167,20 @@ rm -f "$prepare_dir/chunks/.complete"
 resumed_count="$(find "$prepare_dir/chunks" -maxdepth 1 -name 'chunk_*.m4a' | wc -l | tr -d ' ')"
 test "$resumed_count" = "$initial_count"
 test "$(cat "$prepare_dir/chunks/.complete")" = "$resumed_count"
+
+rm -f "$prepare_dir/chunks/chunk_001.m4a"
+cp "$prepare_dir/chunks/chunk_000.m4a" "$prepare_dir/chunks/chunk_999.m4a"
+"$script" \
+  --input "$audio" \
+  --work-dir "$prepare_dir" \
+  --chunk-seconds 2 \
+  --prepare-only \
+  --resume >/dev/null
+for ((chunk_index = 0; chunk_index < initial_count; chunk_index += 1)); do
+  test -f "$(printf '%s/chunk_%03d.m4a' "$prepare_dir/chunks" "$chunk_index")"
+done
+test ! -e "$prepare_dir/chunks/chunk_999.m4a"
+test "$(cat "$prepare_dir/chunks/.complete")" = "$initial_count"
 
 managed_home="$tmp_dir/managed-root"
 managed_root="$managed_home/.agents/skills/gemini-files-api/scripts"
@@ -320,6 +336,33 @@ if rg -n -- '--thinking-level' "$FAKE_GEMINI_ARG_LOG" >/dev/null; then
   echo "meeting transcription requests must not force a model-specific thinking level" >&2
   exit 1
 fi
+
+raw_tmp_target="$tmp_dir/raw-response-tmp-target"
+printf 'preserve raw target\n' > "$raw_tmp_target"
+ln -s "$raw_tmp_target" "$run_dir/raw/chunk_000.json.tmp"
+rm -f "$run_dir/raw/chunk_000.json"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+test "$(cat "$raw_tmp_target")" = "preserve raw target"
+
+retry_tmp_target="$tmp_dir/retry-response-tmp-target"
+printf 'preserve retry target\n' > "$retry_tmp_target"
+printf '{invalid primary response\n' > "$run_dir/raw/chunk_000.json"
+rm -f "$run_dir/retry/000/part_00.json"
+ln -s "$retry_tmp_target" "$run_dir/retry/000/part_00.json.tmp"
+HOME="$managed_home" "$script" \
+  --input "$audio" \
+  --work-dir "$run_dir" \
+  --chunk-seconds 10 \
+  --retry-seconds 2 \
+  --skip-smoke-test \
+  --resume >/dev/null
+test "$(cat "$retry_tmp_target")" = "preserve retry target"
 
 for ((index = 3; index <= 100; index += 1)); do
   number="$(printf '%02d' "$index")"

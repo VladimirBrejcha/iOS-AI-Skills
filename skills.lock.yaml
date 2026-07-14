@@ -29,7 +29,7 @@ skills:
 - id: meeting-transcription
   source_type: registry-local
   path: meeting-transcription
-  digest_sha256: 2b343f13c368e33584375d2493caf6ebc71ef8f6686b99fce66828f82792b390
+  digest_sha256: 934d56b8d3a2c348613fa1341cccaa4c71002ff9aa127b9b9a785ae4a7a34858
   exported_names:
   - meeting-transcription
 - id: spec-creation-updating

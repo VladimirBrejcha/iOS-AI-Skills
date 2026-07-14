@@ -151,6 +151,15 @@ fi
 while test "$work_dir" != "/" && test "${work_dir%/}" != "$work_dir"; do
   work_dir="${work_dir%/}"
 done
+while :; do
+  normalized_work_dir="${work_dir//\/\.\//\/}"
+  case "$normalized_work_dir" in
+    /.) normalized_work_dir="/" ;;
+    */.) normalized_work_dir="${normalized_work_dir%/.}" ;;
+  esac
+  test "$normalized_work_dir" != "$work_dir" || break
+  work_dir="$normalized_work_dir"
+done
 test ! -L "$work_dir" || die "work directory must not be a symlink: $work_dir"
 
 if test -d "$work_dir" && test "$(find "$work_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" != "" && test "$resume" -ne 1; then
@@ -226,7 +235,22 @@ if test -f "$chunks_complete"; then
   recorded_chunk_count="$(cat "$chunks_complete")"
 fi
 
-if test "$resume" -ne 1 || test -z "$recorded_chunk_count" || test "$recorded_chunk_count" != "$actual_chunk_count" || test "$actual_chunk_count" -eq 0; then
+chunk_set_complete=0
+if test "$resume" -eq 1 \
+  && test -n "$recorded_chunk_count" \
+  && test "$recorded_chunk_count" = "$actual_chunk_count" \
+  && test "$actual_chunk_count" -gt 0; then
+  chunk_set_complete=1
+  for ((chunk_index = 0; chunk_index < recorded_chunk_count; chunk_index += 1)); do
+    expected_chunk="$(printf '%s/chunk_%03d.m4a' "$work_dir/chunks" "$chunk_index")"
+    if test ! -f "$expected_chunk" || test -L "$expected_chunk"; then
+      chunk_set_complete=0
+      break
+    fi
+  done
+fi
+
+if test "$chunk_set_complete" -ne 1; then
   rm -f "$chunks_complete"
   rm -f "$work_dir/chunks"/chunk_*.m4a
   ffmpeg -hide_banner -loglevel error -i "$input" \
@@ -295,7 +319,7 @@ run_request() {
   request_prompt="$3"
   request_input="$4"
   request_output="$5"
-  request_tmp="$request_output.tmp"
+  request_tmp="$(mktemp "$request_output.tmp.XXXXXX")"
 
   if ! node "$wrapper" \
     --model "$request_model" \
