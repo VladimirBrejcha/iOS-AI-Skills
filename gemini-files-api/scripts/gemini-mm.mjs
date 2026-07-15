@@ -10,7 +10,7 @@ import {
   createUserContent,
 } from "@google/genai";
 
-const DEFAULT_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const DEFAULT_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const DEFAULT_KEYCHAIN_SERVICE =
   process.env.GEMINI_KEYCHAIN_SERVICE || "gemini_api_key";
 const DEFAULT_FILE_ACTIVE_TIMEOUT_MS = 10 * 60_000;
@@ -873,7 +873,7 @@ function formatErrorMessage(error) {
   ) {
     return [
       rawMessage,
-      "Hint: wait for quota reset, switch to a lower-cost model such as models/gemini-2.5-flash, or upgrade the Gemini API plan.",
+      "Hint: check this model's rate limits in Google AI Studio, wait for quota reset, try a current lower-cost model such as gemini-3.1-flash-lite, or upgrade the Gemini API plan.",
     ].join("\n");
   }
 

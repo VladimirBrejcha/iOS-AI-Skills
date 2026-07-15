@@ -37,6 +37,10 @@ Run a text-only smoke request:
 node scripts/gemini-mm.mjs --prompt "Reply with exactly: OK"
 ```
 
+Requests default to the stable `gemini-3.5-flash` model. Use `--model` for one
+request or `GEMINI_MODEL` for a local default; dependent skills may select a
+separate reviewed model for their own workflow.
+
 Analyze a local file and return the response envelope used by dependent skills:
 
 ```bash
@@ -56,8 +60,9 @@ tool, upload-retention, and file options.
 - `scripts/bootstrap.sh` recreates dependencies with `npm ci --ignore-scripts` so reviewed packages cannot execute lifecycle scripts during setup.
 - Uploaded Gemini Files API objects are deleted after each run unless
   `--keep-files` is explicitly passed.
-- `node scripts/test_gemini_mm.mjs` verifies that SIGINT and SIGTERM wait for
-  uploaded-file cleanup before the wrapper exits.
+- `node scripts/test_gemini_mm.mjs` locks the reviewed default and quota hint
+  and verifies that SIGINT and SIGTERM wait for uploaded-file cleanup before
+  the wrapper exits.
 - Consumer copies must be refreshed through the pinned skills manager; do not
   edit installed copies by hand.
 

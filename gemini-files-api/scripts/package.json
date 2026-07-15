@@ -7,6 +7,6 @@
     "check": "node ./gemini-mm.mjs --help >/dev/null"
   },
   "dependencies": {
-    "@google/genai": "^1.46.0"
+    "@google/genai": "2.11.0"
   }
 }

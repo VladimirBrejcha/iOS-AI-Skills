@@ -73,7 +73,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "gemini-files-api",
-        "digest_sha256": "80597ebbcf59fa462be7e1ae7669f760e1bde844413c5f468cd37d03913e3635"
+        "digest_sha256": "b85fa7510e1c2f350da5caaf1fa187c17ec1c92eec13a286f863f297adadf23c"
       },
       "install": {
         "manager_package": "skills@1.5.14",

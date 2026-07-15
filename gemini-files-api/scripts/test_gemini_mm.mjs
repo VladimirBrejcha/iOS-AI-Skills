@@ -33,6 +33,133 @@ async function waitForFile(file, child) {
   throw new Error(`timed out waiting for fixture marker: ${file}`);
 }
 
+async function prepareMockCase(caseName, moduleSource) {
+  const caseRoot = path.join(fixtureRoot, caseName);
+  const fixtureScript = path.join(caseRoot, "scripts", "gemini-mm.mjs");
+  const packageRoot = path.join(
+    caseRoot,
+    "scripts",
+    "node_modules",
+    "@google",
+    "genai",
+  );
+
+  await mkdir(packageRoot, { recursive: true });
+  await cp(wrapper, fixtureScript);
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ name: "@google/genai", type: "module", exports: "./index.js" }),
+  );
+  await writeFile(path.join(packageRoot, "index.js"), moduleSource);
+
+  return fixtureScript;
+}
+
+async function runFixture(fixtureScript, args, env = {}) {
+  const child = spawn(process.execPath, [fixtureScript, ...args], {
+    env: {
+      ...process.env,
+      GEMINI_API_KEY: "fixture-key",
+      ...env,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const result = await new Promise((resolve) => {
+    child.once("close", (code, exitSignal) => resolve({ code, exitSignal }));
+  });
+
+  return { result, stdout, stderr };
+}
+
+async function runDefaultModelCase() {
+  const fixtureScript = await prepareMockCase(
+    "default-model",
+    `export class GoogleGenAI {
+  constructor() {
+    this.models = {
+      generateContent: async ({ model }) => {
+        if (model !== process.env.EXPECTED_MODEL) {
+          throw new Error(\`unexpected model: \${model}\`);
+        }
+        return { candidates: [{ content: { parts: [{ text: "fixture response" }] } }] };
+      },
+    };
+  }
+}
+export const createPartFromUri = (uri, mimeType) => ({ fileData: { fileUri: uri, mimeType } });
+export const createUserContent = (parts) => ({ role: "user", parts });
+`,
+  );
+
+  const defaultRun = await runFixture(
+    fixtureScript,
+    ["--prompt", "fixture", "--json"],
+    { GEMINI_MODEL: "", EXPECTED_MODEL: "gemini-3.5-flash" },
+  );
+  assert.deepEqual(defaultRun.result, { code: 0, exitSignal: null }, defaultRun.stderr);
+  assert.equal(JSON.parse(defaultRun.stdout).model, "gemini-3.5-flash");
+
+  const envOverrideRun = await runFixture(
+    fixtureScript,
+    ["--prompt", "fixture", "--json"],
+    { GEMINI_MODEL: "fixture-env-model", EXPECTED_MODEL: "fixture-env-model" },
+  );
+  assert.deepEqual(
+    envOverrideRun.result,
+    { code: 0, exitSignal: null },
+    envOverrideRun.stderr,
+  );
+  assert.equal(JSON.parse(envOverrideRun.stdout).model, "fixture-env-model");
+
+  const cliOverrideRun = await runFixture(
+    fixtureScript,
+    ["--prompt", "fixture", "--model", "fixture-cli-model", "--json"],
+    { GEMINI_MODEL: "fixture-env-model", EXPECTED_MODEL: "fixture-cli-model" },
+  );
+  assert.deepEqual(
+    cliOverrideRun.result,
+    { code: 0, exitSignal: null },
+    cliOverrideRun.stderr,
+  );
+  assert.equal(JSON.parse(cliOverrideRun.stdout).model, "fixture-cli-model");
+}
+
+async function runQuotaHintCase() {
+  const fixtureScript = await prepareMockCase(
+    "quota-hint",
+    `export class GoogleGenAI {
+  constructor() {
+    this.models = {
+      generateContent: async () => { throw new Error("quota exceeded for fixture"); },
+    };
+  }
+}
+export const createPartFromUri = (uri, mimeType) => ({ fileData: { fileUri: uri, mimeType } });
+export const createUserContent = (parts) => ({ role: "user", parts });
+`,
+  );
+
+  const run = await runFixture(
+    fixtureScript,
+    ["--prompt", "fixture"],
+    { GEMINI_MODEL: "" },
+  );
+  assert.deepEqual(run.result, { code: 1, exitSignal: null }, run.stderr);
+  assert.match(run.stderr, /check this model's rate limits in Google AI Studio/);
+  assert.match(run.stderr, /gemini-3\.1-flash-lite/);
+  assert.doesNotMatch(run.stderr, /gemini-2\.5-flash/);
+}
+
 async function runSignalCase(signal, expectedExitCode) {
   const caseRoot = path.join(fixtureRoot, signal.toLowerCase());
   const fixtureScript = path.join(caseRoot, "scripts", "gemini-mm.mjs");
@@ -284,12 +411,14 @@ export const createUserContent = (parts) => ({ role: "user", parts });
 }
 
 try {
+  await runDefaultModelCase();
+  await runQuotaHintCase();
   await runSignalCase("SIGINT", 130);
   await runSignalCase("SIGTERM", 143);
   await runCleanupFailureCase();
   await runMissingUploadStateCase();
   await runActivationTimeoutCase();
-  process.stdout.write("gemini files cleanup test ok\n");
+  process.stdout.write("gemini files wrapper test ok\n");
 } finally {
   await rm(fixtureRoot, { recursive: true, force: true });
 }
