@@ -78,11 +78,13 @@ overlays and are not supplied by capture or packaging tools alone.
 ## Manager Proof And Boundary
 
 The renamed local source was exercised from the PR checkout with disposable
-home, configuration, and package-cache roots:
+home, configuration, state, cache, and npm package-cache roots:
 
 ```bash
 HOME="$ISOLATED_HOME" \
 XDG_CONFIG_HOME="$ISOLATED_HOME/.config" \
+XDG_STATE_HOME="$ISOLATED_HOME/.local/state" \
+XDG_CACHE_HOME="$ISOLATED_HOME/.cache" \
 npm_config_cache="$ISOLATED_HOME/.npm" \
 npx --yes skills@1.5.14 add "$CHECKOUT" \
   --skill hint-overlay-visual-verification \
@@ -90,11 +92,19 @@ npx --yes skills@1.5.14 add "$CHECKOUT" \
   --global --yes --copy
 ```
 
+The same five-variable environment was used for local-source discovery with
+`add "$CHECKOUT" --list`, the copy command above, and the final
+`list --global --json` check. The isolated configuration, state, and cache
+roots remained empty for this local-source flow; npm artifacts stayed under
+the isolated npm cache.
+
 The manager discovered the renamed skill, produced the Codex/OpenCode shared
 copy under `$HOME/.agents/skills` and the Claude Code copy under
 `$HOME/.claude/skills`, and each produced skill tree matched the repository
-source byte for byte. All manager and npm writes stayed inside the disposable
-roots; no real user or repository consumer roots were written.
+source byte for byte. Before-and-after fingerprints of the real manager state
+targets and target skill roots were unchanged, as was repository status. All
+manager and npm writes stayed inside the disposable roots; no real state, user,
+or repository consumer root was written.
 
 This proves local-source discovery and packaging, not a managed rollout or an
 upgrade from the former exported name. All clients remain `planned` because
