@@ -80,6 +80,42 @@ documentation:
 - A focused deterministic test locks the verified Apple contract and rejects
   stale Simulator, widget, Cloudflare, D1, and unofficial-doc wording.
 
+## Manager Proof And Boundary
+
+Manager discovery and copy packaging were proven with `skills@1.5.14` from the
+local repository source while `HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, the
+npm cache, and the working directory all pointed into one disposable root. The
+command shape was:
+
+```bash
+HOME="$PROOF_HOME" \
+XDG_CONFIG_HOME="$PROOF_HOME/.config" \
+XDG_CACHE_HOME="$PROOF_HOME/.cache" \
+npm_config_cache="$PROOF_HOME/.npm-cache" \
+npx --yes skills@1.5.14 add "$LOCAL_SOURCE" \
+  --skill silent-pushes-setup \
+  --agent codex opencode claude-code \
+  --global --yes --copy
+```
+
+The same isolated environment first ran `add "$LOCAL_SOURCE" --list` and found
+the skill, then ran `list --global --json` and found the installed entry. The
+copy command produced exactly two roots:
+
+- `$HOME/.agents/skills/silent-pushes-setup`, shared by Codex and OpenCode;
+- `$HOME/.claude/skills/silent-pushes-setup`, for Claude Code.
+
+Both roots were exact `diff -qr` matches to the registry source. That source
+matches lock digest
+`1e843f08071c4bc8883cc76a13ca352405f0e955823595ca3ce23ef4290dbb72`.
+The disposable root was removed, no real global or repository consumer root
+was retained, and no manager-generated proof state is committed.
+
+Clients remain `planned` because discovery and byte-for-byte packaging prove
+manager compatibility, not reviewed profile selection. The registry contract
+requires a separate rollout decision before a shared global or Claude copy is
+a supported baseline; repo-local consumers also remain manual review.
+
 ## Limitation
 
 This documentation audit does not send a live production notification. That
