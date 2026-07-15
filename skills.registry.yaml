@@ -408,6 +408,648 @@ skills:
         actions in manual review; never substitute the mutable tracking branch
         as the install identity.
 
+  - id: asc-app-create-ui
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-app-create-ui
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-app-create-ui
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Create a new App Store Connect app record via browser automation. Use when
+        there is no public API for app creation and you need an agent to drive the
+        New App form.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-apple-ads
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-apple-ads
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-apple-ads
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Use when managing Apple Ads with asc, including auth, org lookup, campaigns,
+        ad groups, ads, keywords, reports, raw API calls, and safe live testing.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-aso-audit
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-aso-audit
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-aso-audit
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Run an offline ASO audit on canonical App Store metadata under `./metadata`
+        and surface keyword gaps using Astro MCP. Use after pulling metadata with
+        `asc metadata pull`.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-build-lifecycle
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-build-lifecycle
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-build-lifecycle
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Track build processing, find latest builds, and clean up old builds with
+        asc. Use when managing build retention or waiting on processing.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-cli-usage
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-cli-usage
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-cli-usage
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Guidance for using asc cli in this repo (flags, output formats, pagination,
+        auth, and discovery). Use when asked to run or design asc commands or
+        interact with App Store Connect via the CLI.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-crash-triage
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-crash-triage
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-crash-triage
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Triage TestFlight crashes, beta feedback, and performance diagnostics using
+        asc. Use when the user asks about TF crashes, TestFlight crash reports, beta
+        tester feedback, app hangs, disk writes, launch diagnostics, or wants a
+        crash summary for a build or app.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-id-resolver
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-id-resolver
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-id-resolver
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Resolve App Store Connect IDs (apps, builds, versions, groups, testers) from
+        human-friendly names using asc. Use when commands require IDs.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-localize-metadata
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-localize-metadata
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-localize-metadata
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Automatically translate and sync App Store metadata (description, keywords,
+        what's new, subtitle) to multiple languages using LLM translation and asc
+        CLI. Use when asked to localize an app's App Store listing, translate app
+        descriptions, or add new languages to App Store Connect.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-metadata-sync
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-metadata-sync
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-metadata-sync
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Sync, validate, and apply App Store metadata with the current asc canonical
+        metadata workflow. Use when updating metadata, localizations, keywords, or
+        migrating legacy fastlane metadata.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-notarization
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-notarization
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-notarization
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Archive, export, and notarize macOS apps using xcodebuild and asc. Use when
+        you need to prepare a macOS app for distribution outside the App Store with
+        Developer ID signing and Apple notarization.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-ppp-pricing
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-ppp-pricing
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-ppp-pricing
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Set territory-specific pricing for subscriptions and in-app purchases using
+        current asc setup, pricing summary, price import, and price schedule
+        commands. Use when adjusting prices by country or implementing localized PPP
+        strategies.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-release-flow
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-release-flow
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-release-flow
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Determine whether an app is ready to submit, then drive the current App
+        Store release flow with asc, including validation, staging, review
+        submission, first-time availability, subscriptions, IAP, Game Center, and
+        App Privacy checks.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-revenuecat-catalog-sync
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-revenuecat-catalog-sync
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-revenuecat-catalog-sync
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Reconcile App Store Connect subscriptions and in-app purchases with
+        RevenueCat products, entitlements, offerings, and packages using asc and
+        RevenueCat MCP. Use when setting up or syncing subscription catalogs across
+        ASC and RevenueCat.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-screenshot-resize
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-screenshot-resize
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-screenshot-resize
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Resize and validate App Store screenshots with current asc screenshot-size
+        data and macOS sips. Use when preparing or fixing screenshots for App Store
+        Connect submission.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-shots-pipeline
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-shots-pipeline
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-shots-pipeline
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Orchestrate iOS screenshot automation with xcodebuild/simctl for build-run,
+        AXe for UI actions, JSON settings and plan files, Koubou-based framing (`asc
+        screenshots frame`), and screenshot upload (`asc screenshots upload`). Use
+        when users ask for automated screenshot capture, AXe-driven simulator flows,
+        frame composition, or screenshot-to-upload pipelines.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-signing-setup
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-signing-setup
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-signing-setup
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Set up bundle IDs, capabilities, signing certificates, provisioning
+        profiles, and encrypted signing sync with the asc cli. Use when onboarding a
+        new app, rotating signing assets, or sharing them across a team.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-submission-health
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-submission-health
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-submission-health
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Validate App Store submission readiness, submit prepared versions, and
+        monitor review status with current asc commands. Use when shipping or
+        troubleshooting review submissions.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-subscription-localization
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-subscription-localization
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-subscription-localization
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Bulk-localize subscription and in-app purchase display names across all App
+        Store locales using asc. Use when you want to fill in subscription/IAP names
+        for every language without clicking through App Store Connect manually.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-testflight-orchestration
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-testflight-orchestration
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-testflight-orchestration
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Orchestrate TestFlight distribution, groups, testers, and What to Test notes
+        using asc. Use when rolling out betas.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-whats-new-writer
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-whats-new-writer
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-whats-new-writer
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Generate engaging, localized App Store release notes (What's New) from git
+        log, bullet points, or free text using canonical metadata under
+        `./metadata`. Optionally pairs with promotional text updates.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-workflow
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-workflow
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-workflow
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Define, validate, run, resume, and audit repo-local multi-step automations
+        with current `asc workflow` and `.asc/workflow.json`, including step outputs
+        and safe release/TestFlight workflows.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+  - id: asc-xcode-build
+    status: active
+    source:
+      type: external-git
+      url: https://github.com/rorkai/app-store-connect-cli-skills.git
+      path: skills/asc-xcode-build
+      pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - asc-xcode-build
+    clients:
+      codex: planned
+      opencode: planned
+      claude: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: >-
+        Build, archive, export, upload, and manage Xcode version/build numbers with
+        the current asc xcode helpers before App Store Connect upload or submission.
+        Use when creating an IPA or PKG for upload.
+    notes:
+      - Source, content, overlap, runtime, and manager proof is recorded in
+        docs/history/app-store-connect-source-review-2026-07-15.md. Keep
+        clients planned; refs/heads/main is update discovery only.
+
+
   - id: ab-testing
     status: active
     source:

@@ -19,9 +19,9 @@ states remain available for future reviewed intake. The shared
 reviewed baselines only for profile-selected skills whose target client is
 marked `supported`. Client/skill combinations marked `planned`, repo-local
 consumers, external-git entries such as `swift-concurrency` and `swiftui-pro`,
-the commit-pinned `cloudflare` entry, and non-active entries remain
-manual-review until their consumer exposure is proven through a reviewed
-decision.
+the commit-pinned `cloudflare` and App Store Connect entries, and non-active
+entries remain manual-review until their consumer exposure is proven through
+a reviewed decision.
 
 The contract is documented in:
 
@@ -186,11 +186,11 @@ scripts/skills_catalog.rb --check
 
 ## Skills
 
-The finalized catalog currently contains 43 active skills:
+The finalized catalog currently contains 65 active skills:
 
 - 13 registry-local sources maintained in this repository
 - 29 tagged external sources owned by their authoritative upstreams
-- 1 commit-pinned external source owned by its authoritative upstream
+- 23 commit-pinned external sources owned by their authoritative upstreams
 - 0 pending or legacy dispositions
 
 Use the generated [Skills Catalog](docs/skills-catalog.md) for names,
@@ -200,6 +200,15 @@ records every keep, replacement, merge, and removal decision that closed the
 initial review backlog. The dated
 [Cloudflare Source Review](docs/history/cloudflare-source-review-2026-07-15.md)
 records the first real no-tag source admitted through the commit-pin contract.
+The dated
+[App Store Connect Source Review](docs/history/app-store-connect-source-review-2026-07-15.md)
+records the source, safety, overlap, runtime, and manager proof for the 22
+curated `asc-*` catalog entries.
+
+The App Store Connect skills require the `asc` executable and authentication
+to be installed and configured separately. Their catalog entries do not
+install the CLI, configure credentials, or fall back from the reviewed commit
+to a mutable branch.
 
 ## Contributing
 

@@ -34,6 +34,182 @@ skills:
   observed_commit: 2482c176372299c92af01f8414a67172f324e8db
   exported_names:
   - apple-hig-designer
+- id: asc-app-create-ui
+  source_type: external-git
+  path: skills/asc-app-create-ui
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-app-create-ui
+- id: asc-apple-ads
+  source_type: external-git
+  path: skills/asc-apple-ads
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-apple-ads
+- id: asc-aso-audit
+  source_type: external-git
+  path: skills/asc-aso-audit
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-aso-audit
+- id: asc-build-lifecycle
+  source_type: external-git
+  path: skills/asc-build-lifecycle
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-build-lifecycle
+- id: asc-cli-usage
+  source_type: external-git
+  path: skills/asc-cli-usage
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-cli-usage
+- id: asc-crash-triage
+  source_type: external-git
+  path: skills/asc-crash-triage
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-crash-triage
+- id: asc-id-resolver
+  source_type: external-git
+  path: skills/asc-id-resolver
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-id-resolver
+- id: asc-localize-metadata
+  source_type: external-git
+  path: skills/asc-localize-metadata
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-localize-metadata
+- id: asc-metadata-sync
+  source_type: external-git
+  path: skills/asc-metadata-sync
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-metadata-sync
+- id: asc-notarization
+  source_type: external-git
+  path: skills/asc-notarization
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-notarization
+- id: asc-ppp-pricing
+  source_type: external-git
+  path: skills/asc-ppp-pricing
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-ppp-pricing
+- id: asc-release-flow
+  source_type: external-git
+  path: skills/asc-release-flow
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-release-flow
+- id: asc-revenuecat-catalog-sync
+  source_type: external-git
+  path: skills/asc-revenuecat-catalog-sync
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-revenuecat-catalog-sync
+- id: asc-screenshot-resize
+  source_type: external-git
+  path: skills/asc-screenshot-resize
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-screenshot-resize
+- id: asc-shots-pipeline
+  source_type: external-git
+  path: skills/asc-shots-pipeline
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-shots-pipeline
+- id: asc-signing-setup
+  source_type: external-git
+  path: skills/asc-signing-setup
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-signing-setup
+- id: asc-submission-health
+  source_type: external-git
+  path: skills/asc-submission-health
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-submission-health
+- id: asc-subscription-localization
+  source_type: external-git
+  path: skills/asc-subscription-localization
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-subscription-localization
+- id: asc-testflight-orchestration
+  source_type: external-git
+  path: skills/asc-testflight-orchestration
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-testflight-orchestration
+- id: asc-whats-new-writer
+  source_type: external-git
+  path: skills/asc-whats-new-writer
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-whats-new-writer
+- id: asc-workflow
+  source_type: external-git
+  path: skills/asc-workflow
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-workflow
+- id: asc-xcode-build
+  source_type: external-git
+  path: skills/asc-xcode-build
+  url: https://github.com/rorkai/app-store-connect-cli-skills.git
+  pinned_commit: 0ae3da2bf0a43300d3c994593f4df73f3e3da230
+  tracking_ref: refs/heads/main
+  exported_names:
+  - asc-xcode-build
 - id: aso
   source_type: external-git
   path: skills/aso
