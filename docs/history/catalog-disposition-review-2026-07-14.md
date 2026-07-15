@@ -28,7 +28,7 @@ history and this decision record.
 | --- | --- | --- |
 | `mechanism-audit` | Introduced directly in this repository at `79a7bfe`; no external source claim found. | Active registry-local source. |
 | `screenshot-analyze-verification` | Introduced directly in this repository at `74c684d`; no external source claim found. | Active registry-local source. It complements the capture workflow with a strict visual-evidence gate. |
-| `silent-pushes-setup` | Present from initial commit `46cd104`; the [full source review](silent-pushes-setup-source-review-2026-07-15.md) found no earlier public source and compared current alternatives. | Keep the exported name as an active registry-local source, narrowed to iOS background-push setup and diagnosis. |
+| `silent-pushes-setup` | Present from the initial repository commit `46cd104`; public search identifies this repository as the published source. | Active registry-local source after removing product-specific troubleshooting wording. |
 
 ## Tagged External Promotions
 
