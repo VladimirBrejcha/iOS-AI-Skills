@@ -1990,17 +1990,17 @@
       }
     },
     {
-      "id": "screenshot-analyze-verification",
-      "name": "screenshot-analyze-verification",
-      "description": "Strict screenshot QA and approval gate for simulator captures. Use when validating UI screenshots, hint overlays, spotlight behavior, dark mode, and cross-OS parity. Fails fast on wrong app/page, missing elements, weak contrast, bad padding, overlap, clipping, and hidden-element leaks.",
+      "id": "hint-overlay-visual-verification",
+      "name": "hint-overlay-visual-verification",
+      "description": "Fail-fast visual verification for in-app hint overlays, coach marks, and spotlight callouts. Use when screenshots must prove target highlighting, background suppression, pointer geometry, safe-area containment, readable copy, and light/dark parity; not for generic screenshot review or App Store marketing composites.",
       "status": "active",
       "source": {
         "type": "registry-local",
-        "path": "screenshot-analyze-verification"
+        "path": "hint-overlay-visual-verification"
       },
       "update_policy": "internal-reviewed",
       "exported_names": [
-        "screenshot-analyze-verification"
+        "hint-overlay-visual-verification"
       ],
       "clients": {
         "claude": "planned",
@@ -2013,8 +2013,8 @@
       ],
       "lock": {
         "source_type": "registry-local",
-        "path": "screenshot-analyze-verification",
-        "digest_sha256": "4c7516b0c0f9c909731e93bd24d1209f7738f954ca9f580723585745c84b678b"
+        "path": "hint-overlay-visual-verification",
+        "digest_sha256": "64e5402c69a6235b6403941e1049c3988f81fd33f6c24a4ac25e8e5f0576f637"
       }
     },
     {

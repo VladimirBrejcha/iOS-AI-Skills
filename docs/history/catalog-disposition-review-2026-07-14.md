@@ -27,7 +27,7 @@ history and this decision record.
 | Skill | Evidence | Final decision |
 | --- | --- | --- |
 | `mechanism-audit` | Introduced directly in this repository at `79a7bfe`; no external source claim found. | Active registry-local source. |
-| `screenshot-analyze-verification` | Introduced directly in this repository at `74c684d`; no external source claim found. | Active registry-local source. It complements the capture workflow with a strict visual-evidence gate. |
+| `hint-overlay-visual-verification` (originally `screenshot-analyze-verification`) | Introduced directly in this repository at `74c684d`; no independent external source claim found. | Active registry-local source, narrowed and renamed after the follow-up [visual-verification audit](hint-overlay-visual-verification-audit-2026-07-15.md). |
 | `silent-pushes-setup` | Present from the initial repository commit `46cd104`; public search identifies this repository as the published source. | Active registry-local source after removing product-specific troubleshooting wording. |
 
 ## Tagged External Promotions
@@ -113,7 +113,7 @@ official MCP server separately.
 | `cloudflare-d1`, `cloudflare-queues`, `cloudflare-worker-base`, `wrangler` | Official [cloudflare/skills](https://github.com/cloudflare/skills), observed at `70215303` | Official Apache-2.0 source is the clear replacement and supports Codex, Claude Code, and OpenCode, but it has no exact tag. Stale local copies were removed rather than falsely claimed as registry-owned. |
 | `replicate-cli`, `threads-api` | `rawveg/skillsforge-marketplace` | The detected source has no repository license, the copies were stale, and neither capability is required by the curated baseline. |
 | `swiftui-liquid-glass`, `swiftui-performance-audit` | [Dimillian/Skills](https://github.com/Dimillian/Skills), observed at `05ba982b` | Untagged external source and substantial overlap with the selected broad and specialized SwiftUI skills. |
-| `swiftui-simulator-ui` | Repository-authored | Superseded by the managed `xcode-build` simulator/capture workflow plus `screenshot-analyze-verification` for visual approval. |
+| `swiftui-simulator-ui` | Repository-authored | Superseded by the managed `xcode-build` simulator/capture workflow plus `hint-overlay-visual-verification` for the narrower overlay-approval case. |
 | `typescript` | [PaulRBerg/dot-claude](https://github.com/PaulRBerg/dot-claude), observed at `f226c687` | MIT licensed but untagged, no longer present at the prior path, highly opinionated, and outside the curated baseline. |
 
 ## Deferred Contract Work

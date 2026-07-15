@@ -300,6 +300,12 @@ skills:
   digest_sha256: d308a586641d03af8c7348d630900f8faa5e986238f01958952faf434af2046d
   exported_names:
   - harness-engineering
+- id: hint-overlay-visual-verification
+  source_type: registry-local
+  path: hint-overlay-visual-verification
+  digest_sha256: 64e5402c69a6235b6403941e1049c3988f81fd33f6c24a4ac25e8e5f0576f637
+  exported_names:
+  - hint-overlay-visual-verification
 - id: ios-xcodegen
   source_type: registry-local
   path: ios-xcodegen
@@ -406,12 +412,6 @@ skills:
   observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
   exported_names:
   - schema
-- id: screenshot-analyze-verification
-  source_type: registry-local
-  path: screenshot-analyze-verification
-  digest_sha256: 4c7516b0c0f9c909731e93bd24d1209f7738f954ca9f580723585745c84b678b
-  exported_names:
-  - screenshot-analyze-verification
 - id: seo-audit
   source_type: external-git
   path: skills/seo-audit

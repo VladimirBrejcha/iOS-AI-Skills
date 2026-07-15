@@ -1839,13 +1839,13 @@ skills:
     - >-
       Manager/profile exposure remains planned until the external-git install path is proven across all
       supported consumers.
-  - id: screenshot-analyze-verification
+  - id: hint-overlay-visual-verification
     status: active
     source:
       type: registry-local
-      path: screenshot-analyze-verification
+      path: hint-overlay-visual-verification
     exported_names:
-    - screenshot-analyze-verification
+    - hint-overlay-visual-verification
     clients:
       codex: planned
       opencode: planned
@@ -1856,13 +1856,16 @@ skills:
     update_policy: internal-reviewed
     notes:
     - >-
-      Source ownership reviewed on 2026-07-14. This skill was introduced directly in this repository at
-      commit 74c684d; the provenance review found no external source claim.
+      Narrowed and renamed on 2026-07-15 from screenshot-analyze-verification. The former generic name and
+      marketing-composite rules were removed; no compatibility alias remains because it would preserve the
+      misleading broad trigger. Decision evidence is recorded in
+      docs/history/hint-overlay-visual-verification-audit-2026-07-15.md.
     - >-
-      This repository is the canonical source. The top-level MIT license covers this public, reusable skill.
+      Source ownership was reviewed from repository history and public search. The original skill was added
+      directly in this repository at commit 74c684d; the top-level MIT license covers this public source.
     - >-
-      This is a strict visual-evidence approval gate and complements, rather than duplicates, the xcode-build
-      capture workflow.
+      The retained skill owns the fail-fast acceptance contract for hint-overlay and spotlight geometry. Image
+      inspection, capture, deterministic visual diffs, and App Store screenshot pipelines remain separate.
   - id: seo-audit
     status: active
     source:

@@ -204,6 +204,10 @@ The dated
 [App Store Connect Source Review](docs/history/app-store-connect-source-review-2026-07-15.md)
 records the source, safety, overlap, runtime, and manager proof for the 22
 curated `asc-*` catalog entries.
+The dated
+[Hint Overlay Visual Verification Audit](docs/history/hint-overlay-visual-verification-audit-2026-07-15.md)
+records the provenance, alternatives, and narrow/rename decision that replaced
+the generic screenshot-analysis trigger.
 
 The App Store Connect skills require the `asc` executable and authentication
 to be installed and configured separately. Their catalog entries do not

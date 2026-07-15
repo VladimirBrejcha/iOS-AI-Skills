@@ -64,7 +64,7 @@ previously existed as stale local copies.
 | `aso` | Keep both. The existing skill covers broad cross-store strategy; `asc-aso-audit` evaluates metadata pulled through the concrete ASC workflow. |
 | `revenuecat` | Keep both. The existing skill owns RevenueCat operations; `asc-revenuecat-catalog-sync` reconciles the two product catalogs. |
 | `ads` | Keep both. The existing skill is generic advertising guidance; `asc-apple-ads` covers authenticated Apple Ads CLI operations. |
-| `screenshot-analyze-verification` | Keep both. The existing skill owns visual approval; the ASC skills own resize, capture, framing, and upload preparation. |
+| `hint-overlay-visual-verification` (formerly `screenshot-analyze-verification`) | Keep both only at the narrowed boundary. The local skill owns hint-overlay acceptance; ASC skills own resize, capture, framing, review artifacts, and upload preparation. Generic and marketing-composite review is not retained as a separate skill. |
 | App creation | Keep `asc-app-create-ui`. App Store Connect has no public app-record creation API, and the skill requires a visible browser and final confirmation. |
 
 ## Safety Review
