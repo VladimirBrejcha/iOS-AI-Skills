@@ -1,88 +1,149 @@
 ---
 name: silent-pushes-setup
-description: Setup, debug, or validate iOS silent (background) push notifications with APNs, including entitlements, device token registration, backend APNs sending, and widget refresh. Use for silent push setup or troubleshooting (aps-environment errors, token registration, background delivery, APNs headers).
+description: "Set up, audit, or diagnose iOS background (silent) notifications end to end: signed entitlements, APNs registration and environment, provider headers and payload, throttling, Simulator and device testing, and Apple delivery diagnostics. Use for content-available pushes or missing background delivery; not for visible alerts, Live Activities, PushKit, or provider-specific SDK setup."
 ---
 
-# Silent Pushes Setup (iOS + APNs + Backend)
+# iOS Background Push Setup And Diagnosis
 
-## When to use
+Apple calls these background notifications. "Silent push" is the common name
+for an APNs device notification that wakes the app without an alert, sound, or
+badge.
 
-Use this skill when the user asks about:
-- Silent/background push notifications on iOS
-- APNs device token registration
-- `aps-environment` entitlement errors
-- Backend APNs sending (headers, payloads, JWT)
-- Widget refresh triggered by pushes
-- Debugging push delivery, throttling, or missing pushes
+## Scope
 
-## Quick path (agent)
+Use this skill for an iOS or iPadOS app that receives
+`apns-push-type: background` notifications. Keep these adjacent concerns out of
+scope:
 
-1. **Confirm environment**
-   - Real device vs simulator, Debug vs Release/TestFlight.
-   - Bundle ID + Team ID.
-   - Backend environment (prod vs dev) and APNs host.
+- visible alerts, local notifications, notification service extensions, and
+  authorization UX;
+- Live Activity, PushKit, VoIP, File Provider, and broadcast push types;
+- Firebase, other provider SDKs, provider credential provisioning, and widget
+  refresh policy.
 
-2. **Verify entitlements in the signed app**
-   - Inspect entitlements in the built app binary (`codesign -d --entitlements :- ...`).
-   - Ensure `aps-environment` exists and matches build (`development` for Debug, `production` for Release).
+Do not use background push for urgent, guaranteed, or periodic execution. The
+app must reconcile current server state when it next runs because delivery may
+be delayed, coalesced, throttled, or dropped.
 
-3. **Verify registration flow**
-   - App calls `registerForRemoteNotifications()` at launch.
-   - Token is received in delegate and sent to backend.
-   - Backend stores token + environment.
+## Audit Workflow
 
-4. **Verify APNs request**
-   - Host: `api.sandbox.push.apple.com` (Debug) or `api.push.apple.com` (Release).
-   - Headers: `apns-push-type: background`, `apns-priority: 5`, `apns-topic: <bundle-id>`.
-   - Payload: `{ "aps": { "content-available": 1 } }` with no alert/sound/badge keys.
+### 1. Establish The Signed Environment
 
-5. **Verify background handling**
-   - Implement `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`.
-   - Trigger incremental sync and `WidgetCenter.shared.reloadAllTimelines()`.
+Record the app bundle ID, signed `aps-environment` value, device-token source,
+and provider endpoint. Do not infer the APNs environment from a scheme or
+configuration name.
 
-6. **Validate throttling behavior**
-   - Background pushes are best‑effort and may be delayed or coalesced.
+- `development` uses `api.sandbox.push.apple.com`.
+- `production`, including prerelease and beta distribution, uses
+  `api.push.apple.com`.
+- Xcode derives `aps-environment` from the provisioning profile. Verify the
+  signed app, not only the source entitlement file or Xcode UI.
 
-## Manual steps (human)
+### 2. Verify Capabilities And Registration
 
-1. **Apple Developer**
-   - Enable Push Notifications capability on the App ID.
-   - Token‑based APNs key (p8) is sufficient; no APNs certificate required.
+The app target needs both:
 
-2. **Xcode**
-   - Add **Push Notifications** capability to app target.
-   - Add **Background Modes → Remote notifications**.
-   - Use entitlements with explicit `aps-environment` per build config.
+- **Push Notifications**, which adds the iOS `aps-environment` entitlement;
+- **Background Modes > Remote notifications**, which permits background
+  notification handling.
 
-3. **Install & test**
-   - Build and run on a physical device.
-   - Confirm device token registration success in logs.
-   - Trigger backend change and verify push + widget refresh.
+Call `registerForRemoteNotifications()` on each launch. Handle both registration
+callbacks and forward every successful token callback to the provider. Treat
+the token as opaque and variable-length; do not cache it locally as truth or
+assume a fixed size. Bind provider records to the token, topic, and APNs
+environment.
 
-## Validation checklist
+Alert authorization is separate. `registerForRemoteNotifications()` can obtain
+a token for background delivery without first requesting permission for alerts,
+sounds, or badges.
 
-- [ ] Signed entitlements include `aps-environment`.
-- [ ] Device token is stored on backend with environment.
-- [ ] APNs request returns 200 and backend records `last_push_at`.
-- [ ] App receives background push and updates widget.
+### 3. Verify The Background Handler
 
-## Common issues and fixes
+Implement
+`application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`. Perform
+bounded, idempotent reconciliation and call the completion handler exactly once
+with `.newData`, `.noData`, or `.failed`. iOS gives the app up to 30 seconds for
+this work; a push is a signal to fetch current state, not the state itself.
 
-- **Error: “no valid aps‑environment entitlement string found”**
-  - Root cause: wrong entitlement key or profile stripping it.
-  - Fix: use `aps-environment` (iOS) not `com.apple.developer.aps-environment` (macOS), and ensure it exists in the *signed* app entitlements.
+### 4. Verify The APNs Request
 
-- **Push capability shows in Xcode but still failing**
-  - XcodeGen projects can ignore UI toggles. Ensure entitlements are correct in source and the signed app contains `aps-environment`.
+For a strictly background notification, use:
 
-- **Duplicate push token registration**
-  - Treat registration as idempotent: upsert the token, environment, and update timestamp.
+| Field | Required value or rule |
+| --- | --- |
+| Host | Match the token's signed `aps-environment` |
+| `apns-push-type` | `background` |
+| `apns-priority` | `5`; priority `10` is invalid for this push type |
+| `apns-topic` | The receiving app's bundle ID |
+| `apns-expiration` | Choose explicitly from the update's useful lifetime |
+| `apns-collapse-id` | Optional; use only when a newer update supersedes an older one |
 
-- **No push after a server-side refresh**
-  - Confirm the refresh actually changed data and reached the code path that sends APNs requests. A successful refresh alone does not imply that a push was sent.
+The payload's `aps` dictionary contains only `content-available`. Put small
+custom routing data beside `aps`, not inside it, and keep the whole payload at
+or below 4 KB.
+
+```json
+{
+  "aps": {
+    "content-available": 1
+  },
+  "revision": "opaque-server-revision"
+}
+```
+
+Do not add `alert`, `sound`, or `badge`; that is no longer a strictly background
+notification and requires a different push-type decision.
+
+### 5. Test In Layers
+
+1. Use an `.apns` file with `simctl push` to test local app handling. This
+   bypasses provider authentication and APNs delivery.
+2. On a compatible Simulator, remote APNs registration uses the sandbox only.
+   Simulator tokens are valid for that Simulator and Mac combination and may
+   differ in length from device tokens.
+3. Use Apple's Push Notifications Console to send a development test before
+   blaming provider code. It can validate tokens and JWTs and generate a cURL
+   request without requiring a custom test sender.
+4. Test the production environment on a physical device with a production
+   token. Never commit or paste provider keys, JWTs, or complete production
+   tokens into logs or review evidence.
+
+### 6. Separate Acceptance From Delivery
+
+An APNs HTTP `200` means APNs accepted the request; it does not prove delivery
+or app execution. Record the response status, error `reason`, `apns-id`, and, in
+development, `apns-unique-id`.
+
+- Query a development delivery log in Push Notifications Console with
+  `apns-unique-id`; development logs are available for up to seven days.
+- Use Console Metrics for aggregated, rounded delivered, stored, and discarded
+  states. Metrics are trend evidence, not a per-device receipt.
+- Confirm the app callback and its completion result separately.
+
+### 7. Apply Apple's Delivery Limits
+
+Background notifications are low priority and never guaranteed. Apple says the
+allowance varies with current conditions and advises not trying to send more
+than two or three per hour. Device power state, connectivity, app state, and
+Background App Refresh settings affect delivery. Testing from Xcode disables
+some silent-push limits, so a development success is not production frequency
+proof.
+
+APNs or the device may hold only the newest update, and a held notification is
+discarded if the app is killed. Design the next app launch or foreground refresh
+to recover all missed state.
+
+## Exit Criteria
+
+- Signed entitlements and provisioning profile agree on `aps-environment`.
+- Registration succeeds and the provider stores the current token with topic
+  and environment.
+- Payload, push type, priority, topic, endpoint, and expiration semantics agree.
+- APNs acceptance evidence is not reported as delivery evidence.
+- A development delivery log or app callback isolates the failing layer.
+- Product behavior remains correct when notifications are delayed or dropped.
 
 ## References
 
-- Apple docs (background pushes, APNs registration, APNs requests): see `references/apple-docs.md`.
-- Codex skill format/reference: see `references/codex-skills.md`.
-- Troubleshooting details and commands: see `references/troubleshooting.md`.
+- Apple source map and verified claims: `references/apple-docs.md`.
+- Commands and layered triage: `references/troubleshooting.md`.

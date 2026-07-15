@@ -1951,13 +1951,15 @@ skills:
     update_policy: internal-reviewed
     notes:
     - >-
-      Source ownership reviewed on 2026-07-14. This skill was introduced directly in this repository at
-      commit 46cd104; the provenance review found no external source claim.
+      The first full source and technical audit completed on 2026-07-15. The dated source review records
+      repository history, public alternatives, and first-party Apple evidence.
     - >-
-      This repository is the canonical source. The top-level MIT license covers this public, reusable skill.
+      This repository remains the canonical MIT source. Keep the exported name for discoverability, but limit
+      the skill to iOS background-notification setup and diagnosis; visible alerts, Live Activities, PushKit,
+      provider-specific SDKs, and widgets are out of scope.
     - >-
-      The retained source is generic iOS/APNs guidance; product-specific delivery behavior belongs in project
-      overlays.
+      Apple documentation is normative. All clients remain planned; isolated manager discovery and packaging
+      proof does not promote a profile or authorize writes to real consumer roots.
   - id: social
     status: active
     source:
