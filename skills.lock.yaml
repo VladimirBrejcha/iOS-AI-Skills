@@ -42,6 +42,14 @@ skills:
   observed_commit: 2815104d5459357d44c5f9031fcca0525b00c991
   exported_names:
   - aso
+- id: cloudflare
+  source_type: external-git
+  path: skills/cloudflare
+  url: https://github.com/cloudflare/skills.git
+  pinned_commit: 70215303d44a81a0db3219428f4825b604fc6061
+  tracking_ref: refs/heads/main
+  exported_names:
+  - cloudflare
 - id: code-review
   source_type: registry-local
   path: code-review
