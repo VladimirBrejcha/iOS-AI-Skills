@@ -431,7 +431,7 @@ skills:
 - id: silent-pushes-setup
   source_type: registry-local
   path: silent-pushes-setup
-  digest_sha256: 1e843f08071c4bc8883cc76a13ca352405f0e955823595ca3ce23ef4290dbb72
+  digest_sha256: 455e51bec6a7c24898d9ae009fd7aec90d66e86ca756999106376e10030e393d
   exported_names:
   - silent-pushes-setup
 - id: social

@@ -83,14 +83,15 @@ documentation:
 ## Manager Proof And Boundary
 
 Manager discovery and copy packaging were proven with `skills@1.5.14` from the
-local repository source while `HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, the
-npm cache, and the working directory all pointed into one disposable root. The
-command shape was:
+local repository source while `HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`,
+`XDG_STATE_HOME`, the npm cache, and the working directory all pointed into one
+disposable root. The command shape was:
 
 ```bash
 HOME="$PROOF_HOME" \
 XDG_CONFIG_HOME="$PROOF_HOME/.config" \
 XDG_CACHE_HOME="$PROOF_HOME/.cache" \
+XDG_STATE_HOME="$PROOF_HOME/.local/state" \
 npm_config_cache="$PROOF_HOME/.npm-cache" \
 npx --yes skills@1.5.14 add "$LOCAL_SOURCE" \
   --skill silent-pushes-setup \
@@ -98,16 +99,19 @@ npx --yes skills@1.5.14 add "$LOCAL_SOURCE" \
   --global --yes --copy
 ```
 
-The same isolated environment first ran `add "$LOCAL_SOURCE" --list` and found
-the skill, then ran `list --global --json` and found the installed entry. The
-copy command produced exactly two roots:
+The discovery, install, and global-list invocations all used the full isolated
+environment above. `add "$LOCAL_SOURCE" --list` found the skill, and
+`list --global --json` found the installed entry. The copy command produced
+exactly two roots:
 
 - `$HOME/.agents/skills/silent-pushes-setup`, shared by Codex and OpenCode;
 - `$HOME/.claude/skills/silent-pushes-setup`, for Claude Code.
 
 Both roots were exact `diff -qr` matches to the registry source. That source
 matches lock digest
-`1e843f08071c4bc8883cc76a13ca352405f0e955823595ca3ce23ef4290dbb72`.
+`455e51bec6a7c24898d9ae009fd7aec90d66e86ca756999106376e10030e393d`.
+Pre-run and post-run hashes of the real manager roots were identical, as were
+the repository diff and status snapshots.
 The recorded proof wrote only inside the disposable root, which was removed.
 It did not write any real global or repository consumer root, and no
 manager-generated proof state is committed.
