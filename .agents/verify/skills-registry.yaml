@@ -11,6 +11,7 @@ commands:
       done
       bash -n meeting-transcription/scripts/transcribe_meeting_audio.sh
       bash -n meeting-transcription/scripts/test_transcribe_meeting_audio.sh
+      bash -n silent-pushes-setup/scripts/test_skill_contract.sh
       bash -n gemini-files-api/scripts/bootstrap.sh
       grep -Fx 'npm ci --ignore-scripts' gemini-files-api/scripts/bootstrap.sh
       node --check gemini-files-api/scripts/gemini-mm.mjs
@@ -27,6 +28,8 @@ commands:
     run: scripts/test_skills_provenance_audit.sh
   - id: skills-registry-verify-test
     run: scripts/test_skills_registry_verify.sh
+  - id: silent-pushes-setup-test
+    run: silent-pushes-setup/scripts/test_skill_contract.sh
   - id: skills-setup-workflow-docs-test
     run: scripts/test_skills_setup_workflow_docs.sh
   - id: skills-sync-test
@@ -288,6 +291,7 @@ required_pass_signals:
   - registry-dispositions
   - skills-provenance-audit-test
   - skills-registry-verify-test
+  - silent-pushes-setup-test
   - skills-setup-workflow-docs-test
   - skills-sync-test
   - skills-upstream-updates-test

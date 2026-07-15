@@ -1,67 +1,149 @@
-# Troubleshooting & verification
+# Background Push Troubleshooting
 
-## Verify entitlements in signed app
+Collect evidence in order. Do not rewrite app code until the failing boundary is
+known.
 
-```bash
-codesign -d --entitlements :- /path/to/DerivedData/.../Build/Products/Debug-iphoneos/App.app
-```
+## Evidence Ledger
 
-You must see:
+Keep these states separate:
 
-```
-aps-environment = development
-```
+1. **Signed app:** capabilities, profile, and `aps-environment` are present.
+2. **Registration:** the app received a current token and the provider accepted
+   its topic and environment binding.
+3. **APNs request:** APNs accepted or rejected one exact request and returned
+   identifiers or an error reason.
+4. **Delivery and execution:** APNs delivered, stored, or discarded the request,
+   and the app callback did or did not run.
 
-If it’s missing:
-- Ensure the entitlements file uses `aps-environment` (not `com.apple.developer.aps-environment`).
-- Confirm the entitlement is present in the *signed* app, not just the source file.
+HTTP `200` means APNs accepted the request. It does not prove delivery, callback
+execution, successful synchronization, or a visible state change.
 
-## Inspect embedded provisioning profile (optional)
+## Inspect The Signed App
 
-```bash
-openssl smime -inform der -verify -noverify -in /path/to/App.app/embedded.mobileprovision -out /tmp/profile.plist
-plutil -p /tmp/profile.plist | rg -n "Entitlements|aps-environment|application-identifier"
-```
-
-## App side: token registration
-
-- Call `registerForRemoteNotifications()` at launch.
-- Handle:
-  - `application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`
-  - `application(_:didFailToRegisterForRemoteNotificationsWithError:)`
-
-## Backend: APNs request
-
-Checklist:
-- Host: `api.sandbox.push.apple.com` for Debug, `api.push.apple.com` for Release.
-- Headers:
-  - `apns-push-type: background`
-  - `apns-priority: 5`
-  - `apns-topic: <bundle-id>`
-- Payload:
-  - `{ "aps": { "content-available": 1 } }`
-
-## D1 verification (Cloudflare)
+Set `APP_PATH` to the built `.app` bundle, then inspect the signed entitlements:
 
 ```bash
-D1_DATABASE_NAME="your-d1-database"
-npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --command "SELECT device_id, environment, substr(apns_token,1,8) AS token_prefix, last_push_at, updated_at FROM device_push_tokens ORDER BY updated_at DESC LIMIT 5;"
+: "${APP_PATH:?Set APP_PATH to the signed app bundle}"
+codesign -d --entitlements :- "$APP_PATH"
 ```
 
-Replace the database name, table, and columns with the project's reviewed D1
-schema before running the query.
+Confirm the iOS `aps-environment` key and its value. Do not substitute the macOS
+key `com.apple.developer.aps-environment`.
 
-## Known issues and fixes
+If the app embeds a provisioning profile, inspect the profile separately:
 
-- **“No valid aps-environment entitlement string found”**
-  - Use `aps-environment` key for iOS.
-  - Ensure entitlements exist in the signed app.
+```bash
+PROFILE_PLIST="$(mktemp -t apns-profile).plist"
+trap 'rm -f "$PROFILE_PLIST"' EXIT
+security cms -D -i "$APP_PATH/embedded.mobileprovision" > "$PROFILE_PLIST"
+plutil -extract Entitlements xml1 -o - "$PROFILE_PLIST"
+```
 
-- **UNIQUE constraint on device_push_tokens**
-  - Make `/v1/device/push/register` idempotent (upsert + update timestamp).
+Compare `aps-environment` and the application identifier with the signed app and
+the provider's topic. Xcode source settings alone are not proof.
 
-- **Day off by one**
-  - Avoid normalizing local daily data to UTC; use local day boundary.
+## Verify Registration
 
-- **`wrangler tail` errors on exit**
-  - Safe to ignore; tail cleanup may fail due to expired session.
+- Call `registerForRemoteNotifications()` on every launch.
+- Observe both `didRegisterForRemoteNotificationsWithDeviceToken` and
+  `didFailToRegisterForRemoteNotificationsWithError`.
+- Forward every successful callback. Do not send only when a local cached token
+  appears to change.
+- Treat token bytes and length as opaque. Store tokens securely with their
+  bundle topic and APNs environment.
+- Do not log full production tokens. A request correlation ID and environment
+  are safer operational evidence.
+
+Common registration failures are missing signed entitlements, unreachable APNs,
+or incorrect signing. Alert authorization is not a prerequisite for obtaining a
+token used only for background notifications.
+
+## Exercise App Handling Locally
+
+For Simulator-only app-path testing, create a local payload:
+
+```json
+{
+  "Simulator Target Bundle": "com.example.app",
+  "aps": {
+    "content-available": 1
+  },
+  "test-id": "local-background-handler"
+}
+```
+
+Then run:
+
+```bash
+xcrun simctl push booted com.example.app background-test.apns
+```
+
+This verifies simulated notification handling. It does not verify provider
+authentication, the APNs endpoint, token registration, APNs throttling, or
+delivery diagnostics.
+
+On a compatible Simulator, the app can also register with remote APNs and
+receive through the sandbox endpoint. Verify the registration callback instead
+of assuming all Simulators fail. Use a physical device for the production APNs
+path.
+
+## Isolate The Provider With Apple Tools
+
+Use Push Notifications Console before building a one-off sender:
+
+1. Select the exact bundle ID and environment.
+2. Validate the device token for that environment and push type.
+3. Choose background push, priority `5`, and the minimal payload.
+4. Send the development test and retain its request identifiers.
+5. Use **Get cURL Command** to compare Apple's request with provider output.
+
+Do not commit generated commands because they may contain a token, JWT, or other
+sensitive values. Production Console sends require an administrator role.
+
+## Inspect Provider Evidence
+
+For every test request, retain non-secret structured evidence:
+
+- topic, APNs environment, push type, priority, expiration, and collapse ID;
+- payload byte count and a safe request correlation ID;
+- HTTP status, response `apns-id`, and error `reason`;
+- development response `apns-unique-id`, when present.
+
+Use `apns-unique-id`, not `apns-id`, to query a development Delivery Log in Push
+Notifications Console. Delivery Logs are development-only and available for up
+to seven days.
+
+Handle provider responses deliberately:
+
+| Evidence | Interpretation | Action |
+| --- | --- | --- |
+| `400 BadDeviceToken` | Token is invalid for the environment | Recheck signed environment and registration |
+| `400 DeviceTokenNotForTopic` | Token and topic do not match | Recheck bundle ID and stored binding |
+| `403` authentication reason | Provider credential or JWT is invalid | Fix authentication; do not change app code |
+| `410 Unregistered` | Token is no longer active for the topic | Stop using it according to the returned timestamp |
+| `413` | Payload exceeds the allowed size | Reduce the payload below 4 KB |
+| `429` | Too many requests for the token | Back off; do not brute-force delivery |
+| `5xx` | APNs is temporarily unavailable | Retry later with backoff |
+| `200` | APNs accepted the request | Continue to delivery and app evidence |
+
+## Diagnose Accepted But Missing Delivery
+
+For a development request, query the Console Delivery Log with the response's
+`apns-unique-id`. For fleet behavior, use Metrics to compare aggregated,
+rounded delivered, stored, and discarded states by push type and priority.
+
+Then check:
+
+- background payload, priority, topic, token environment, and expiration;
+- whether the app was killed, Background App Refresh is unavailable, or the
+  device has power or connectivity constraints;
+- whether recent background-push volume exceeds Apple's guidance of two or
+  three per hour;
+- whether repeated updates were coalesced or only the newest stored update was
+  retained;
+- whether the callback ran, finished within 30 seconds, and called its
+  completion handler exactly once.
+
+Do not repeatedly resend a background notification to make it "reliable".
+Choose expiration and collapse semantics that match freshness, and make the app
+reconcile all missed state on foreground launch.

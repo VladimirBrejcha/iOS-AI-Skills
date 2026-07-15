@@ -1,36 +1,73 @@
-# Apple documentation references
+# Apple Documentation Source Map
 
-These are the primary sources for silent/background push implementation and APNs provider setup.
+Reviewed on 2026-07-15. These are first-party Apple sources for the technical
+contract in this skill.
 
-## Background (silent) pushes
+## Background Notification Contract
 
-- Pushing background updates to your app
-  - https://developer.apple.com/documentation/usernotifications/pushing-background-updates-to-your-app/
-  - Key points:
-    - Add Background Modes → Remote notifications.
-    - Payload uses `aps` with `content-available: 1` and no alert/sound/badge keys.
-    - Use `apns-push-type: background` and `apns-priority: 5` headers.
-    - System may delay/coalesce or drop background pushes.
+- [Pushing background updates to your app](https://developer.apple.com/documentation/usernotifications/pushing-background-updates-to-your-app)
+  - Requires Background Modes > Remote notifications.
+  - Uses `content-available: 1`, `apns-push-type: background`, and
+    `apns-priority: 5` with no user-interaction keys in `aps`.
+  - Calls the iOS background notification handler with up to 30 seconds of
+    runtime.
+  - Delivery is low-priority and not guaranteed. Apple advises not trying to
+    send more than two or three background notifications per hour.
+- [Generating a remote notification](https://developer.apple.com/documentation/usernotifications/generating-a-remote-notification)
+  - Defines the `aps` keys, custom-key placement, and 4 KB device-notification
+    payload limit.
 
-## Registering with APNs
+## Signing And Registration
 
-- Registering your app with APNs
-  - https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns/
-  - Key points:
-    - iOS entitlement key is `aps-environment` (macOS uses `com.apple.developer.aps-environment`).
-    - Call `UIApplication.registerForRemoteNotifications()` to obtain the device token.
-    - Implement `application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`.
+- [APS Environment Entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/aps-environment)
+  - The iOS key is `aps-environment`; Xcode derives its value from the current
+    provisioning profile.
+  - Development profiles use `development`. Production profiles and beta
+    distribution use `production`.
+- [Registering your app with APNs](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns)
+  - Enable Push Notifications, request a current token each launch, handle both
+    callbacks, and do not cache device tokens as local truth.
+- [`registerForRemoteNotifications()`](https://developer.apple.com/documentation/uikit/uiapplication/registerforremotenotifications%28%29)
+  - Alert, sound, and badge authorization is separate from remote registration;
+    without user-interaction authorization, remote notifications are delivered
+    silently.
 
-## APNs provider request
+## Provider Requests And Responses
 
-- Sending notification requests to APNs
-  - https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns/
-  - Key points:
-    - Use `api.sandbox.push.apple.com` for development and `api.push.apple.com` for production.
-    - APNs can coalesce notifications; delivery is best‑effort.
+- [Sending notification requests to APNs](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns)
+  - Documents the sandbox and production hosts, request headers, storage,
+    expiration, collapse behavior, and background priority requirements.
+- [Handling notification responses from APNs](https://developer.apple.com/documentation/usernotifications/handling-notification-responses-from-apns)
+  - A response contains status and `apns-id`; errors include a `reason`.
+  - Development responses also include `apns-unique-id` for Delivery Log lookup.
+  - Oversized device payloads return HTTP `413`; HTTP `200` is request success,
+    not proof that the app ran.
+- [Troubleshooting push notifications](https://developer.apple.com/documentation/usernotifications/troubleshooting-push-notifications)
+  - Covers token, topic, environment, provider errors, silent-push throttling,
+    device power budgets, and the fact that Xcode testing disables some limits.
 
-## App delegate callback
+## Testing And Delivery Diagnostics
 
-- application(_:didReceiveRemoteNotification:fetchCompletionHandler:)
-  - https://developer.apple.com/documentation/uikit/uiapplicationdelegate/application(_:didreceiveremotenotification:fetchcompletionhandler:)
-  - Called for background notifications to fetch content in the background.
+- [Testing notifications using the Push Notification Console](https://developer.apple.com/documentation/usernotifications/testing-notifications-using-the-push-notification-console)
+  - Sends test notifications, validates JWTs and device tokens, and generates a
+    cURL request.
+  - Development Delivery Logs use `apns-unique-id` and remain available for up
+    to seven days. Production sends require an administrator role.
+- [Viewing the status of push notifications using Metrics and APNs](https://developer.apple.com/documentation/usernotifications/viewing-the-status-of-push-notifications-using-metrics-and-apns)
+  - Metrics are aggregated and rounded. They distinguish delivered, stored, and
+    discarded states and explain delivery factors.
+- [Push Notifications Console](https://developer.apple.com/notifications/push-notifications-console/)
+  - Console overview for sends, token tools, delivery logs, and aggregate
+    metrics.
+
+## Simulator Boundaries
+
+- [Xcode 11.4 release notes](https://developer.apple.com/documentation/xcode-release-notes/xcode-11_4-release-notes)
+  - `.apns` files and `simctl push` simulate remote notifications, including
+    background content fetch, without exercising a provider or APNs.
+- [Xcode 14 release notes](https://developer.apple.com/documentation/xcode-release-notes/xcode-14-release-notes)
+  - Compatible iOS 16 Simulators can register with the APNs sandbox. The token
+    is unique to the Simulator and Mac hardware and may be longer than a
+    physical-device token.
+  - Remote APNs delivery exercises more behavior than local `.apns` simulation.
+    Simulator remote registration remains a sandbox path, not production proof.
