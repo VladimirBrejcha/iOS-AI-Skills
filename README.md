@@ -63,6 +63,8 @@ The registry files are:
   pinned setup/update workflow docs.
 - `.agents/manifests/*.yaml` - Autopilot path routing and ownership contract.
 - `.agents/verify/*.yaml` - Autopilot verification profile definitions.
+- `scripts/verify.sh` - canonical local and Symphony verification command.
+- `WORKFLOW.md` - public-safe Symphony execution and handoff boundary.
 
 Historical drift reports and proof profiles live under `docs/history/`. They
 are retained for audit context, not as the current onboarding path.
@@ -95,7 +97,13 @@ List installed global skills:
 npx --yes skills@1.5.14 ls --global --json
 ```
 
-Run registry validation from a clone of this repo:
+Run the canonical full validation from a clone of this repo:
+
+```bash
+./scripts/verify.sh
+```
+
+For focused diagnostics:
 
 ```bash
 scripts/skills_doctor.rb

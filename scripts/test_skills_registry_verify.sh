@@ -191,6 +191,134 @@ assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/bootstrap.sh"
 assert_contains "$shell_syntax_cmd" "npm ci --ignore-scripts"
 assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/gemini-mm.mjs"
 assert_contains "$shell_syntax_cmd" "gemini-files-api/scripts/test_gemini_mm.mjs"
+assert_contains "$shell_syntax_cmd" "scripts/verify.sh"
+if [[ ! -x "$repo_root/scripts/verify.sh" ]]; then
+  echo "scripts/verify.sh must be executable" >&2
+  exit 1
+fi
+
+workflow_contract_output="$(
+  ruby -ryaml -e '
+    path = ARGV.fetch(0)
+    lines = File.readlines(path, chomp: true)
+    abort "WORKFLOW.md must start with YAML front matter" unless lines.first == "---"
+    closing = lines[1..]&.index("---")
+    abort "WORKFLOW.md has unterminated YAML front matter" unless closing
+
+    config = YAML.safe_load(lines[1, closing].join("\n"), aliases: false, filename: path)
+    checks = {
+      "tracker.kind" => [config.dig("tracker", "kind"), "51code"],
+      "tracker.project" => [config.dig("tracker", "project"), "agent-skills"],
+      "workspace.repo_path" => [config.dig("workspace", "repo_path"), "."],
+      "workspace.base_ref" => [config.dig("workspace", "base_ref"), "refs/remotes/origin/main"],
+      "validation.command" => [config.dig("validation", "command"), "./scripts/verify.sh"],
+      "validation.evidence_path" => [config.dig("validation", "evidence_path"), ".symphony/evidence.json"],
+      "handoff.default_push" => [config.dig("handoff", "default_push"), false],
+      "handoff.default_pr" => [config.dig("handoff", "default_pr"), false],
+      "handoff.final_acceptance" => [config.dig("handoff", "final_acceptance"), "human"],
+      "agent.max_repair_turns" => [config.dig("agent", "max_repair_turns"), 2]
+    }
+    failures = checks.each_with_object([]) do |(label, (actual, expected)), result|
+      result << "#{label}: expected #{expected.inspect}, got #{actual.inspect}" unless actual == expected
+    end
+    abort failures.join("\n") unless failures.empty?
+    puts "workflow contract ok"
+  ' "$repo_root/WORKFLOW.md"
+)"
+assert_contains "$workflow_contract_output" "workflow contract ok"
+
+verify_runner_dir="$tmp_dir/verify-runner"
+write_fixture_repo "$verify_runner_dir"
+cp "$repo_root/scripts/verify.sh" "$verify_runner_dir/scripts/verify.sh"
+chmod +x "$verify_runner_dir/scripts/verify.sh"
+cat >"$verify_runner_dir/.agents/verify/skills-registry.yaml" <<'EOF'
+id: fixture
+commands:
+  - id: fixture-pass
+    run: printf 'fixture artifact\n' > "{artifactsDir}/fixture.txt"
+required_artifacts:
+  - fixture.txt
+  - paths.txt
+required_pass_signals:
+  - fixture-pass
+failure_patterns: []
+EOF
+verify_runner_output="$("$verify_runner_dir/scripts/verify.sh")"
+assert_contains "$verify_runner_output" "==> fixture-pass"
+assert_contains "$verify_runner_output" "agent-skills verification ok (1 commands)"
+
+duplicate_runner_dir="$tmp_dir/verify-runner-duplicate"
+cp -R "$verify_runner_dir/." "$duplicate_runner_dir/"
+cat >"$duplicate_runner_dir/.agents/verify/skills-registry.yaml" <<'EOF'
+id: duplicate-fixture
+commands:
+  - id: duplicate
+    run: "true"
+  - id: duplicate
+    run: "true"
+required_pass_signals:
+  - duplicate
+EOF
+duplicate_runner_output="$(expect_failure "$duplicate_runner_dir/scripts/verify.sh")"
+assert_contains "$duplicate_runner_output" "verification profile has duplicate command ids: duplicate"
+
+missing_runner_dir="$tmp_dir/verify-runner-missing"
+cp -R "$verify_runner_dir/." "$missing_runner_dir/"
+cat >"$missing_runner_dir/.agents/verify/skills-registry.yaml" <<'EOF'
+id: missing-fixture
+commands:
+  - id: present
+    run: "true"
+required_pass_signals:
+  - absent
+EOF
+missing_runner_output="$(expect_failure "$missing_runner_dir/scripts/verify.sh")"
+assert_contains "$missing_runner_output" "verification profile is missing required commands: absent"
+
+block_failure_runner_dir="$tmp_dir/verify-runner-block-failure"
+cp -R "$verify_runner_dir/." "$block_failure_runner_dir/"
+cat >"$block_failure_runner_dir/.agents/verify/skills-registry.yaml" <<'EOF'
+id: block-failure-fixture
+commands:
+  - id: block-failure
+    run: |
+      false
+      printf 'later command passed\n'
+required_pass_signals:
+  - block-failure
+EOF
+block_failure_runner_output="$(expect_failure "$block_failure_runner_dir/scripts/verify.sh")"
+assert_contains "$block_failure_runner_output" "verification failed: block-failure"
+
+failure_pattern_runner_dir="$tmp_dir/verify-runner-failure-pattern"
+cp -R "$verify_runner_dir/." "$failure_pattern_runner_dir/"
+cat >"$failure_pattern_runner_dir/.agents/verify/skills-registry.yaml" <<'EOF'
+id: failure-pattern-fixture
+commands:
+  - id: diagnostic
+    run: "printf 'ERROR: diagnostic failed\\n'"
+required_pass_signals:
+  - diagnostic
+failure_patterns:
+  - "error:"
+EOF
+failure_pattern_runner_output="$(expect_failure "$failure_pattern_runner_dir/scripts/verify.sh")"
+assert_contains "$failure_pattern_runner_output" 'verification failed: diagnostic matched failure pattern "error:"'
+
+missing_artifact_runner_dir="$tmp_dir/verify-runner-missing-artifact"
+cp -R "$verify_runner_dir/." "$missing_artifact_runner_dir/"
+cat >"$missing_artifact_runner_dir/.agents/verify/skills-registry.yaml" <<'EOF'
+id: missing-artifact-fixture
+commands:
+  - id: no-artifact
+    run: "true"
+required_artifacts:
+  - missing.json
+required_pass_signals:
+  - no-artifact
+EOF
+missing_artifact_runner_output="$(expect_failure "$missing_artifact_runner_dir/scripts/verify.sh")"
+assert_contains "$missing_artifact_runner_output" "verification missing required artifacts: missing.json"
 
 dependency_contract_output="$(
   ruby -ryaml -e '
@@ -288,6 +416,12 @@ cp -R "$ok_dir/." "$gitignore_leak_dir/"
 printf 'token=%s\n' "$(fake_openai_key)" >"$gitignore_leak_dir/.gitignore"
 gitignore_leak_output="$(expect_failure run_public_safety "$gitignore_leak_dir")"
 assert_contains "$gitignore_leak_output" ".gitignore: OpenAI key"
+
+workflow_leak_dir="$tmp_dir/workflow-leak"
+cp -R "$ok_dir/." "$workflow_leak_dir/"
+printf 'token=%s\n' "$(fake_openai_key)" >"$workflow_leak_dir/WORKFLOW.md"
+workflow_leak_output="$(expect_failure run_public_safety "$workflow_leak_dir")"
+assert_contains "$workflow_leak_output" "WORKFLOW.md: OpenAI key"
 
 docs_leak_dir="$tmp_dir/docs-leak"
 cp -R "$ok_dir/." "$docs_leak_dir/"

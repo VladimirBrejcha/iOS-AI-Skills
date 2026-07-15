@@ -171,40 +171,20 @@ Use generic examples such as `path/to/product-repo`.
 
 ## Required Validation
 
-Run the checks that match the change:
+Run the canonical full gate before opening a PR:
 
 ```bash
-for file in scripts/skills_drift_report.sh scripts/test_skills_catalog.sh scripts/test_skills_doctor.sh scripts/test_skills_provenance_audit.sh scripts/test_skills_registry_verify.sh scripts/test_skills_setup_workflow_docs.sh scripts/test_skills_sync.sh scripts/test_skills_upstream_updates.sh; do
-  bash -n "$file"
-done
-bash -n meeting-transcription/scripts/transcribe_meeting_audio.sh
-bash -n meeting-transcription/scripts/test_transcribe_meeting_audio.sh
-bash -n gemini-files-api/scripts/bootstrap.sh
-node --check gemini-files-api/scripts/gemini-mm.mjs
-ruby -c scripts/skills_catalog.rb
-ruby -c scripts/skills_doctor.rb
-ruby -c scripts/skills_provenance_audit.rb
-ruby -c scripts/skills_sync.rb
-ruby -c scripts/skills_upstream_updates.rb
-scripts/test_skills_provenance_audit.sh
-scripts/skills_provenance_audit.rb --markdown
-scripts/test_skills_upstream_updates.sh
-scripts/skills_upstream_updates.rb --markdown
-scripts/test_skills_catalog.sh
-scripts/test_skills_doctor.sh
-scripts/test_skills_registry_verify.sh
-scripts/test_skills_setup_workflow_docs.sh
-scripts/test_skills_sync.sh
-meeting-transcription/scripts/test_transcribe_meeting_audio.sh
-scripts/skills_catalog.rb --check
-scripts/skills_sync.rb --plan --json
-scripts/skills_doctor.rb --check-upstream
-scripts/skills_doctor.rb --check-manager
+./scripts/verify.sh
 git diff --check
 ```
 
-For docs-only changes, the full suite is still preferred when registry,
-profile, manager-boundary, or public workflow behavior is described.
+When source pins or real manager consumers change, also run the environment-
+dependent checks and retain their evidence in the PR:
+
+```bash
+scripts/skills_doctor.rb --check-upstream
+scripts/skills_doctor.rb --check-manager
+```
 
 ## PR Body
 

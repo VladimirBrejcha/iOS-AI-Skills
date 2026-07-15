@@ -5,6 +5,7 @@ globs:
   - .gitignore
   - AGENTS.md
   - README.md
+  - WORKFLOW.md
   - docs/**
   - profiles/**
   - scripts/**
@@ -16,6 +17,7 @@ required_skills:
 primary_specs:
   - AGENTS.md
   - README.md
+  - WORKFLOW.md
   - docs/registry-contract.md
   - docs/usage.md
   - docs/contributing.md
@@ -27,6 +29,7 @@ allowed_paths:
   - .gitignore
   - AGENTS.md
   - README.md
+  - WORKFLOW.md
   - docs/**
   - profiles/**
   - scripts/**

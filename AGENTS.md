@@ -39,6 +39,10 @@ point to their authoritative upstream sources through `skills.registry.yaml` and
 - `scripts/skills_upstream_updates.rb` reports stale external-git pins and the
   evidence needed for reviewed update PRs; it does not mutate registry, lock,
   catalog, or adapter files.
+- `scripts/verify.sh` executes the checked-in `skills-registry` profile as the
+  canonical local and Symphony verification command.
+- `WORKFLOW.md` defines the public-safe, default-no-push Symphony execution
+  boundary for reviewed maintainer tasks.
 - `scripts/skills_provenance_audit.rb` reports source-ownership drift,
   unregistered external imports, unresolved provenance candidates, and local
   duplicate skills; it does not fetch from the network or mutate sources.
