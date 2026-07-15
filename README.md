@@ -19,8 +19,9 @@ states remain available for future reviewed intake. The shared
 reviewed baselines only for profile-selected skills whose target client is
 marked `supported`. Client/skill combinations marked `planned`, repo-local
 consumers, external-git entries such as `swift-concurrency` and `swiftui-pro`,
-and non-active entries remain manual-review until their consumer exposure is
-proven through a reviewed decision.
+the commit-pinned `cloudflare` entry, and non-active entries remain
+manual-review until their consumer exposure is proven through a reviewed
+decision.
 
 The contract is documented in:
 
@@ -159,7 +160,7 @@ scripts/skills_upstream_updates.rb --fail-on-stale
 ```
 
 `--fail-on-stale` is intended for scheduled monitors or manual readiness
-checks. It reports stale or missing external tags, but it does not edit
+checks. It reports stale or missing external pins, but it does not edit
 `skills.registry.yaml`, `skills.lock.yaml`, catalog artifacts, or consumer
 adapters.
 
@@ -185,17 +186,20 @@ scripts/skills_catalog.rb --check
 
 ## Skills
 
-The finalized catalog currently contains 42 active skills:
+The finalized catalog currently contains 43 active skills:
 
 - 13 registry-local sources maintained in this repository
 - 29 tagged external sources owned by their authoritative upstreams
+- 1 commit-pinned external source owned by its authoritative upstream
 - 0 pending or legacy dispositions
 
 Use the generated [Skills Catalog](docs/skills-catalog.md) for names,
 descriptions, source pins, client status, and install metadata. The dated
 [Catalog Disposition Review](docs/history/catalog-disposition-review-2026-07-14.md)
 records every keep, replacement, merge, and removal decision that closed the
-initial review backlog.
+initial review backlog. The dated
+[Cloudflare Source Review](docs/history/cloudflare-source-review-2026-07-15.md)
+records the first real no-tag source admitted through the commit-pin contract.
 
 ## Contributing
 

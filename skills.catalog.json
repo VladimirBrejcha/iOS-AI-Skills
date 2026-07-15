@@ -398,6 +398,40 @@
       }
     },
     {
+      "id": "cloudflare",
+      "name": "cloudflare",
+      "description": "Comprehensive Cloudflare platform skill covering Workers, Pages, storage (KV, D1, R2), AI (Workers AI, Vectorize, Agents SDK), feature flags (Flagship), networking (Tunnel, Spectrum), security (WAF, DDoS), and infrastructure-as-code (Terraform, Pulumi). Use for any Cloudflare development task. Biases towards retrieval from Cloudflare docs over pre-trained knowledge.",
+      "status": "active",
+      "source": {
+        "type": "external-git",
+        "url": "https://github.com/cloudflare/skills.git",
+        "path": "skills/cloudflare",
+        "pinned_commit": "70215303d44a81a0db3219428f4825b604fc6061",
+        "tracking_ref": "refs/heads/main",
+        "observed_at": "2026-07-15"
+      },
+      "update_policy": "external-reviewed",
+      "exported_names": [
+        "cloudflare"
+      ],
+      "clients": {
+        "claude": "planned",
+        "codex": "planned",
+        "opencode": "planned"
+      },
+      "scopes": [
+        "machine",
+        "repo"
+      ],
+      "lock": {
+        "source_type": "external-git",
+        "url": "https://github.com/cloudflare/skills.git",
+        "path": "skills/cloudflare",
+        "pinned_commit": "70215303d44a81a0db3219428f4825b604fc6061",
+        "tracking_ref": "refs/heads/main"
+      }
+    },
+    {
       "id": "ab-testing",
       "name": "ab-testing",
       "description": "When the user wants to plan, design, or implement an A/B test or experiment, or build a growth experimentation program. Also use when the user mentions \"A/B test,\" \"split test,\" \"experiment,\" \"test this change,\" \"variant copy,\" \"multivariate test,\" \"hypothesis,\" \"should I test this,\" \"which version is better,\" \"test two versions,\" \"statistical significance,\" \"how long should I run this test,\" \"growth experiments,\" \"experiment velocity,\" \"experiment backlog,\" \"ICE score,\" \"experimentation program,\" or \"experiment playbook.\" Use this whenever someone is comparing two approaches and wants to measure which performs better, or when they want to build a systematic experimentation practice. For tracking implementation, see analytics. For page-level conversion optimization, see cro.",
