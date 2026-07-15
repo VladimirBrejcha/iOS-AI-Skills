@@ -128,3 +128,11 @@ untagged source is admitted.
 External-git entries remain profile-planned. Their source and lock decisions
 are final, but each consumer rollout still requires the established pre-write
 manager command and post-write doctor/sync proof.
+
+## Follow-up
+
+Commit-pin support was subsequently added without weakening immutable source
+identity. The deferred official Cloudflare source was admitted in the
+[Cloudflare Source Review](cloudflare-source-review-2026-07-15.md), and the
+App Store Connect candidates were re-reviewed as a complete upstream suite in
+the [App Store Connect Source Review](app-store-connect-source-review-2026-07-15.md).

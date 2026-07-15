@@ -136,6 +136,11 @@ For Codex GitHub code review, flag only high-impact issues:
 Do not block on style nits, broad rewrites, or speculative skill packaging ideas.
 
 ## New Skills
+- `asc-*`: The catalog includes 22 curated workflows for App Store Connect
+  setup, builds, signing, TestFlight, release, metadata, screenshots, pricing,
+  diagnostics, RevenueCat reconciliation, and Apple Ads. They point to one
+  reviewed upstream commit, remain profile-planned for every client, and do
+  not install the separate `asc` executable or configure its credentials.
 - `cloudflare`: Use the official Cloudflare platform skill for Workers, Pages,
   storage, AI, networking, security, and infrastructure-as-code guidance. Its
   registry and lock entries point to the reviewed immutable upstream commit;
