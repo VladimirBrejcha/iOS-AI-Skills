@@ -16,7 +16,7 @@ commands:
       node --check gemini-files-api/scripts/gemini-mm.mjs
       node --check gemini-files-api/scripts/test_gemini_mm.mjs
   - id: ruby-syntax
-    run: ruby -c scripts/skills_catalog.rb && ruby -c scripts/skills_doctor.rb && ruby -c scripts/skills_provenance_audit.rb && ruby -c scripts/skills_sync.rb && ruby -c scripts/skills_upstream_updates.rb
+    run: ruby -c scripts/lib/external_git_pin.rb && ruby -c scripts/skills_catalog.rb && ruby -c scripts/skills_doctor.rb && ruby -c scripts/skills_provenance_audit.rb && ruby -c scripts/skills_sync.rb && ruby -c scripts/skills_upstream_updates.rb
   - id: skills-catalog-test
     run: scripts/test_skills_catalog.sh
   - id: skills-doctor-test

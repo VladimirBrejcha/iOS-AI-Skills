@@ -98,6 +98,57 @@ skills:
 YAML
 }
 
+write_commit_fixture_registry() {
+  local root="$1"
+  local pinned_commit="$2"
+  local tracking_ref="$3"
+  local lock_pinned_commit="${4:-$pinned_commit}"
+  local lock_tracking_ref="${5:-$tracking_ref}"
+  local source_url="${6:-upstream}"
+
+  cat >"$root/skills.registry.yaml" <<YAML
+schema_version: 0.1
+status: active-partial
+registry:
+  id: fixture-skills
+  name: Fixture Skills
+  manager_source: fixture/skills
+skills:
+  - id: external-skill
+    status: needs-import-review
+    source:
+      type: external-git
+      url: "$source_url"
+      path: swiftui-pro
+      pinned_commit: "$pinned_commit"
+      tracking_ref: "$tracking_ref"
+      observed_at: "2026-07-05"
+    exported_names:
+      - external-skill
+    clients:
+      codex: planned
+    scopes:
+      - machine
+      - repo
+    update_policy: external-reviewed
+    catalog:
+      description: External fixture skill.
+YAML
+
+  cat >"$root/skills.lock.yaml" <<YAML
+schema_version: 0.1
+skills:
+  - id: external-skill
+    source_type: external-git
+    url: "$source_url"
+    path: swiftui-pro
+    pinned_commit: "$lock_pinned_commit"
+    tracking_ref: "$lock_tracking_ref"
+    exported_names:
+      - external-skill
+YAML
+}
+
 run_report() {
   local root="$1"
   shift
@@ -162,6 +213,79 @@ current_json="$(run_report "$fixture_dir" --json --fail-on-stale)"
 assert_contains "$current_json" '"status": "current"'
 assert_contains "$current_json" '"update_required": false'
 assert_contains "$current_json" '"update_required": 0'
+
+tracking_ref="$(git -C "$upstream_dir" symbolic-ref HEAD)"
+uppercase_commit_110="$(printf '%s' "$commit_110" | tr '[:lower:]' '[:upper:]')"
+write_commit_fixture_registry "$fixture_dir" "$uppercase_commit_110" "$tracking_ref" "$commit_110"
+commit_current_json="$(run_report "$fixture_dir" --json --fail-on-stale)"
+assert_contains "$commit_current_json" '"pin_mode": "commit"'
+assert_contains "$commit_current_json" '"status": "current"'
+assert_contains "$commit_current_json" '"pinned_commit":'
+assert_contains "$commit_current_json" "\"tracking_ref\": \"$tracking_ref\""
+assert_not_contains "$commit_current_json" '"pinned_tag"'
+
+cat >"$upstream_dir/swiftui-pro/branch-update.md" <<'TEXT'
+Commit pin branch update fixture.
+TEXT
+git_commit "$upstream_dir" "advance tracked branch"
+commit_branch_update="$(git -C "$upstream_dir" rev-parse HEAD)"
+write_commit_fixture_registry "$fixture_dir" "$commit_110" "$tracking_ref"
+commit_stale_json="$(run_report "$fixture_dir" --json)"
+assert_contains "$commit_stale_json" '"status": "stale"'
+assert_contains "$commit_stale_json" '"update_required": true'
+assert_contains "$commit_stale_json" "git diff --stat $commit_110..$commit_branch_update -- swiftui-pro"
+commit_stale_markdown="$(run_report "$fixture_dir" --markdown)"
+assert_contains "$commit_stale_markdown" "source.pinned_commit, source.tracking_ref, and source.observed_at"
+commit_stale_failure="$(expect_failure run_report "$fixture_dir" --fail-on-stale)"
+assert_contains "$commit_stale_failure" "stale external pins"
+
+write_commit_fixture_registry "$fixture_dir" "$commit_branch_update" "$tracking_ref"
+commit_current_markdown="$(run_report "$fixture_dir" --markdown --fail-on-stale)"
+assert_contains "$commit_current_markdown" "Latest Upstream"
+assert_contains "$commit_current_markdown" "$tracking_ref"
+
+write_commit_fixture_registry "$fixture_dir" "$commit_branch_update" "refs/heads/missing"
+commit_missing_json="$(run_report "$fixture_dir" --json)"
+assert_contains "$commit_missing_json" '"status": "missing-tracking-ref"'
+assert_contains "$commit_missing_json" '"update_required": true'
+
+invalid_commit_ref_dir="$tmp_dir/invalid-commit-ref"
+mkdir -p "$invalid_commit_ref_dir"
+write_commit_fixture_registry "$invalid_commit_ref_dir" "$commit_branch_update" "main" "$commit_branch_update" "main" "../fixture/upstream"
+invalid_commit_ref_output="$(expect_failure run_report "$invalid_commit_ref_dir" --json)"
+assert_contains "$invalid_commit_ref_output" "external-skill: external-git tracking_ref must be a full refs/heads/... branch ref"
+
+commit_extra_tag_dir="$tmp_dir/commit-extra-tag"
+mkdir -p "$commit_extra_tag_dir"
+write_commit_fixture_registry "$commit_extra_tag_dir" "$commit_branch_update" "$tracking_ref" "$commit_branch_update" "$tracking_ref" "../fixture/upstream"
+ruby -ryaml -e '
+  registry_path, lock_path = ARGV
+  registry = YAML.safe_load(File.read(registry_path), aliases: false)
+  registry.fetch("skills").first.fetch("source")["pinned_tag"] = "1.1.0"
+  registry.fetch("skills").first.fetch("source")["observed_commit"] = ARGV.fetch(2)
+  File.write(registry_path, registry.to_yaml)
+  lock = YAML.safe_load(File.read(lock_path), aliases: false)
+  lock.fetch("skills").first["pinned_tag"] = "1.1.0"
+  lock.fetch("skills").first["observed_commit"] = ARGV.fetch(2)
+  File.write(lock_path, lock.to_yaml)
+' "$commit_extra_tag_dir/skills.registry.yaml" "$commit_extra_tag_dir/skills.lock.yaml" "$commit_110"
+commit_extra_tag_output="$(expect_failure run_report "$commit_extra_tag_dir" --json)"
+assert_contains "$commit_extra_tag_output" "external-skill: external-git source must define exactly one of pinned_tag or pinned_commit"
+
+commit_extra_observed_dir="$tmp_dir/commit-extra-observed"
+mkdir -p "$commit_extra_observed_dir"
+write_commit_fixture_registry "$commit_extra_observed_dir" "$commit_branch_update" "$tracking_ref" "$commit_branch_update" "$tracking_ref" "../fixture/upstream"
+ruby -ryaml -e '
+  registry_path, lock_path = ARGV
+  registry = YAML.safe_load(File.read(registry_path), aliases: false)
+  registry.fetch("skills").first.fetch("source")["observed_commit"] = ARGV.fetch(2)
+  File.write(registry_path, registry.to_yaml)
+  lock = YAML.safe_load(File.read(lock_path), aliases: false)
+  lock.fetch("skills").first["observed_commit"] = ARGV.fetch(2)
+  File.write(lock_path, lock.to_yaml)
+' "$commit_extra_observed_dir/skills.registry.yaml" "$commit_extra_observed_dir/skills.lock.yaml" "$commit_110"
+commit_extra_observed_output="$(expect_failure run_report "$commit_extra_observed_dir" --json)"
+assert_contains "$commit_extra_observed_output" "external-skill: external-git source.observed_commit must not be defined for commit pins"
 
 legacy_dir="$tmp_dir/legacy"
 mkdir -p "$legacy_dir"

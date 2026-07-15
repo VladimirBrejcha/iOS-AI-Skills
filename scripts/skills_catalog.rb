@@ -13,6 +13,8 @@ require "shellwords"
 require "uri"
 require "yaml"
 
+require_relative "lib/external_git_pin"
+
 ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
 CATALOG_SCHEMA_VERSION = "0.1"
 GENERATOR = "scripts/skills_catalog.rb"
@@ -1048,6 +1050,14 @@ rescue SystemCallError, ArgumentError
   false
 end
 
+def valid_git_tracking_ref?(value)
+  return false unless value.is_a?(String) && value.start_with?("refs/heads/")
+
+  system("git", "check-ref-format", value, out: File::NULL, err: File::NULL)
+rescue SystemCallError, ArgumentError
+  false
+end
+
 def installer_excluded_entry?(entry, directory:)
   name = File.basename(entry.to_s)
   return true if INSTALLER_EXCLUDED_FILES.include?(name)
@@ -1133,7 +1143,7 @@ end
 
 def compare_lock_field(lock_entry, skill_id, field, expected, reporter)
   actual = lock_entry[field]
-  if field == "observed_commit" && valid_git_object_id?(actual) && valid_git_object_id?(expected)
+  if %w[observed_commit pinned_commit].include?(field) && valid_git_object_id?(actual) && valid_git_object_id?(expected)
     return if actual.casecmp?(expected)
   else
     return if actual == expected
@@ -1391,19 +1401,36 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
         "path" => source_path
       }
     when "external-git"
+      pin_kind = ExternalGitPin.kind(source)
+      if pin_kind.nil?
+        reporter.error("#{skill_id}: external-git source must define exactly one of pinned_tag or pinned_commit")
+        next
+      end
+
       url = source["url"]
       path = source["path"]
-      pinned_tag = source["pinned_tag"]
-      observed_commit = source["observed_commit"]
       observed_at = source["observed_at"]
 
       reporter.error("#{skill_id}: external-git source.url must be a public, credential-free URL") unless external_git_url_public?(url)
       reporter.error("#{skill_id}: external-git source.path must be a safe relative path") unless safe_relative_path?(path)
-      reporter.error("#{skill_id}: external-git source.pinned_tag is required") unless valid_string?(pinned_tag)
-      if valid_string?(pinned_tag) && !valid_git_tag_name?(pinned_tag)
-        reporter.error("#{skill_id}: external-git source.pinned_tag must be an exact tag name")
+      forbidden_field = ExternalGitPin.forbidden_fields(pin_kind).find { |field| source.key?(field) }
+      reporter.error("#{skill_id}: external-git source.#{forbidden_field} must not be defined for #{pin_kind} pins") unless forbidden_field.nil?
+      if pin_kind == :tag
+        reporter.error("#{skill_id}: external-git source.pinned_tag is required") unless valid_string?(source["pinned_tag"])
+        if valid_string?(source["pinned_tag"]) && !valid_git_tag_name?(source["pinned_tag"])
+          reporter.error("#{skill_id}: external-git source.pinned_tag must be an exact tag name")
+        end
+        unless valid_git_object_id?(source["observed_commit"])
+          reporter.error("#{skill_id}: external-git source.observed_commit must be a full git object id")
+        end
+      else
+        unless valid_git_object_id?(source["pinned_commit"])
+          reporter.error("#{skill_id}: external-git source.pinned_commit must be a full git object id")
+        end
+        unless valid_git_tracking_ref?(source["tracking_ref"])
+          reporter.error("#{skill_id}: external-git source.tracking_ref must be a full refs/heads/... branch ref")
+        end
       end
-      reporter.error("#{skill_id}: external-git source.observed_commit must be a full git object id") unless valid_git_object_id?(observed_commit)
       if !valid_string?(observed_at)
         reporter.error("#{skill_id}: external-git source.observed_at is required")
       elsif !valid_iso_date?(observed_at)
@@ -1411,30 +1438,55 @@ def build_catalog(registry, lock, registry_path, lock_path, reporter)
       end
 
       if lockable
-        %w[url path pinned_tag observed_commit].each do |field|
+        lock_pin_kind = ExternalGitPin.kind(lock_entry)
+        if lock_pin_kind.nil?
+          reporter.error("#{skill_id}: lock must define exactly one of pinned_tag or pinned_commit")
+        elsif lock_pin_kind != pin_kind
+          reporter.error("#{skill_id}: lock pin mode differs from registry metadata")
+        end
+        lock_fields = %w[url path] + ExternalGitPin.required_fields(pin_kind)
+        lock_fields.each do |field|
           require_lock_field(lock_entry, skill_id, field, reporter)
           compare_lock_field(lock_entry, skill_id, field, source[field], reporter)
         end
-        if valid_string?(lock_entry["pinned_tag"]) && !valid_git_tag_name?(lock_entry["pinned_tag"])
-          reporter.error("#{skill_id}: lock pinned_tag must be an exact tag name")
+        lock_forbidden_field = ExternalGitPin.forbidden_fields(pin_kind).find { |field| lock_entry.key?(field) }
+        unless lock_forbidden_field.nil?
+          reporter.error("#{skill_id}: lock #{lock_forbidden_field} must not be defined for #{pin_kind} pins")
+        end
+        if pin_kind == :tag
+          if valid_string?(lock_entry["pinned_tag"]) && !valid_git_tag_name?(lock_entry["pinned_tag"])
+            reporter.error("#{skill_id}: lock pinned_tag must be an exact tag name")
+          end
+          unless valid_git_object_id?(lock_entry["observed_commit"])
+            reporter.error("#{skill_id}: lock observed_commit must be a full git object id")
+          end
+        else
+          unless valid_git_object_id?(lock_entry["pinned_commit"])
+            reporter.error("#{skill_id}: lock pinned_commit must be a full git object id")
+          end
+          unless valid_git_tracking_ref?(lock_entry["tracking_ref"])
+            reporter.error("#{skill_id}: lock tracking_ref must be a full refs/heads/... branch ref")
+          end
         end
         lock_catalog = {
           "source_type" => "external-git",
           "url" => lock_entry["url"],
-          "path" => lock_entry["path"],
-          "pinned_tag" => lock_entry["pinned_tag"],
-          "observed_commit" => lock_entry["observed_commit"]
+          "path" => lock_entry["path"]
         }
+        ExternalGitPin.required_fields(pin_kind).each do |field|
+          lock_catalog[field] = lock_entry[field]
+        end
       end
 
       source_catalog = {
         "type" => "external-git",
         "url" => url,
-        "path" => path,
-        "pinned_tag" => pinned_tag,
-        "observed_commit" => observed_commit,
-        "observed_at" => observed_at
+        "path" => path
       }
+      ExternalGitPin.required_fields(pin_kind).each do |field|
+        source_catalog[field] = source[field]
+      end
+      source_catalog["observed_at"] = observed_at
     when "unresolved-local"
       unless UNRESOLVED_LOCAL_STATUSES.include?(status)
         reporter.error("#{skill_id}: unresolved-local source requires status needs-source-review or legacy")
@@ -1609,7 +1661,13 @@ def markdown_document(catalog)
     source = skill.fetch("source")
     source_label =
       if source.fetch("type") == "external-git"
-        "external-git:#{source.fetch("path")}@#{source.fetch("pinned_tag")}"
+        reference =
+          if ExternalGitPin.kind(source) == :tag
+            source.fetch("pinned_tag")
+          else
+            "commit-#{source.fetch("pinned_commit")[0, 12]}"
+          end
+        "external-git:#{source.fetch("path")}@#{reference}"
       else
         "#{source.fetch("type")}:#{source.fetch("path")}"
       end

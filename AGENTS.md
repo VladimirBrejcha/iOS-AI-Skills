@@ -56,6 +56,10 @@ Use local operator-provided context if available. Do not commit private/local co
 - Use `skills.registry.yaml` as the source of truth for ownership, upstream
   source, update policy, and intended consumer exposure.
 - Use `skills.lock.yaml` as the reviewed resolved-version input for sync plans.
+- For `external-git`, use exactly one pin mode: `pinned_tag` with
+  `observed_commit`, or immutable `pinned_commit` with an explicit
+  `refs/heads/...` `tracking_ref`. Treat the tracking ref only as update
+  discovery; manager evidence and installs must use the exact pin.
 - Do not edit generated catalog artifacts by hand. Update registry, lock, the
   checked-in example profile, or skill front matter, then run
   `scripts/skills_catalog.rb --write`.

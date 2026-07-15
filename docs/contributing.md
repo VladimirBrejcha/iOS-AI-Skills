@@ -1,7 +1,7 @@
 # Contributing
 
 Status: catalog-dispositions-finalized
-Last updated: 2026-07-14
+Last updated: 2026-07-15
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Usage](usage.md), [Setup And Update Workflow](setup-update-workflow.md),
@@ -89,15 +89,18 @@ Use this when the upstream author remains authoritative.
    not hiding a fork decision.
 2. Run `scripts/skills_upstream_updates.rb --markdown` to confirm whether the
    pin is current, stale, missing upstream, or mismatched.
-3. Confirm the upstream exact tag and license. Commit-only pins are not yet
-   supported by doctor/sync.
+3. Confirm the upstream license and choose one exact pin mode. Prefer an exact
+   release tag when it identifies the reviewed content. Use an immutable full
+   commit pin when no appropriate exact tag exists, with an explicit
+   `refs/heads/...` tracking branch for update discovery.
 4. Review the upstream diff for instruction changes, unexpected scripts, binary
    assets, secret-like strings, and private data.
-5. Update `skills.registry.yaml` with the pinned upstream metadata:
-   `source.pinned_tag` and `source.observed_commit`. Record the reviewed date
-   in `source.observed_at` or in the PR body until doctor/sync/lock
-   enforcement supports it end-to-end. Keep the current license review result
-   in `notes` or the PR body until the registry schema has a dedicated field.
+5. Update `skills.registry.yaml` with exactly one metadata pair:
+   `source.pinned_tag` plus `source.observed_commit`, or
+   `source.pinned_commit` plus `source.tracking_ref`. Record the reviewed date
+   in `source.observed_at`. Keep the current license review result in `notes`
+   or the PR body until the registry schema has a dedicated field. Never use
+   `tracking_ref` as the installed version.
 6. Regenerate `skills.lock.yaml` with upstream checking:
 
    ```bash
@@ -108,8 +111,9 @@ Use this when the upstream author remains authoritative.
 
 7. Regenerate the catalog and review the catalog diff.
 8. Run doctor and sync-plan checks.
-9. Open a PR that states the old pin, new pin, observed commit/date, upstream
-   diff source, license review result, catalog impact, and validation results.
+9. Open a PR that states the pin mode, old pin, new pin, observed date,
+   tracking ref or tag resolution, upstream diff source, license review result,
+   catalog impact, and validation results.
 
 Do not silently auto-update third-party skills on `main`.
 

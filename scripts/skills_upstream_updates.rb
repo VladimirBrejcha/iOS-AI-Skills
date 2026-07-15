@@ -13,6 +13,8 @@ require "tmpdir"
 require "uri"
 require "yaml"
 
+require_relative "lib/external_git_pin"
+
 ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
 SCRIPT_NAME = "scripts/skills_upstream_updates.rb"
 RFC6598_SHARED_ADDRESS_RANGE = IPAddr.new("100.64.0.0/10").freeze
@@ -457,6 +459,15 @@ rescue SystemCallError
   false
 end
 
+def valid_git_tracking_ref?(value)
+  return false unless valid_string?(value) && value.start_with?("refs/heads/")
+
+  _stdout, _stderr, status = Open3.capture3("git", "check-ref-format", value)
+  status.success?
+rescue SystemCallError
+  false
+end
+
 def sanitized_git_env(ssh_state_dir:)
   env = {
     "GIT_TERMINAL_PROMPT" => "0",
@@ -533,6 +544,38 @@ rescue SystemCallError => error
   [nil, redact_local_paths(error.message)]
 end
 
+def git_ls_remote_ref(url, ref, registry_root)
+  stdout = stderr = nil
+  status = nil
+  Dir.mktmpdir("skills-upstream-ssh-") do |ssh_state_dir|
+    stdout, stderr, status = Open3.capture3(
+      sanitized_git_env(ssh_state_dir: ssh_state_dir),
+      "git",
+      "ls-remote",
+      "--refs",
+      "--end-of-options",
+      url.to_s,
+      ref,
+      chdir: neutral_git_working_directory(registry_root)
+    )
+  end
+  unless status.success?
+    detail = stderr.strip.empty? ? "git ls-remote failed with status #{status.exitstatus}" : stderr.strip
+    return [nil, redact_local_paths(detail)]
+  end
+
+  refs = stdout.lines.each_with_object({}) do |line, memo|
+    object_id, resolved_ref = line.split(/\s+/, 2)
+    next unless valid_git_object_id?(object_id) && resolved_ref
+
+    resolved_ref = resolved_ref.strip
+    memo[resolved_ref] = object_id.downcase if resolved_ref == ref
+  end
+  [refs, nil]
+rescue SystemCallError => error
+  [nil, redact_local_paths(error.message)]
+end
+
 def version_for_tag(tag, include_prerelease:)
   normalized = tag.to_s.sub(/\Av/, "")
   return nil unless normalized.match?(/\A\d+(?:\.\d+)*(?:[-.][A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?\z/)
@@ -604,33 +647,51 @@ def compare_lock(registry_skill, lock_entry, reporter)
     return "missing"
   end
 
+  pin_kind = ExternalGitPin.kind(source)
+  lock_pin_kind = ExternalGitPin.kind(lock_entry)
   mismatches = []
-  {
+  mismatches << "source pin mode" if pin_kind.nil?
+  mismatches << "lock pin mode" if lock_pin_kind.nil?
+  mismatches << "pin mode" if !pin_kind.nil? && !lock_pin_kind.nil? && pin_kind != lock_pin_kind
+  fields = {
     "source_type" => "external-git",
     "url" => source["url"],
     "path" => source["path"],
-    "pinned_tag" => source["pinned_tag"],
-    "observed_commit" => source["observed_commit"],
     "exported_names" => registry_skill["exported_names"]
-  }.each do |field, expected|
+  }
+  ExternalGitPin.required_fields(pin_kind).each { |field| fields[field] = source[field] }
+  fields.each do |field, expected|
     actual = lock_entry[field]
     matches =
-      if field == "observed_commit" && valid_git_object_id?(actual) && valid_git_object_id?(expected)
+      if %w[observed_commit pinned_commit].include?(field) && valid_git_object_id?(actual) && valid_git_object_id?(expected)
         actual.to_s.downcase == expected.to_s.downcase
       else
         actual == expected
       end
     mismatches << field unless matches
   end
+  unless pin_kind.nil?
+    forbidden_source = ExternalGitPin.forbidden_fields(pin_kind).select { |field| source.key?(field) }
+    forbidden_lock = ExternalGitPin.forbidden_fields(pin_kind).select { |field| lock_entry.key?(field) }
+    mismatches.concat(forbidden_source.map { |field| "source.#{field}" })
+    mismatches.concat(forbidden_lock.map { |field| "lock.#{field}" })
+  end
+  mismatches.uniq!
 
   reporter.error("#{skill_id}: lock entry differs from registry fields: #{mismatches.join(", ")}") unless mismatches.empty?
   mismatches.empty? ? "ok" : "mismatch"
 end
 
-def required_update_steps(skill_id)
+def required_update_steps(skill_id, pin_kind)
+  pin_fields =
+    if pin_kind == :commit
+      "source.pinned_commit, source.tracking_ref, and source.observed_at"
+    else
+      "source.pinned_tag, source.observed_commit, and source.observed_at"
+    end
   [
     "Review upstream diff and license before changing #{skill_id}.",
-    "Update skills.registry.yaml source.pinned_tag, source.observed_commit, and source.observed_at.",
+    "Update skills.registry.yaml #{pin_fields}.",
     "Regenerate skills.lock.yaml with scripts/skills_doctor.rb --check-upstream --print-lock.",
     "Regenerate the public catalog with scripts/skills_catalog.rb --write.",
     "Run doctor, catalog, sync-plan, and public-safety validation before opening the update PR."
@@ -654,75 +715,149 @@ def build_report(registry, lock, options, reporter)
     source = skill["source"]
     url = source["url"]
     path = source["path"].to_s.empty? ? "." : source["path"]
-    pinned_tag = source["pinned_tag"]
-    observed_commit = source["observed_commit"].to_s.downcase
     observed_at = source["observed_at"]
     exported_names = string_array(skill["exported_names"])
     lock_state = compare_lock(skill, lock_by_id[skill_id], reporter)
+    pin_kind = ExternalGitPin.kind(source)
+    if pin_kind.nil?
+      reporter.error("#{skill_id}: external-git source must define exactly one of pinned_tag or pinned_commit")
+      next
+    end
 
     unless acceptable_upstream_url?(url)
       reporter.error("#{skill_id}: external-git source.url must be a public, credential-free URL or safe relative test URL")
     end
-    reporter.error("#{skill_id}: external-git source.path must be a safe relative path") unless path == "." || safe_relative_path?(path)
-    reporter.error("#{skill_id}: external-git pinned_tag is required") unless valid_string?(pinned_tag)
-    reporter.error("#{skill_id}: external-git pinned_tag must be an exact tag name") if valid_string?(pinned_tag) && !valid_git_tag_name?(pinned_tag)
-    reporter.error("#{skill_id}: external-git observed_commit must be a full git object id") unless valid_git_object_id?(observed_commit)
+    path_valid = path == "." || safe_relative_path?(path)
+    reporter.error("#{skill_id}: external-git source.path must be a safe relative path") unless path_valid
     reporter.error("#{skill_id}: external-git observed_at is required") unless valid_string?(observed_at)
+    forbidden_field = ExternalGitPin.forbidden_fields(pin_kind).find { |field| source.key?(field) }
+    reporter.error("#{skill_id}: external-git source.#{forbidden_field} must not be defined for #{pin_kind} pins") unless forbidden_field.nil?
 
-    tag_map = {}
-    latest = nil
     status = "check-failed"
-    status_detail = nil
-    if acceptable_upstream_url?(url)
-      upstream_tags, error = git_ls_remote_tags(resolved_upstream_url(url, registry_root), registry_root)
-      if upstream_tags.nil?
-        status_detail = error
-        reporter.warn("#{skill_id}: could not list upstream tags: #{error}")
-      else
-        tag_map = upstream_tags
-        current = tag_map[pinned_tag]
-        current_version = version_for_tag(pinned_tag, include_prerelease: true)
-        candidates = semver_candidates(tag_map, include_prerelease: options[:include_prerelease])
-        latest = candidates.max_by { |entry| entry["version"] }
+    status_detail = "registry metadata is invalid"
+    current_data = {}
+    latest_data = {}
+    tags_checked = []
+    refs_checked = []
+    diff_command = nil
+    if pin_kind == :tag
+      pinned_tag = source["pinned_tag"]
+      observed_commit = source["observed_commit"].to_s.downcase
+      reporter.error("#{skill_id}: external-git pinned_tag is required") unless valid_string?(pinned_tag)
+      if valid_string?(pinned_tag) && !valid_git_tag_name?(pinned_tag)
+        reporter.error("#{skill_id}: external-git pinned_tag must be an exact tag name")
+      end
+      unless valid_git_object_id?(observed_commit)
+        reporter.error("#{skill_id}: external-git observed_commit must be a full git object id")
+      end
 
-        if current.nil?
-          status = "missing-current-tag"
-          status_detail = "pinned tag #{pinned_tag} is not present upstream"
-        elsif valid_git_object_id?(observed_commit) && current["commit"].to_s.downcase != observed_commit
-          status = "pin-mismatch"
-          status_detail = "pinned tag no longer resolves to observed_commit"
-        elsif current_version.nil?
-          status = "uncomparable-tags"
-          status_detail = "pinned tag is not a release-like version"
-        elsif current_version&.prerelease? &&
-              !options[:include_prerelease] &&
-              !latest.nil? &&
-              latest["version"] < current_version
-          status = "current"
-          status_detail = "latest stable tag is older than pinned prerelease; rerun with --include-prerelease to compare prereleases"
-        elsif latest.nil?
-          status = "uncomparable-tags"
-          status_detail = "no release-like tags found"
-        elsif latest["tag"] == pinned_tag
-          status = "current"
-          status_detail = "pinned tag is latest release-like tag"
+      tag_map = {}
+      latest = nil
+      if acceptable_upstream_url?(url) && valid_git_tag_name?(pinned_tag) && valid_git_object_id?(observed_commit)
+        upstream_tags, error = git_ls_remote_tags(resolved_upstream_url(url, registry_root), registry_root)
+        if upstream_tags.nil?
+          status_detail = error
+          reporter.warn("#{skill_id}: could not list upstream tags: #{error}")
         else
-          status = "stale"
-          status_detail = "latest release-like tag is #{latest["tag"]}"
+          tag_map = upstream_tags
+          current = tag_map[pinned_tag]
+          current_version = version_for_tag(pinned_tag, include_prerelease: true)
+          candidates = semver_candidates(tag_map, include_prerelease: options[:include_prerelease])
+          latest = candidates.max_by { |entry| entry["version"] }
+
+          if current.nil?
+            status = "missing-current-tag"
+            status_detail = "pinned tag #{pinned_tag} is not present upstream"
+          elsif current["commit"].to_s.downcase != observed_commit
+            status = "pin-mismatch"
+            status_detail = "pinned tag no longer resolves to observed_commit"
+          elsif current_version.nil?
+            status = "uncomparable-tags"
+            status_detail = "pinned tag is not a release-like version"
+          elsif current_version&.prerelease? &&
+                !options[:include_prerelease] &&
+                !latest.nil? &&
+                latest["version"] < current_version
+            status = "current"
+            status_detail = "latest stable tag is older than pinned prerelease; rerun with --include-prerelease to compare prereleases"
+          elsif latest.nil?
+            status = "uncomparable-tags"
+            status_detail = "no release-like tags found"
+          elsif latest["tag"] == pinned_tag
+            status = "current"
+            status_detail = "pinned tag is latest release-like tag"
+          else
+            status = "stale"
+            status_detail = "latest release-like tag is #{latest["tag"]}"
+          end
         end
       end
+
+      current_tag = tag_map[pinned_tag] || {}
+      latest_tag = latest || {}
+      current_data = {
+        "pinned_tag" => pinned_tag,
+        "observed_commit" => observed_commit,
+        "observed_at" => observed_at,
+        "upstream_commit" => current_tag["commit"]
+      }
+      latest_data = {
+        "tag" => latest_tag["tag"],
+        "commit" => latest_tag["commit"]
+      }
+      tags_checked = tag_map.keys.sort
+      if status == "stale" && path_valid && valid_string?(pinned_tag) && valid_string?(latest_tag["tag"])
+        diff_command = "git diff --stat #{Shellwords.escape(pinned_tag)}..#{Shellwords.escape(latest_tag["tag"])} -- #{Shellwords.escape(path)}"
+      end
+    else
+      pinned_commit = source["pinned_commit"].to_s.downcase
+      tracking_ref = source["tracking_ref"]
+      unless valid_git_object_id?(pinned_commit)
+        reporter.error("#{skill_id}: external-git pinned_commit must be a full git object id")
+      end
+      unless valid_git_tracking_ref?(tracking_ref)
+        reporter.error("#{skill_id}: external-git tracking_ref must be a full refs/heads/... branch ref")
+      end
+
+      upstream_commit = nil
+      if acceptable_upstream_url?(url) && valid_git_object_id?(pinned_commit) && valid_git_tracking_ref?(tracking_ref)
+        upstream_refs, error = git_ls_remote_ref(resolved_upstream_url(url, registry_root), tracking_ref, registry_root)
+        if upstream_refs.nil?
+          status_detail = error
+          reporter.warn("#{skill_id}: could not resolve upstream tracking ref #{tracking_ref}: #{error}")
+        else
+          refs_checked = upstream_refs.keys.sort
+          upstream_commit = upstream_refs[tracking_ref]
+          if upstream_commit.nil?
+            status = "missing-tracking-ref"
+            status_detail = "tracking ref #{tracking_ref} is not present upstream"
+          elsif upstream_commit == pinned_commit
+            status = "current"
+            status_detail = "tracking ref resolves to pinned_commit"
+          else
+            status = "stale"
+            status_detail = "tracking ref resolves to #{upstream_commit[0, 12]}, not pinned_commit #{pinned_commit[0, 12]}"
+            if path_valid
+              diff_command = "git diff --stat #{Shellwords.escape(pinned_commit)}..#{Shellwords.escape(upstream_commit)} -- #{Shellwords.escape(path)}"
+            end
+          end
+        end
+      end
+      current_data = {
+        "pinned_commit" => pinned_commit,
+        "tracking_ref" => tracking_ref,
+        "observed_at" => observed_at,
+        "upstream_commit" => upstream_commit
+      }
+      latest_data = {
+        "ref" => tracking_ref,
+        "commit" => upstream_commit
+      }
     end
 
-    current_tag = tag_map[pinned_tag] || {}
-    latest_tag = latest || {}
-    diff_command = nil
-    if status == "stale" && valid_string?(url) && valid_string?(pinned_tag) && valid_string?(latest_tag["tag"])
-      diff_path = path == "." ? "." : path
-      diff_command = "git diff --stat #{Shellwords.escape(pinned_tag)}..#{Shellwords.escape(latest_tag["tag"])} -- #{Shellwords.escape(diff_path)}"
-    end
-
-    memo << {
+    entry = {
       "id" => skill_id,
+      "pin_mode" => pin_kind.to_s,
       "status" => status,
       "status_detail" => status_detail,
       "source" => {
@@ -731,23 +866,16 @@ def build_report(registry, lock, options, reporter)
         "path" => path
       },
       "exported_names" => exported_names,
-      "current" => {
-        "pinned_tag" => pinned_tag,
-        "observed_commit" => observed_commit,
-        "observed_at" => observed_at,
-        "upstream_commit" => current_tag["commit"]
-      },
-      "latest" => {
-        "tag" => latest_tag["tag"],
-        "commit" => latest_tag["commit"]
-      },
+      "current" => current_data,
+      "latest" => latest_data,
       "lock_state" => lock_state,
-      "tags_checked" => tag_map.keys.sort,
       "include_prerelease" => options[:include_prerelease],
-      "update_required" => %w[stale missing-current-tag pin-mismatch].include?(status),
+      "update_required" => %w[stale missing-current-tag pin-mismatch missing-tracking-ref].include?(status),
       "diff_command" => diff_command,
-      "required_update_steps" => required_update_steps(skill_id)
+      "required_update_steps" => required_update_steps(skill_id, pin_kind)
     }
+    entry[pin_kind == :tag ? "tags_checked" : "refs_checked"] = pin_kind == :tag ? tags_checked : refs_checked
+    memo << entry
   end
 
   stale_count = entries.count { |entry| entry["update_required"] }
@@ -785,13 +913,18 @@ def markdown_document(report)
   lines << "- Updates requiring review: #{summary.fetch("update_required")}"
   lines << "- Include prerelease tags: #{report.fetch("include_prerelease")}"
   lines << ""
-  lines << "| Skill | Status | Current Pin | Latest Tag | Lock | Detail |"
+  lines << "| Skill | Status | Current Pin | Latest Upstream | Lock | Detail |"
   lines << "| --- | --- | --- | --- | --- | --- |"
   report.fetch("skills").each do |skill|
     current = skill.fetch("current")
     latest = skill.fetch("latest")
-    current_label = [current["pinned_tag"], current["observed_commit"].to_s[0, 12]].compact.join(" @ ")
-    latest_label = latest["tag"].to_s.empty? ? "" : [latest["tag"], latest["commit"].to_s[0, 12]].compact.join(" @ ")
+    if skill.fetch("pin_mode") == "commit"
+      current_label = "#{current.fetch("tracking_ref")} @ #{current.fetch("pinned_commit")[0, 12]}"
+      latest_label = latest["commit"].to_s.empty? ? latest["ref"].to_s : "#{latest["ref"]} @ #{latest["commit"].to_s[0, 12]}"
+    else
+      current_label = [current["pinned_tag"], current["observed_commit"].to_s[0, 12]].compact.join(" @ ")
+      latest_label = latest["tag"].to_s.empty? ? "" : [latest["tag"], latest["commit"].to_s[0, 12]].compact.join(" @ ")
+    end
     lines << [
       "`#{skill.fetch("id")}`",
       "`#{skill.fetch("status")}`",
