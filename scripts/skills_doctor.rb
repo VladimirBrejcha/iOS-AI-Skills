@@ -11,6 +11,8 @@ require "tmpdir"
 require "uri"
 require "yaml"
 
+require_relative "lib/external_git_pin"
+
 ROOT = Pathname.new(File.expand_path("..", __dir__)).freeze
 GIT_PATHSPEC_ENV_KEYS = %w[
   GIT_LITERAL_PATHSPECS
@@ -193,6 +195,15 @@ def valid_git_tag_name?(value)
   return false if value.start_with?("refs/")
 
   _stdout, _stderr, status = Open3.capture3("git", "check-ref-format", "refs/tags/#{value}")
+  status.success?
+rescue SystemCallError, ArgumentError
+  false
+end
+
+def valid_git_tracking_ref?(value)
+  return false unless value.is_a?(String) && value.start_with?("refs/heads/")
+
+  _stdout, _stderr, status = Open3.capture3("git", "check-ref-format", value)
   status.success?
 rescue SystemCallError, ArgumentError
   false
@@ -685,6 +696,30 @@ def git_ls_remote_tag(url, tag)
   [refs, stderr, status]
 end
 
+def git_ls_remote_ref(url, ref)
+  stdout, stderr, status = Open3.capture3(
+    sanitized_git_env(
+      clear_repository_env: true,
+      clear_git_config_env: true,
+      disable_interactive_prompts: true
+    ),
+    "git",
+    "ls-remote",
+    "--refs",
+    "--end-of-options",
+    url.to_s,
+    ref.to_s,
+    chdir: "/"
+  )
+  refs = stdout.lines.each_with_object({}) do |line, memo|
+    hash, resolved_ref = line.split(/\s+/, 2)
+    next if hash.nil? || resolved_ref.nil?
+
+    memo[resolved_ref.strip] = hash
+  end
+  [refs, stderr, status]
+end
+
 def sanitized_git_env(clear_repository_env: false, clear_pathspec_env: false, clear_git_config_env: false, disable_interactive_prompts: false)
   env = {}
 
@@ -1089,22 +1124,31 @@ def validate_registry(registry_path, registry, options, reporter)
       }
       reporter.ok("#{skill_id}: registry-local #{source_path} digest #{digest[0, 12]}")
     when "external-git"
+      pin_kind = ExternalGitPin.kind(source)
+      if pin_kind.nil?
+        reporter.error("#{skill_id}: external-git source must define exactly one of pinned_tag or pinned_commit")
+        next
+      end
+
       invalid_source_field = false
-      {
+      source_fields = {
         "source.url" => source["url"],
-        "source.path" => source["path"],
-        "pinned_tag" => source["pinned_tag"],
-        "observed_commit" => source["observed_commit"]
-      }.each do |field, value|
+        "source.path" => source["path"]
+      }
+      ExternalGitPin::ALL_FIELDS.each do |field|
+        source_fields[field] = source[field] if source.key?(field)
+      end
+      source_fields.each do |field, value|
         next if value.nil? || value.is_a?(String)
 
         reporter.error("#{skill_id}: external-git #{field} must be a string")
         invalid_source_field = true
       end
-      {
-        "source.url" => source["url"],
-        "pinned_tag" => source["pinned_tag"]
-      }.each do |field, value|
+      argv_fields = { "source.url" => source["url"] }
+      ExternalGitPin.required_fields(pin_kind).each do |field|
+        argv_fields[field] = source[field]
+      end
+      argv_fields.each do |field, value|
         next if value.nil? || valid_argv_string?(value)
 
         reporter.error("#{skill_id}: external-git #{field} must not contain null bytes")
@@ -1122,8 +1166,8 @@ def validate_registry(registry_path, registry, options, reporter)
 
       url = source["url"].to_s
       source_path = source["path"].to_s
-      tag = source["pinned_tag"].to_s
-      observed_commit = source["observed_commit"].to_s
+      pin_value = ExternalGitPin.reference(source).to_s
+      companion_value = source[pin_kind == :tag ? "observed_commit" : "tracking_ref"].to_s
       reporter.error("#{skill_id}: external-git source.url is required") if url.empty?
       if (options[:check_upstream] || options[:print_lock]) && unresolved_bare_upstream_url?(url, registry_root)
         reporter.error("#{skill_id}: external-git source.url must resolve within the registry root or use an explicit remote URL")
@@ -1178,63 +1222,113 @@ def validate_registry(registry_path, registry, options, reporter)
         reporter.error("#{skill_id}: external-git source.path must be a safe relative path")
         next
       end
-      reporter.error("#{skill_id}: external-git pinned_tag is required") if tag.empty?
-      if !tag.empty? && !valid_git_tag_name?(tag)
-        reporter.error("#{skill_id}: external-git pinned_tag must be an exact tag name")
+      forbidden_field = ExternalGitPin.forbidden_fields(pin_kind).find { |field| source.key?(field) }
+      unless forbidden_field.nil?
+        reporter.error("#{skill_id}: external-git source.#{forbidden_field} must not be defined for #{pin_kind} pins")
         next
       end
-      if !observed_commit.empty? && !valid_git_object_id?(observed_commit)
-        reporter.error("#{skill_id}: external-git observed_commit must be a full git object id")
-        next
-      end
-      observed_commit = observed_commit.downcase
-      if options[:check_upstream] && options[:print_lock] && observed_commit.empty?
-        reporter.error("#{skill_id}: external-git observed_commit is required when using --check-upstream with --print-lock")
-        next
-      end
-      reporter.warn("#{skill_id}: external-git observed_commit is missing") if observed_commit.empty?
 
-      if options[:check_upstream] && !url.empty? && !tag.empty?
-        refs, stderr, git_status = git_ls_remote_tag(resolve_upstream_url(url, registry_root), tag)
-        resolved_commit = refs["refs/tags/#{tag}^{}"] || refs["refs/tags/#{tag}"]
-        resolved_commit = resolved_commit.downcase unless resolved_commit.nil?
-        if git_status.success?
-          if resolved_commit.nil?
-            message = "#{skill_id}: upstream tag #{tag} is not present"
-            if options[:print_lock]
-              reporter.error(message)
-              next
+      if pin_kind == :tag
+        if pin_value.empty?
+          reporter.error("#{skill_id}: external-git pinned_tag is required")
+          next
+        end
+        unless valid_git_tag_name?(pin_value)
+          reporter.error("#{skill_id}: external-git pinned_tag must be an exact tag name")
+          next
+        end
+        unless valid_git_object_id?(companion_value)
+          reporter.error("#{skill_id}: external-git observed_commit must be a full git object id")
+          next
+        end
+        companion_value = companion_value.downcase
+      else
+        unless valid_git_object_id?(pin_value)
+          reporter.error("#{skill_id}: external-git pinned_commit must be a full git object id")
+          next
+        end
+        unless valid_git_tracking_ref?(companion_value)
+          reporter.error("#{skill_id}: external-git tracking_ref must be a full refs/heads/... branch ref")
+          next
+        end
+        pin_value = pin_value.downcase
+      end
+
+      if options[:check_upstream] && !url.empty?
+        if pin_kind == :tag
+          refs, stderr, git_status = git_ls_remote_tag(resolve_upstream_url(url, registry_root), pin_value)
+          resolved_commit = refs["refs/tags/#{pin_value}^{}"] || refs["refs/tags/#{pin_value}"]
+          resolved_commit = resolved_commit.downcase unless resolved_commit.nil?
+          if git_status.success?
+            if resolved_commit.nil?
+              message = "#{skill_id}: upstream tag #{pin_value} is not present"
+              if options[:print_lock]
+                reporter.error(message)
+                next
+              end
+
+              reporter.warn(message)
+            elsif companion_value != resolved_commit
+              message = "#{skill_id}: pinned tag #{pin_value} no longer resolves to observed_commit #{companion_value[0, 12]}"
+              if options[:print_lock]
+                reporter.error(message)
+                next
+              end
+
+              reporter.warn(message)
+            else
+              reporter.ok("#{skill_id}: upstream tag #{pin_value} resolves to #{resolved_commit[0, 12]}")
             end
-
-            reporter.warn(message)
-          elsif !observed_commit.empty? && observed_commit != resolved_commit
-            message = "#{skill_id}: pinned tag #{tag} no longer resolves to observed_commit #{observed_commit[0, 12]}"
-            if options[:print_lock]
-              reporter.error(message)
-              next
-            end
-
-            reporter.warn(message)
           else
-            reporter.ok("#{skill_id}: upstream tag #{tag} resolves to #{resolved_commit[0, 12]}")
+            reporter.warn("#{skill_id}: could not resolve upstream tag #{pin_value}: #{redact_local_paths(stderr.strip)}")
           end
         else
-          reporter.warn("#{skill_id}: could not resolve upstream tag #{tag}: #{redact_local_paths(stderr.strip)}")
+          refs, stderr, git_status = git_ls_remote_ref(resolve_upstream_url(url, registry_root), companion_value)
+          resolved_commit = refs[companion_value]&.downcase
+          if git_status.success?
+            if resolved_commit.nil?
+              message = "#{skill_id}: upstream tracking ref #{companion_value} is not present"
+              if options[:print_lock]
+                reporter.error(message)
+                next
+              end
+
+              reporter.warn(message)
+            elsif pin_value != resolved_commit
+              message = "#{skill_id}: tracking ref #{companion_value} resolves to #{resolved_commit[0, 12]}, not pinned_commit #{pin_value[0, 12]}"
+              if options[:print_lock]
+                reporter.error(message)
+                next
+              end
+
+              reporter.warn(message)
+            else
+              reporter.ok("#{skill_id}: upstream tracking ref #{companion_value} resolves to pinned_commit #{pin_value[0, 12]}")
+            end
+          else
+            reporter.warn("#{skill_id}: could not resolve upstream tracking ref #{companion_value}: #{redact_local_paths(stderr.strip)}")
+          end
         end
       else
         reporter.info("#{skill_id}: upstream check skipped")
       end
 
-      resolved[skill_id] = {
+      resolved_entry = {
         "status" => status,
         "source_type" => "external-git",
         "url" => url,
         "path" => source_path.empty? ? "." : source_path,
-        "pinned_tag" => tag,
-        "observed_commit" => observed_commit,
         "exported_names" => exported_names,
         "lockable" => status != "legacy"
       }
+      if pin_kind == :tag
+        resolved_entry["pinned_tag"] = pin_value
+        resolved_entry["observed_commit"] = companion_value
+      else
+        resolved_entry["pinned_commit"] = pin_value
+        resolved_entry["tracking_ref"] = companion_value
+      end
+      resolved[skill_id] = resolved_entry
     when "unresolved-local"
       unless UNRESOLVED_LOCAL_STATUSES.include?(status)
         reporter.error("#{skill_id}: unresolved-local source requires status needs-source-review or legacy")
@@ -1312,7 +1406,7 @@ def lock_field_mismatches(locked, entry, fields)
     matches =
       if field == "exported_names"
         locked[field] == Array(entry[field])
-      elsif field == "observed_commit"
+      elsif %w[observed_commit pinned_commit].include?(field)
         locked[field].to_s.downcase == entry[field].to_s.downcase
       else
         locked[field].to_s == entry[field].to_s
@@ -1436,19 +1530,41 @@ def validate_lock_entry_shape(locked, registry_root, lock_label, skill_id, repor
     reporter.error("#{lock_label}: #{skill_id} lock digest_sha256 must be a 64-character hex SHA-256")
     false
   when "external-git"
-    return false unless validate_lock_scalar_fields(locked, %w[source_type url path pinned_tag observed_commit], lock_label, skill_id, reporter)
+    base_fields_valid = validate_lock_scalar_fields(locked, %w[source_type url path], lock_label, skill_id, reporter)
+    pin_kind = ExternalGitPin.kind(locked)
+    if pin_kind.nil?
+      reporter.error("#{lock_label}: #{skill_id} lock must define exactly one of pinned_tag or pinned_commit")
+      return false
+    end
+    pin_fields_valid = validate_lock_scalar_fields(locked, ExternalGitPin.required_fields(pin_kind), lock_label, skill_id, reporter)
+    return false unless base_fields_valid && pin_fields_valid
     return false unless validate_lock_external_git_url(locked["url"], registry_root, lock_label, skill_id, reporter)
     unless safe_relative_path?(locked["path"])
       reporter.error("#{lock_label}: #{skill_id} lock path must be a safe relative path")
       return false
     end
-    unless valid_git_tag_name?(locked["pinned_tag"])
-      reporter.error("#{lock_label}: #{skill_id} lock pinned_tag must be an exact tag name")
+    forbidden_field = ExternalGitPin.forbidden_fields(pin_kind).find { |field| locked.key?(field) }
+    unless forbidden_field.nil?
+      reporter.error("#{lock_label}: #{skill_id} lock #{forbidden_field} must not be defined for #{pin_kind} pins")
       return false
     end
-    return true if locked["observed_commit"].empty? || valid_git_object_id?(locked["observed_commit"])
+    if pin_kind == :tag
+      unless valid_git_tag_name?(locked["pinned_tag"])
+        reporter.error("#{lock_label}: #{skill_id} lock pinned_tag must be an exact tag name")
+        return false
+      end
+      return true if valid_git_object_id?(locked["observed_commit"])
 
-    reporter.error("#{lock_label}: #{skill_id} lock observed_commit must be a full git object id")
+      reporter.error("#{lock_label}: #{skill_id} lock observed_commit must be a full git object id")
+      return false
+    end
+    unless valid_git_object_id?(locked["pinned_commit"])
+      reporter.error("#{lock_label}: #{skill_id} lock pinned_commit must be a full git object id")
+      return false
+    end
+    return true if valid_git_tracking_ref?(locked["tracking_ref"])
+
+    reporter.error("#{lock_label}: #{skill_id} lock tracking_ref must be a full refs/heads/... branch ref")
     false
   else
     reporter.error("#{lock_label}: #{skill_id} lock source_type must be registry-local or external-git")
@@ -1529,7 +1645,8 @@ def validate_lock(lock_path, registry_root, resolved, reporter)
         reporter.error("#{lock_label}: #{skill_id} differs from current source fields: #{mismatches.join(", ")}")
       end
     when "external-git"
-      mismatches = lock_field_mismatches(locked, entry, %w[source_type url path pinned_tag observed_commit exported_names])
+      pin_fields = ExternalGitPin.required_fields(ExternalGitPin.kind(entry))
+      mismatches = lock_field_mismatches(locked, entry, %w[source_type url path] + pin_fields + %w[exported_names])
       if mismatches.empty?
         reporter.ok("#{lock_label}: #{skill_id} external pin matches")
       else
@@ -1984,7 +2101,7 @@ def manager_expected_source_metadata(entry)
           end
       }
     when "external-git"
-      manager_expected_external_source_metadata(entry["url"], entry["pinned_tag"])
+      manager_expected_external_source_metadata(entry["url"], ExternalGitPin.reference(entry))
     end
 
   return nil if expected.nil?
@@ -2374,6 +2491,8 @@ def lock_document(resolved)
         "url" => entry["url"],
         "pinned_tag" => entry["pinned_tag"],
         "observed_commit" => entry["observed_commit"],
+        "pinned_commit" => entry["pinned_commit"],
+        "tracking_ref" => entry["tracking_ref"],
         "digest_sha256" => entry["digest_sha256"],
         "exported_names" => entry["exported_names"]
       }.compact

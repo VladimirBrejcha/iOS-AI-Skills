@@ -3933,7 +3933,7 @@ skills:
 YAML
 
 missing_observed_commit_lock_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$missing_observed_commit_lock_dir/skills.registry.yaml" --check-upstream --print-lock)"
-assert_contains "$missing_observed_commit_lock_output" "swiftui-pro: external-git observed_commit is required when using --check-upstream with --print-lock"
+assert_contains "$missing_observed_commit_lock_output" "swiftui-pro: external-git observed_commit must be a full git object id"
 assert_not_contains "$missing_observed_commit_lock_output" "generated_by: scripts/skills_doctor.rb --print-lock"
 
 bad_lock_observed_commit_dir="$tmp_dir/bad-lock-observed-commit"
@@ -7093,5 +7093,149 @@ assert_contains "$manager_state_bad_output" "global skills lock <absolute-path> 
 assert_contains "$manager_state_bad_output" "project skills lock <absolute-path> code-review source must be a string"
 assert_contains "$manager_state_bad_output" "project skills lock <absolute-path> code-review sourceType must be a string"
 assert_contains "$manager_state_bad_output" "project skills lock <absolute-path> code-review computedHash must be a string"
+
+commit_pin_doctor_dir="$tmp_dir/commit-pin-doctor"
+mkdir -p "$commit_pin_doctor_dir/upstream"
+git -C "$commit_pin_doctor_dir/upstream" init -q
+git -C "$commit_pin_doctor_dir/upstream" symbolic-ref HEAD refs/heads/main
+cat >"$commit_pin_doctor_dir/upstream/README.md" <<'TEXT'
+Exact commit pin fixture.
+TEXT
+git -C "$commit_pin_doctor_dir/upstream" add README.md
+git -C "$commit_pin_doctor_dir/upstream" -c user.name=Test -c user.email=test@example.com commit -q -m initial
+commit_pin_initial="$(git -C "$commit_pin_doctor_dir/upstream" rev-parse HEAD)"
+commit_pin_initial_upper="$(printf '%s' "$commit_pin_initial" | tr '[:lower:]' '[:upper:]')"
+
+cat >"$commit_pin_doctor_dir/skills.registry.yaml" <<YAML
+schema_version: 0.1
+status: fixture
+registry:
+  id: commit-pin-doctor
+  name: Commit Pin Doctor
+skills:
+  - id: external-skill
+    status: active
+    source:
+      type: external-git
+      url: upstream
+      path: skill
+      pinned_commit: "$commit_pin_initial_upper"
+      tracking_ref: refs/heads/main
+      observed_at: "2026-07-15"
+    exported_names:
+      - external-skill
+YAML
+
+commit_pin_lock_output="$(ruby "$repo_root/scripts/skills_doctor.rb" --registry "$commit_pin_doctor_dir/skills.registry.yaml" --check-upstream --print-lock)"
+assert_contains "$commit_pin_lock_output" "pinned_commit: $commit_pin_initial"
+assert_contains "$commit_pin_lock_output" "tracking_ref: refs/heads/main"
+assert_not_contains "$commit_pin_lock_output" "pinned_tag:"
+assert_not_contains "$commit_pin_lock_output" "observed_commit:"
+printf '%s\n' "$commit_pin_lock_output" >"$commit_pin_doctor_dir/skills.lock.yaml"
+
+commit_pin_lock_conflict_dir="$tmp_dir/commit-pin-lock-conflict"
+cp -R "$commit_pin_doctor_dir" "$commit_pin_lock_conflict_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  lock = YAML.safe_load(File.read(path), aliases: false)
+  lock.fetch("skills").first["observed_commit"] = ARGV.fetch(1)
+  File.write(path, lock.to_yaml)
+' "$commit_pin_lock_conflict_dir/skills.lock.yaml" "$commit_pin_initial"
+commit_pin_lock_conflict_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$commit_pin_lock_conflict_dir/skills.registry.yaml" --lock "$commit_pin_lock_conflict_dir/skills.lock.yaml" --projects-root "$commit_pin_lock_conflict_dir/projects")"
+assert_contains "$commit_pin_lock_conflict_output" "external-skill lock observed_commit must not be defined for commit pins"
+
+cat >"$commit_pin_doctor_dir/upstream/CHANGELOG.md" <<'TEXT'
+Tracked branch advanced.
+TEXT
+git -C "$commit_pin_doctor_dir/upstream" add CHANGELOG.md
+git -C "$commit_pin_doctor_dir/upstream" -c user.name=Test -c user.email=test@example.com commit -q -m advance
+commit_pin_advanced="$(git -C "$commit_pin_doctor_dir/upstream" rev-parse HEAD)"
+commit_pin_stale_output="$(ruby "$repo_root/scripts/skills_doctor.rb" --registry "$commit_pin_doctor_dir/skills.registry.yaml" --check-upstream --projects-root "$commit_pin_doctor_dir/projects")"
+assert_contains "$commit_pin_stale_output" "tracking ref refs/heads/main resolves to ${commit_pin_advanced:0:12}, not pinned_commit ${commit_pin_initial:0:12}"
+commit_pin_stale_lock_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$commit_pin_doctor_dir/skills.registry.yaml" --check-upstream --print-lock)"
+assert_contains "$commit_pin_stale_lock_output" "tracking ref refs/heads/main resolves to ${commit_pin_advanced:0:12}, not pinned_commit ${commit_pin_initial:0:12}"
+assert_not_contains "$commit_pin_stale_lock_output" "generated_by: scripts/skills_doctor.rb --print-lock"
+
+commit_pin_invalid_ref_dir="$tmp_dir/commit-pin-invalid-ref"
+cp -R "$commit_pin_doctor_dir" "$commit_pin_invalid_ref_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  registry = YAML.safe_load(File.read(path), aliases: false)
+  source = registry.fetch("skills").first.fetch("source")
+  source["pinned_commit"] = ARGV.fetch(1)
+  source["tracking_ref"] = "main"
+  File.write(path, registry.to_yaml)
+' "$commit_pin_invalid_ref_dir/skills.registry.yaml" "$commit_pin_advanced"
+commit_pin_invalid_ref_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$commit_pin_invalid_ref_dir/skills.registry.yaml" --print-lock)"
+assert_contains "$commit_pin_invalid_ref_output" "external-skill: external-git tracking_ref must be a full refs/heads/... branch ref"
+
+commit_pin_missing_ref_dir="$tmp_dir/commit-pin-missing-ref"
+cp -R "$commit_pin_doctor_dir" "$commit_pin_missing_ref_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  registry = YAML.safe_load(File.read(path), aliases: false)
+  source = registry.fetch("skills").first.fetch("source")
+  source["pinned_commit"] = ARGV.fetch(1)
+  source["tracking_ref"] = "refs/heads/missing"
+  File.write(path, registry.to_yaml)
+' "$commit_pin_missing_ref_dir/skills.registry.yaml" "$commit_pin_advanced"
+commit_pin_missing_ref_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$commit_pin_missing_ref_dir/skills.registry.yaml" --check-upstream --print-lock)"
+assert_contains "$commit_pin_missing_ref_output" "upstream tracking ref refs/heads/missing is not present"
+
+commit_pin_both_dir="$tmp_dir/commit-pin-both"
+cp -R "$commit_pin_doctor_dir" "$commit_pin_both_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  registry = YAML.safe_load(File.read(path), aliases: false)
+  source = registry.fetch("skills").first.fetch("source")
+  source["pinned_tag"] = "v1.0.0"
+  source["observed_commit"] = ARGV.fetch(1)
+  File.write(path, registry.to_yaml)
+' "$commit_pin_both_dir/skills.registry.yaml" "$commit_pin_initial"
+commit_pin_both_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$commit_pin_both_dir/skills.registry.yaml" --print-lock)"
+assert_contains "$commit_pin_both_output" "external-skill: external-git source must define exactly one of pinned_tag or pinned_commit"
+
+commit_pin_no_pin_dir="$tmp_dir/commit-pin-no-pin"
+cp -R "$commit_pin_doctor_dir" "$commit_pin_no_pin_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  registry = YAML.safe_load(File.read(path), aliases: false)
+  source = registry.fetch("skills").first.fetch("source")
+  source.delete("pinned_commit")
+  File.write(path, registry.to_yaml)
+' "$commit_pin_no_pin_dir/skills.registry.yaml"
+commit_pin_no_pin_output="$(expect_failure ruby "$repo_root/scripts/skills_doctor.rb" --registry "$commit_pin_no_pin_dir/skills.registry.yaml" --print-lock)"
+assert_contains "$commit_pin_no_pin_output" "external-skill: external-git source must define exactly one of pinned_tag or pinned_commit"
+
+manager_state_external_commit_dir="$tmp_dir/manager-state-external-commit"
+cp -R "$manager_state_external_git_dir" "$manager_state_external_commit_dir"
+ruby -ryaml -rjson -e '
+  registry_path, global_path, project_path, commit = ARGV
+  registry = YAML.safe_load(File.read(registry_path), aliases: false)
+  source = registry.fetch("skills").first.fetch("source")
+  source.delete("pinned_tag")
+  source.delete("observed_commit")
+  source["pinned_commit"] = commit
+  source["tracking_ref"] = "refs/heads/main"
+  File.write(registry_path, registry.to_yaml)
+  global = JSON.parse(File.read(global_path))
+  global.fetch("skills").fetch("swiftui-pro")["ref"] = commit
+  File.write(global_path, JSON.pretty_generate(global) + "\n")
+  project = JSON.parse(File.read(project_path))
+  project.fetch("skills").fetch("swiftui-pro")["ref"] = commit
+  File.write(project_path, JSON.pretty_generate(project) + "\n")
+' "$manager_state_external_commit_dir/skills.registry.yaml" "$manager_state_external_commit_dir/global-lock.json" "$manager_state_external_commit_dir/projects/app/skills-lock.json" "$commit_pin_initial"
+manager_state_external_commit_output="$(
+  PROJECTS_ROOT="$manager_state_external_commit_dir/projects" \
+    ruby "$repo_root/scripts/skills_doctor.rb" \
+    --registry "$manager_state_external_commit_dir/skills.registry.yaml" \
+    --profile "$manager_state_external_commit_dir/profiles/machine/example.yaml" \
+    --projects-root "$manager_state_external_commit_dir/projects" \
+    --check-manager \
+    --manager-list-json "$manager_state_external_commit_dir/npx-global.json" \
+    --manager-global-lock "$manager_state_external_commit_dir/global-lock.json"
+)"
+assert_contains "$manager_state_external_commit_output" "global skills lock tracks registry-related swiftui-pro as swiftui-pro"
+assert_contains "$manager_state_external_commit_output" "project skills lock <absolute-path> tracks registry-related swiftui-pro as swiftui-pro from twostraws/SwiftUI-Agent-Skill"
 
 echo "skills_doctor test ok"

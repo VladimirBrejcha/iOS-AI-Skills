@@ -305,6 +305,73 @@ assert_contains "$markdown_output" "## Installable Active Skills"
 assert_contains "$markdown_output" "refresh \`skills.lock.yaml\` if source contents changed"
 assert_contains "$markdown_output" "for the current reviewed example profile."
 
+commit_pin_dir="$tmp_dir/commit-pin"
+write_ok_fixture "$commit_pin_dir"
+ruby -ryaml -e '
+  registry_path, lock_path = ARGV
+  registry = YAML.safe_load(File.read(registry_path), aliases: false)
+  source = registry.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")
+  source.delete("pinned_tag")
+  source.delete("observed_commit")
+  source["pinned_commit"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  source["tracking_ref"] = "refs/heads/main"
+  File.write(registry_path, registry.to_yaml)
+
+  lock = YAML.safe_load(File.read(lock_path), aliases: false)
+  entry = lock.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }
+  entry.delete("pinned_tag")
+  entry.delete("observed_commit")
+  entry["pinned_commit"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  entry["tracking_ref"] = "refs/heads/main"
+  File.write(lock_path, lock.to_yaml)
+' "$commit_pin_dir/skills.registry.yaml" "$commit_pin_dir/skills.lock.yaml"
+commit_pin_json="$(run_catalog "$commit_pin_dir" --json)"
+assert_contains "$commit_pin_json" '"pinned_commit": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'
+assert_contains "$commit_pin_json" '"tracking_ref": "refs/heads/main"'
+assert_not_contains "$commit_pin_json" '"pinned_tag"'
+assert_not_contains "$commit_pin_json" '"observed_commit"'
+commit_pin_markdown="$(run_catalog "$commit_pin_dir" --markdown)"
+assert_contains "$commit_pin_markdown" 'external-git:external-skill@commit-AAAAAAAAAAAA'
+
+commit_pin_extra_field_dir="$tmp_dir/commit-pin-extra-field"
+cp -R "$commit_pin_dir" "$commit_pin_extra_field_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  registry = YAML.safe_load(File.read(path), aliases: false)
+  registry.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["observed_commit"] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  File.write(path, registry.to_yaml)
+' "$commit_pin_extra_field_dir/skills.registry.yaml"
+commit_pin_extra_field_output="$(expect_failure run_catalog "$commit_pin_extra_field_dir" --json)"
+assert_contains "$commit_pin_extra_field_output" "external-skill: external-git source.observed_commit must not be defined for commit pins"
+
+invalid_tracking_ref_dir="$tmp_dir/invalid-tracking-ref"
+cp -R "$commit_pin_dir" "$invalid_tracking_ref_dir"
+ruby -ryaml -e '
+  registry_path, lock_path = ARGV
+  registry = YAML.safe_load(File.read(registry_path), aliases: false)
+  registry.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")["tracking_ref"] = "main"
+  File.write(registry_path, registry.to_yaml)
+  lock = YAML.safe_load(File.read(lock_path), aliases: false)
+  lock.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }["tracking_ref"] = "main"
+  File.write(lock_path, lock.to_yaml)
+' "$invalid_tracking_ref_dir/skills.registry.yaml" "$invalid_tracking_ref_dir/skills.lock.yaml"
+invalid_tracking_ref_output="$(expect_failure run_catalog "$invalid_tracking_ref_dir" --json)"
+assert_contains "$invalid_tracking_ref_output" "external-skill: external-git source.tracking_ref must be a full refs/heads/... branch ref"
+assert_contains "$invalid_tracking_ref_output" "external-skill: lock tracking_ref must be a full refs/heads/... branch ref"
+
+both_pins_dir="$tmp_dir/both-pins"
+write_ok_fixture "$both_pins_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  registry = YAML.safe_load(File.read(path), aliases: false)
+  source = registry.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")
+  source["pinned_commit"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  source["tracking_ref"] = "refs/heads/main"
+  File.write(path, registry.to_yaml)
+' "$both_pins_dir/skills.registry.yaml"
+both_pins_output="$(expect_failure run_catalog "$both_pins_dir" --json)"
+assert_contains "$both_pins_output" "external-skill: external-git source must define exactly one of pinned_tag or pinned_commit"
+
 dangling_reference_dir="$tmp_dir/dangling-reference"
 write_ok_fixture "$dangling_reference_dir"
 ruby -ryaml -e '
@@ -918,7 +985,7 @@ ruby -ryaml -e '
   File.write(path, data.to_yaml)
 ' "$unpinned_dir/skills.registry.yaml"
 unpinned_output="$(expect_failure run_catalog "$unpinned_dir" --json)"
-assert_contains "$unpinned_output" "external-skill: external-git source.pinned_tag is required"
+assert_contains "$unpinned_output" "external-skill: external-git source must define exactly one of pinned_tag or pinned_commit"
 
 invalid_tag_dir="$tmp_dir/invalid-tag"
 write_ok_fixture "$invalid_tag_dir"

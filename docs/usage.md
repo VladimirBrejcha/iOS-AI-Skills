@@ -1,7 +1,7 @@
 # Usage
 
 Status: catalog-dispositions-finalized
-Last updated: 2026-07-14
+Last updated: 2026-07-15
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Setup And Update Workflow](setup-update-workflow.md),
@@ -348,14 +348,18 @@ registry-covered source metadata changed.
    scripts/skills_upstream_updates.rb --fail-on-stale
    ```
 
-   Expected outcome: the report lists whether external pins are `current`,
-   `stale`, `missing-current-tag`, or `pin-mismatch`. Use `--fail-on-stale`
-   in scheduled checks or before starting a third-party update PR.
+   Expected outcome: tag pins report `current`, `stale`,
+   `missing-current-tag`, or `pin-mismatch`; commit pins report `current`,
+   `stale`, or `missing-tracking-ref`. Use `--fail-on-stale` in scheduled
+   checks or before starting a third-party update PR.
 
 2. For a stale pin, review the upstream diff, license, skill instructions, and
    generated adapter impact before editing this registry.
-3. Update `skills.registry.yaml` with the new upstream tag and
-   `source.observed_commit`. Record the reviewed date in `source.observed_at`.
+3. Update `skills.registry.yaml` using the entry's existing pin mode. Tag mode
+   updates `source.pinned_tag` and `source.observed_commit`. Commit mode updates
+   the immutable `source.pinned_commit`; retain or deliberately change the
+   explicit `source.tracking_ref`. Record the reviewed date in
+   `source.observed_at`.
 4. Regenerate `skills.lock.yaml`:
 
    ```bash

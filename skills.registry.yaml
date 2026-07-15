@@ -17,8 +17,10 @@ rules:
   source_of_truth:
     - A skill source is edited only in its owning repository or upstream.
     - Consumer directories are adapter views, not editable sources.
-    - External skills are pinned by exact tag before broad machine exposure
-      until commit-only pins are supported end-to-end.
+    - >
+      External skills use exactly one reviewed pin mode: exact tag with its
+      observed commit, or immutable commit with an explicit tracking branch.
+    - Tracking branches detect upstream movement; they are never install pins.
   adapters:
     - Prefer symlinks when a client has verified support.
     - Use upstream-manager-owned adapter copies only for explicit reviewed
@@ -199,9 +201,10 @@ skills:
         this local skill and references before local positioning edits were
         applied.
       - Upstream repository license reviewed as MIT.
-      - Keep registry-local ownership until the upstream publishes an exact
-        release tag or this registry supports commit-only external pins
-        end-to-end.
+      - Keep registry-local ownership because local positioning edits make this
+        a maintained fork. Commit-pin support alone does not make the upstream
+        content an exact replacement; reclassification requires a separate
+        source-content and fork review.
       - Claude Code support is proven through a pinned upstream manager write
         to ~/.claude/skills for this skill; additional Claude Code targets stay
         planned until separately promoted.
@@ -345,10 +348,10 @@ skills:
       - The previous local folder matched older Dimillian/Skills commit
         ad1bb92d3e9ce8f42c993164d1048e949f520dca before upstream refined the
         SwiftUI refactor guidance and removed the long article-style reference.
-      - Keep registry-local ownership until the upstream publishes an exact
-        release tag for the reviewed content or the registry supports
-        commit-only external pins across doctor, catalog, sync, and profile
-        generation.
+      - Keep registry-local ownership because the checked-in public wording
+        cleanup makes this a maintained fork. Commit-pin support alone does not
+        make the upstream content an exact replacement; reclassification
+        requires a separate source-content and fork review.
       - Narrow SwiftUI view-structure and dependency-pattern workflow selected
         as the next managed profile expansion after the Swift testing and
         Xcode Cloud slices.

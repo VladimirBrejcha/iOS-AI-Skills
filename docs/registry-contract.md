@@ -1,7 +1,7 @@
 # Registry Contract
 
 Status: catalog-dispositions-finalized
-Last updated: 2026-07-14
+Last updated: 2026-07-15
 
 Related: [README](../README.md), [Usage](usage.md),
 [Setup And Update Workflow](setup-update-workflow.md),
@@ -64,7 +64,8 @@ In scope:
 - machine and repo profile examples that describe intended exposure
 - doctor checks for source, lock, profile, upstream, manager, and adapter drift
 - stale external-pin reporting that compares reviewed tags with upstream
-  release-like tags before update PRs
+  release-like tags or exact commits with an explicit tracking branch before
+  update PRs
 - sync-plan output that generates reviewable adapter actions and pinned manager
   commands where the upstream manager can own the write
 - setup/update workflows for new machines, existing machines, repo-local
@@ -92,7 +93,7 @@ Each registry-covered reusable skill must have exactly one active source owner.
 | Source type | Meaning | Required metadata |
 | --- | --- | --- |
 | `registry-local` | 51Code owns and edits the skill in this repository, including maintained local forks of upstream skills. | `source.path`, exported names, supported clients, scopes, update policy, lock digest. Preserve upstream provenance and fork reason in `notes` or adjacent docs when relevant. |
-| `external-git` | A third-party upstream remains authoritative. | Upstream URL, path, exact pinned tag, observed commit, observed date, update policy, lock digest. Record current license review status in `notes` or the PR body until the registry schema grows a dedicated field. |
+| `external-git` | A third-party upstream remains authoritative. | Upstream URL, path, exactly one supported pin mode, observed date, update policy, and matching lock metadata. Tag mode uses `pinned_tag` plus `observed_commit`. Commit mode uses `pinned_commit` plus `tracking_ref`. Record current license review status in `notes` or the PR body until the registry schema grows a dedicated field. |
 | `unresolved-local` | A checked-in folder exists, but source ownership, license, alternatives, or lifecycle has not been reviewed, or the folder is retained as legacy. This is a disposition, not an ownership claim. | Top-level `source.path` and status `needs-source-review` or `legacy`. No lock, exports, clients, scopes, or install metadata. |
 
 Allowed lifecycle statuses are:
@@ -130,21 +131,20 @@ planning.
 Every non-legacy resolved-source entry must be backed by lock/version metadata:
 
 - registry-local skills require a digest of the source folder
-- external-git skills require an exact pinned tag plus observed commit
+- external-git skills require exactly one pin mode: an exact `pinned_tag` plus
+  its `observed_commit`, or an immutable full `pinned_commit` plus an explicit
+  `tracking_ref` under `refs/heads/`
 - unresolved-local entries must not appear in `skills.lock.yaml`
-- external-git update PRs must keep `source.observed_commit` aligned with the
+- tag-pinned update PRs must keep `source.observed_commit` aligned with the
   reviewed tag
-- `source.observed_at` is review evidence for that tag and should stay aligned
-  in the registry entry or PR body until doctor/sync/lock enforcement supports
-  it end-to-end
+- commit-pinned update PRs must keep the immutable `source.pinned_commit` as
+  the install and lock identity; `source.tracking_ref` is only the branch used
+  to detect newer upstream work and must never be used as the installed pin
+- `source.observed_at` is required review evidence for either pin mode
+- registry and lock entries must not mix tag-mode and commit-mode fields
 - lock regeneration must be explicit and reviewed
 - update PRs must show registry diff, lock diff, catalog-facing description
   impact, and verification output
-
-Commit-only external pins are not yet part of the supported public contract.
-`scripts/skills_doctor.rb` and `scripts/skills_sync.rb` still require
-`source.pinned_tag`, so contract docs must stay tag-based until that tooling
-support exists end-to-end.
 
 "Latest" means latest approved on `main` or a tagged release of this registry,
 not unreviewed latest from an arbitrary upstream source.
@@ -152,10 +152,12 @@ not unreviewed latest from an arbitrary upstream source.
 ## Upstream Update Checks
 
 External skills are not silently updated. `scripts/skills_upstream_updates.rb`
-is the read-only reporter for stale third-party pins. It compares each
-`external-git` registry entry against release-like upstream tags, checks that
-the lock entry still matches the registry entry, and emits the evidence needed
-for a reviewed update PR.
+is the read-only reporter for stale third-party pins. For tag mode, it compares
+the reviewed tag with release-like upstream tags and verifies the observed
+commit. For commit mode, it resolves only the declared `tracking_ref` and
+compares that branch tip with `pinned_commit`. It also checks that the lock
+entry matches the registry entry and emits the evidence needed for a reviewed
+update PR.
 
 Normal output is advisory:
 

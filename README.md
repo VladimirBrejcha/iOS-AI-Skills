@@ -66,6 +66,12 @@ The registry files are:
 Historical drift reports and proof profiles live under `docs/history/`. They
 are retained for audit context, not as the current onboarding path.
 
+External Git sources use exactly one reviewed version mode. Tag mode records
+`pinned_tag` plus `observed_commit`; commit mode records an immutable
+`pinned_commit` plus an explicit `refs/heads/...` `tracking_ref` used only to
+detect upstream movement. Both modes require `observed_at`, and lock entries
+mirror only the selected mode.
+
 This repository is available under the [MIT License](LICENSE). Maintained
 third-party forks retain their reviewed notices in
 [Third-Party Notices](THIRD_PARTY_NOTICES.md).

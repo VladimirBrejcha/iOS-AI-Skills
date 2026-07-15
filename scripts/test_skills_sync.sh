@@ -1486,6 +1486,49 @@ assert_contains "$unsupported_output" "adapter type \"verify-before-use\" is not
 assert_contains "$unsupported_output" "blocked | blocked | codex_user/external-skill"
 assert_contains "$unsupported_output" "external-git source must be imported"
 
+commit_pin_sync_dir="$tmp_dir/commit-pin-sync"
+cp -R "$unsupported_dir" "$commit_pin_sync_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  registry = YAML.safe_load(File.read(path), aliases: false)
+  source = registry.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }.fetch("source")
+  source.delete("pinned_tag")
+  source.delete("observed_commit")
+  source["pinned_commit"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  source["tracking_ref"] = "refs/heads/main"
+  File.write(path, registry.to_yaml)
+' "$commit_pin_sync_dir/skills.registry.yaml"
+write_lock_from_registry "$commit_pin_sync_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  lock = YAML.safe_load(File.read(path), aliases: false)
+  entry = lock.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }
+  entry["pinned_commit"] = entry.fetch("pinned_commit").downcase
+  File.write(path, lock.to_yaml)
+' "$commit_pin_sync_dir/skills.lock.yaml"
+commit_pin_sync_output="$(
+  ruby "$repo_root/scripts/skills_sync.rb" \
+    --plan \
+    --registry "$commit_pin_sync_dir/skills.registry.yaml" \
+    --lock "$commit_pin_sync_dir/skills.lock.yaml" \
+    --profile "$commit_pin_sync_dir/profiles/machine/example.yaml" \
+    --json
+)"
+assert_contains "$commit_pin_sync_output" '"status": "blocked"'
+assert_contains "$commit_pin_sync_output" '"lock": "commit:aaaaaaaaaaaa ref:refs/heads/main"'
+assert_contains "$commit_pin_sync_output" "external-git source must be imported or otherwise materialized"
+
+commit_pin_sync_conflict_dir="$tmp_dir/commit-pin-sync-conflict"
+cp -R "$commit_pin_sync_dir" "$commit_pin_sync_conflict_dir"
+ruby -ryaml -e '
+  path = ARGV.fetch(0)
+  lock = YAML.safe_load(File.read(path), aliases: false)
+  lock.fetch("skills").find { |skill| skill.fetch("id") == "external-skill" }["observed_commit"] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  File.write(path, lock.to_yaml)
+' "$commit_pin_sync_conflict_dir/skills.lock.yaml"
+commit_pin_sync_conflict_output="$(expect_failure ruby "$repo_root/scripts/skills_sync.rb" --plan --registry "$commit_pin_sync_conflict_dir/skills.registry.yaml" --lock "$commit_pin_sync_conflict_dir/skills.lock.yaml" --profile "$commit_pin_sync_conflict_dir/profiles/machine/example.yaml")"
+assert_contains "$commit_pin_sync_conflict_output" "external-skill: lock observed_commit must not be defined for commit pins"
+
 unsupported_stale_dir="$tmp_dir/unsupported-stale"
 write_skill "$unsupported_stale_dir/stale-skill" "stale-skill" "Unsupported stale fixture."
 mkdir -p "$unsupported_stale_dir/profiles/machine" "$unsupported_stale_dir/consumer-root"
@@ -1896,7 +1939,7 @@ skills:
       url: https://example.com/example/skill.git
       path: skill-dir
       pinned_tag: "1"
-      observed_commit: ""
+      observed_commit: "1111111111111111111111111111111111111111"
     exported_names:
       - external-skill
 YAML
