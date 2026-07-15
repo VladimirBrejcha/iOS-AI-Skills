@@ -108,8 +108,9 @@ copy command produced exactly two roots:
 Both roots were exact `diff -qr` matches to the registry source. That source
 matches lock digest
 `1e843f08071c4bc8883cc76a13ca352405f0e955823595ca3ce23ef4290dbb72`.
-The disposable root was removed, no real global or repository consumer root
-was retained, and no manager-generated proof state is committed.
+The recorded proof wrote only inside the disposable root, which was removed.
+It did not write any real global or repository consumer root, and no
+manager-generated proof state is committed.
 
 Clients remain `planned` because discovery and byte-for-byte packaging prove
 manager compatibility, not reviewed profile selection. The registry contract
