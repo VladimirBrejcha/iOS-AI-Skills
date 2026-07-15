@@ -236,8 +236,12 @@ id: fixture
 commands:
   - id: fixture-pass
     run: printf 'fixture artifact\n' > "{artifactsDir}/fixture.txt"
+required_artifacts:
+  - fixture.txt
+  - paths.txt
 required_pass_signals:
   - fixture-pass
+failure_patterns: []
 EOF
 verify_runner_output="$("$verify_runner_dir/scripts/verify.sh")"
 assert_contains "$verify_runner_output" "==> fixture-pass"
@@ -270,6 +274,51 @@ required_pass_signals:
 EOF
 missing_runner_output="$(expect_failure "$missing_runner_dir/scripts/verify.sh")"
 assert_contains "$missing_runner_output" "verification profile is missing required commands: absent"
+
+block_failure_runner_dir="$tmp_dir/verify-runner-block-failure"
+cp -R "$verify_runner_dir/." "$block_failure_runner_dir/"
+cat >"$block_failure_runner_dir/.agents/verify/skills-registry.yaml" <<'EOF'
+id: block-failure-fixture
+commands:
+  - id: block-failure
+    run: |
+      false
+      printf 'later command passed\n'
+required_pass_signals:
+  - block-failure
+EOF
+block_failure_runner_output="$(expect_failure "$block_failure_runner_dir/scripts/verify.sh")"
+assert_contains "$block_failure_runner_output" "verification failed: block-failure"
+
+failure_pattern_runner_dir="$tmp_dir/verify-runner-failure-pattern"
+cp -R "$verify_runner_dir/." "$failure_pattern_runner_dir/"
+cat >"$failure_pattern_runner_dir/.agents/verify/skills-registry.yaml" <<'EOF'
+id: failure-pattern-fixture
+commands:
+  - id: diagnostic
+    run: "printf 'ERROR: diagnostic failed\\n'"
+required_pass_signals:
+  - diagnostic
+failure_patterns:
+  - "error:"
+EOF
+failure_pattern_runner_output="$(expect_failure "$failure_pattern_runner_dir/scripts/verify.sh")"
+assert_contains "$failure_pattern_runner_output" 'verification failed: diagnostic matched failure pattern "error:"'
+
+missing_artifact_runner_dir="$tmp_dir/verify-runner-missing-artifact"
+cp -R "$verify_runner_dir/." "$missing_artifact_runner_dir/"
+cat >"$missing_artifact_runner_dir/.agents/verify/skills-registry.yaml" <<'EOF'
+id: missing-artifact-fixture
+commands:
+  - id: no-artifact
+    run: "true"
+required_artifacts:
+  - missing.json
+required_pass_signals:
+  - no-artifact
+EOF
+missing_artifact_runner_output="$(expect_failure "$missing_artifact_runner_dir/scripts/verify.sh")"
+assert_contains "$missing_artifact_runner_output" "verification missing required artifacts: missing.json"
 
 dependency_contract_output="$(
   ruby -ryaml -e '
