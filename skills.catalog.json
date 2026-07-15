@@ -2088,7 +2088,7 @@
     {
       "id": "silent-pushes-setup",
       "name": "silent-pushes-setup",
-      "description": "Setup, debug, or validate iOS silent (background) push notifications with APNs, including entitlements, device token registration, backend APNs sending, and widget refresh. Use for silent push setup or troubleshooting (aps-environment errors, token registration, background delivery, APNs headers).",
+      "description": "Set up, audit, or diagnose iOS background (silent) notifications end to end: signed entitlements, APNs registration and environment, provider headers and payload, throttling, Simulator and device testing, and Apple delivery diagnostics. Use for content-available pushes or missing background delivery; not for visible alerts, Live Activities, PushKit, or provider-specific SDK setup.",
       "status": "active",
       "source": {
         "type": "registry-local",
@@ -2110,7 +2110,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "silent-pushes-setup",
-        "digest_sha256": "fca5a281a686aa5d6e63ccf246f1f62750b41f77d97fc41c85426bc20d7f6720"
+        "digest_sha256": "1e843f08071c4bc8883cc76a13ca352405f0e955823595ca3ce23ef4290dbb72"
       }
     },
     {
