@@ -39,9 +39,13 @@ require_text "$skill_file" 'two or three per hour'
 require_text "$skill_file" 'up to 30 seconds'
 require_text "$troubleshooting" '"Simulator Target Bundle"'
 require_text "$troubleshooting" 'Use `apns-unique-id`, not `apns-id`'
+require_text "$troubleshooting" '| `429 TooManyRequests` | Consecutive per-device request pressure'
+require_text "$troubleshooting" '| `429 TooManyProviderTokenUpdates` | The provider JWT was replaced too frequently'
+require_text "$troubleshooting" 'rotate no more often than once every 20 minutes'
 require_text "$apple_docs" 'https://developer.apple.com/documentation/usernotifications/pushing-background-updates-to-your-app'
 require_text "$apple_docs" 'https://developer.apple.com/documentation/usernotifications/testing-notifications-using-the-push-notification-console'
 require_text "$apple_docs" 'https://developer.apple.com/documentation/usernotifications/viewing-the-status-of-push-notifications-using-metrics-and-apns'
+require_text "$apple_docs" 'https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns'
 require_text "$apple_docs" 'https://developer.apple.com/documentation/xcode-release-notes/xcode-14-release-notes'
 
 for stale_text in \

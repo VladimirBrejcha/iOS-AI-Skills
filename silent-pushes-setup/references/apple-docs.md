@@ -42,6 +42,12 @@ contract in this skill.
   - Development responses also include `apns-unique-id` for Delivery Log lookup.
   - Oversized device payloads return HTTP `413`; HTTP `200` is request success,
     not proof that the app ran.
+  - HTTP `429` has distinct `TooManyRequests` and
+    `TooManyProviderTokenUpdates` reasons that require different corrections.
+- [Establishing a token-based connection to APNs](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)
+  - Reuse a provider JWT across requests. Refresh it no more often than once
+    every 20 minutes and at least once every 60 minutes.
+  - APNs rejects a token whose issued-at timestamp is more than one hour old.
 - [Troubleshooting push notifications](https://developer.apple.com/documentation/usernotifications/troubleshooting-push-notifications)
   - Covers token, topic, environment, provider errors, silent-push throttling,
     device power budgets, and the fact that Xcode testing disables some limits.

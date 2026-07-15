@@ -115,6 +115,10 @@ to seven days.
 
 Handle provider responses deliberately:
 
+Branch on the response body's `reason`, not only its HTTP status. In
+particular, HTTP `429` can describe device-request pressure or provider JWT
+rotation pressure, and those failures need different corrections.
+
 | Evidence | Interpretation | Action |
 | --- | --- | --- |
 | `400 BadDeviceToken` | Token is invalid for the environment | Recheck signed environment and registration |
@@ -122,7 +126,8 @@ Handle provider responses deliberately:
 | `403` authentication reason | Provider credential or JWT is invalid | Fix authentication; do not change app code |
 | `410 Unregistered` | Token is no longer active for the topic | Stop using it according to the returned timestamp |
 | `413` | Payload exceeds the allowed size | Reduce the payload below 4 KB |
-| `429` | Too many requests for the token | Back off; do not brute-force delivery |
+| `429 TooManyRequests` | Consecutive per-device request pressure targeted the same device token | Delay and back off per token; reduce or coalesce request pressure |
+| `429 TooManyProviderTokenUpdates` | The provider JWT was replaced too frequently | Reuse the current JWT across requests; rotate no more often than once every 20 minutes and refresh before it is one hour old |
 | `5xx` | APNs is temporarily unavailable | Retry later with backoff |
 | `200` | APNs accepted the request | Continue to delivery and app evidence |
 
