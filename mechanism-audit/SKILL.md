@@ -82,6 +82,28 @@ write the same output to:
 Do not create a durable artifact for small ad hoc answers unless the user or
 harness asks for it.
 
+## Harness Integration
+
+When a harness supports path-scoped audit routing, declare the requirement in
+the manifest that owns the contract-bearing paths. Keep selection based on
+paths or task metadata, not prompt keywords:
+
+```yaml
+mechanism_audits:
+  - id: repo-contract-enforcement
+    description: Audit whether this repository contract is mechanically enforced.
+    applies_to:
+      - AGENTS.md
+      - .agents/manifests/**
+      - .agents/verify/**
+    artifact: mechanism-audit.md
+```
+
+The harness owns artifact enforcement, repair routing, and any additional
+structured result contract. This skill owns the human-readable audit workflow
+and fixed verdict vocabulary; do not duplicate a controller-specific result
+schema here.
+
 ## Quality Bar
 
 - Prefer exact file references and command names over general claims.

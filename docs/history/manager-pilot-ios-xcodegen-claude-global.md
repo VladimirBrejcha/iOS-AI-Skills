@@ -10,6 +10,14 @@ This note records the checked-in audit trail for the narrow Claude Code
 promotion in this PR. It is historical proof only; the active install/update
 path remains the current example profile plus `scripts/skills_sync.rb --plan`.
 
+## Superseded Status
+
+This proof predates the 2026-07-16 expansion of the `ios-xcodegen` source and
+does not prove the current content or digest. The checked-in example profile
+keeps `ios-xcodegen` in `manual-review` until a fresh manager write and digest
+check are recorded. The companion historical proof profile is also blocked in
+`manual-review` and must not be reused as an install path.
+
 ## Observed Evidence
 
 - Proof target: `ios-xcodegen` only, through `~/.claude/skills/ios-xcodegen`.

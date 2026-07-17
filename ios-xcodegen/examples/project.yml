@@ -1,0 +1,37 @@
+name: FixtureApp
+options:
+  minimumXcodeGenVersion: 2.45.4
+packages:
+  FixturePackage:
+    url: https://example.invalid/FixturePackage.git
+    exactVersion: 1.2.3
+targets:
+  FixtureApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/FixtureApp
+      - path: Resources
+        buildPhase: resources
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: "YES"
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: "YES"
+    dependencies:
+      - package: FixturePackage
+        product: FixtureLibrary
+  FixtureTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/FixtureTests
+    dependencies:
+      - target: FixtureApp
+schemes:
+  FixtureApp:
+    build:
+      targets:
+        FixtureApp: all
+    test:
+      targets:
+        - FixtureTests

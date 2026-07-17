@@ -1,60 +1,90 @@
 ---
 name: xcode-cloud
-description: Set up, configure, or troubleshoot Xcode Cloud CI/CD workflows and custom build scripts, especially for iOS apps using XcodeGen. Use for requests about Xcode Cloud setup, ci_scripts (ci_post_clone.sh/ci_pre_xcodebuild.sh/ci_post_xcodebuild.sh), build/test/archive automation, or tag-pushing after archives.
+description: Configure or troubleshoot Xcode Cloud workflows and lifecycle scripts using Apple's project-presence, dependency, environment, and fail-closed CI contracts. Use for Xcode Cloud setup, custom ci_scripts, build/test/archive diagnosis, or a separately reviewed XcodeGen regeneration exception.
 ---
 
 # Xcode Cloud
 
 ## Overview
 
-Provide a repeatable setup for Xcode Cloud custom scripts, with ready-to-copy templates for XcodeGen generation and post-archive Git tagging.
+Use Apple documentation as the authority for Xcode Cloud lifecycle behavior.
+Keep this skill focused on workflow configuration, custom scripts, dependency
+policy, and CI diagnosis. Use `xcode-build` for local build and simulator work,
+and `ios-xcodegen` for XcodeGen project-spec semantics.
 
 ## Quick Start
 
-1. Identify the folder that contains the `.xcodeproj` or `.xcworkspace`.
-2. Check whether the `.xcodeproj`/`.xcworkspace` is tracked in git. If it is generated and
-   ignored, you must use `ci_post_clone.sh` (or commit the generated project).
-3. Create `ci_scripts/` in that folder if missing.
-4. Copy templates from `assets/`.
-5. Customize variables noted in the templates.
-6. `chmod +x ci_scripts/*.sh`.
-7. In Xcode Cloud, add `ENABLE_ARCHIVE_TAG_PUSH=1` and `GITHUB_TOKEN` only to the release-tagging workflow, and ensure an Archive action exists.
+1. Identify the `.xcodeproj` or `.xcworkspace` selected by the workflow.
+2. Confirm that project or workspace is continuously present in the repository
+   before configuring Xcode Cloud. A generated and ignored project is not a
+   safe default.
+3. Confirm shared schemes, actions, Xcode version, dependency state, and the
+   repository path used by the workflow.
+4. Add only the custom lifecycle scripts the workflow needs. Place executable
+   scripts in a top-level `ci_scripts` directory beside the selected project or
+   workspace.
+5. Make every script fail closed on missing inputs and verify the workflow in a
+   disposable branch before rollout.
 
-## Workflow: XcodeGen + Tagging
+## Apple Lifecycle Contract
 
-### 1) Place scripts where Xcode Cloud expects them
-Create `ci_scripts/` at the same level as the `.xcodeproj`/`.xcworkspace`. Xcode Cloud only recognizes the three official filenames; use `ci_pre_xcodebuild.sh` (or `ci_post_clone.sh`) for XcodeGen and `ci_post_xcodebuild.sh` for tagging.
+Apple recognizes these executable top-level lifecycle names under
+`ci_scripts/`:
 
-### 2) XcodeGen project generation
-Use `ci_post_clone.sh` if your `.xcodeproj`/`.xcworkspace` is generated and not committed.
-Xcode Cloud validates the project path and schemes before `ci_pre_xcodebuild.sh` runs, so
-pre-xcodebuild is too late in that setup.
-Copy `assets/ci_post_clone.sh` to `ci_scripts/ci_post_clone.sh`.
-Use `ci_pre_xcodebuild.sh` only when the project already exists in the repo.
-Set `PROJECT_SPEC_PATH` if your `project.yml` or `project.yaml` lives outside repo root.
+- `ci_post_clone.sh`
+- `ci_pre_xcodebuild.sh`
+- `ci_post_xcodebuild.sh`
 
-### 3) Tagging after successful archives
-Copy `assets/ci_post_xcodebuild.sh` to `ci_scripts/ci_post_xcodebuild.sh`.
-Set `INFO_PLIST_PATH` (or provide it as an Xcode Cloud env var).
-Set `TAG_PREFIX` if you want a custom prefix.
-Ensure the workflow includes an Archive action; otherwise the script will no-op.
-Add `ENABLE_ARCHIVE_TAG_PUSH=1` and `GITHUB_TOKEN` only on the workflow that should publish tags.
-Optionally set `TAG_ALLOWED_BRANCHES` to a comma-separated allowlist such as `main,release`.
+The post-build script runs even when `xcodebuild` fails. Never infer success
+from a missing exit code or action. Require the documented variables for the
+selected action and reject missing, malformed, or failed state.
 
-### 4) Make scripts executable
-Run `chmod +x ci_scripts/*.sh` after adding or editing scripts.
+Keep logs free of secrets. Do not place credentials in remote URLs, command
+arguments, or echoed environment dumps.
 
-## Template Assets
+## XcodeGen Exception
 
-- `assets/ci_pre_xcodebuild.sh`: XcodeGen install + project generation (two-script setup)
-- `assets/ci_post_clone.sh`: XcodeGen install + project generation (alternative)
-- `assets/ci_post_xcodebuild.sh`: archive-only, opt-in tag push using `GITHUB_TOKEN`
+Do not use post-clone generation to create the project or workspace Xcode Cloud
+needs for initial configuration. Prefer committing the generated project when
+the repository deliberately uses XcodeGen.
+
+Use regeneration during a build only as a separately reviewed exception. The
+repository must prove the selected Xcode and XcodeGen versions with a fixture,
+own deterministic tool acquisition, and keep the expected project continuously
+present. `assets/ci_pre_xcodebuild.sh` is an opt-in guard for that exception:
+
+- it requires `ALLOW_XCODEGEN_REGENERATION=1`
+- it requires relative `PROJECT_SPEC_PATH` and `EXPECTED_PROJECT_PATH` values
+- it resolves the expected project's parent and project paths and requires both
+  to remain inside the canonical repository root before deletion
+- it requires `EXPECTED_PROJECT_PATH` to name an `.xcodeproj`; it rejects
+  `.xcworkspace` paths because XcodeGen does not regenerate a selected workspace
+  through this guard
+- in Xcode Cloud, it resolves those paths from Apple's
+  `CI_PRIMARY_REPOSITORY_PATH`; outside Xcode Cloud, it falls back to the
+  directory that contains `ci_scripts`
+- it requires `XCODEGEN_REQUIRED_VERSION` and verifies the exact installed tool
+- it refuses to install a mutable package or create a previously absent project
+- it preserves a shared `Package.resolved` stored inside the committed project
+  container while regenerating that container
+
+Copy it only after those project-specific conditions are reviewed, then run
+`chmod +x ci_scripts/ci_pre_xcodebuild.sh`.
+
+## External Publication
+
+This skill does not include a tag-push template. Release tags and other remote
+mutations need a separate authorization contract with a mandatory ref
+allowlist, a known successful Archive action, least-privilege credentials that
+are not embedded in URLs, remote-first idempotency, safe retry behavior, and
+isolated failure fixtures.
 
 ## Notes
 
-- Research official Apple Developer Documentation and WWDC sources directly when you need exact Xcode Cloud behavior or environment variables, and retain the source URL with the conclusion.
-- Keep logs free of secrets; use Xcode Cloud secret environment variables for tokens.
-- Reference `references/xcode-cloud-notes.md` for quick reminders about doc lookups.
-- If you see `Project <Name>.xcodeproj does not exist at <path>`, Xcode Cloud validated the
-  project before your script ran. Fix by switching to `ci_post_clone.sh` or committing the
-  generated project.
+- Recheck official Apple sources for mutable platform behavior and record the
+  retrieval date with project-specific conclusions.
+- Treat missing projects, schemes, environment variables, dependency locks, or
+  tool versions as configuration failures, not successful no-ops.
+- Keep confirmed Apple behavior separate from project-specific inference.
+- See `references/xcode-cloud-notes.md` for the reviewed source set and
+  diagnostic checklist.

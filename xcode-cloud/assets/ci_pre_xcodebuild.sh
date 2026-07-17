@@ -1,38 +1,125 @@
 #!/bin/sh
-# Xcode Cloud pre-xcodebuild script: install XcodeGen and generate the project
+# Optional Xcode Cloud pre-xcodebuild guard for reviewed XcodeGen regeneration
 
-set -e
+set -eu
 
-echo "=== pre-xcodebuild: XcodeGen setup ==="
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+validate_relative_path() {
+  case "$1" in
+    ""|/*|..|../*|*/..|*/../*)
+      fail "$2 must be a non-empty repository-relative path"
+      ;;
+  esac
+}
+
+if [ "${ALLOW_XCODEGEN_REGENERATION:-}" != "1" ]; then
+  fail "ALLOW_XCODEGEN_REGENERATION must be set to 1 after project-specific review"
+fi
+
+PROJECT_SPEC_PATH="${PROJECT_SPEC_PATH:-}"
+EXPECTED_PROJECT_PATH="${EXPECTED_PROJECT_PATH:-}"
+XCODEGEN_REQUIRED_VERSION="${XCODEGEN_REQUIRED_VERSION:-}"
+
+validate_relative_path "$PROJECT_SPEC_PATH" "PROJECT_SPEC_PATH"
+validate_relative_path "$EXPECTED_PROJECT_PATH" "EXPECTED_PROJECT_PATH"
+[ -n "$XCODEGEN_REQUIRED_VERSION" ] || fail "XCODEGEN_REQUIRED_VERSION is required"
+
+case "$EXPECTED_PROJECT_PATH" in
+  *.xcodeproj)
+    ;;
+  *)
+    fail "EXPECTED_PROJECT_PATH must name an .xcodeproj; workspace regeneration is not supported"
+    ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
-REPO_ROOT="${SCRIPT_DIR}/.."
+case "${CI_PRIMARY_REPOSITORY_PATH:-}" in
+  "")
+    REPO_ROOT="${SCRIPT_DIR}/.."
+    ;;
+  /*)
+    REPO_ROOT="$CI_PRIMARY_REPOSITORY_PATH"
+    ;;
+  *)
+    fail "CI_PRIMARY_REPOSITORY_PATH must be absolute when set"
+    ;;
+esac
+
+[ -d "$REPO_ROOT" ] || fail "repository root not found: $REPO_ROOT"
+REPO_ROOT="$(cd "$REPO_ROOT" && pwd -P)" || fail "unable to resolve repository root: $REPO_ROOT"
 
 cd "$REPO_ROOT"
 
-PROJECT_SPEC_PATH="${PROJECT_SPEC_PATH:-}"
-if [ -n "${PROJECT_SPEC_PATH}" ]; then
-  if [ ! -f "${PROJECT_SPEC_PATH}" ]; then
-    echo "ERROR: PROJECT_SPEC_PATH not found: ${PROJECT_SPEC_PATH}"
-    exit 1
+[ -f "$PROJECT_SPEC_PATH" ] || fail "PROJECT_SPEC_PATH not found: $PROJECT_SPEC_PATH"
+[ -d "$EXPECTED_PROJECT_PATH" ] || fail "EXPECTED_PROJECT_PATH must be an existing project directory before regeneration: $EXPECTED_PROJECT_PATH"
+
+EXPECTED_PROJECT_DIR="${EXPECTED_PROJECT_PATH%/*}"
+if [ "$EXPECTED_PROJECT_DIR" = "$EXPECTED_PROJECT_PATH" ]; then
+  EXPECTED_PROJECT_DIR=.
+fi
+
+EXPECTED_PROJECT_PARENT="$(cd "$EXPECTED_PROJECT_DIR" && pwd -P)" ||
+  fail "unable to resolve EXPECTED_PROJECT_PATH parent: $EXPECTED_PROJECT_DIR"
+EXPECTED_PROJECT_CANONICAL="$(cd "$EXPECTED_PROJECT_PATH" && pwd -P)" ||
+  fail "unable to resolve EXPECTED_PROJECT_PATH: $EXPECTED_PROJECT_PATH"
+
+case "$EXPECTED_PROJECT_PARENT" in
+  "$REPO_ROOT"|"$REPO_ROOT"/*)
+    ;;
+  *)
+    fail "EXPECTED_PROJECT_PATH parent resolves outside repository root: $EXPECTED_PROJECT_PARENT"
+    ;;
+esac
+
+case "$EXPECTED_PROJECT_CANONICAL" in
+  "$REPO_ROOT"|"$REPO_ROOT"/*)
+    ;;
+  *)
+    fail "EXPECTED_PROJECT_PATH resolves outside repository root: $EXPECTED_PROJECT_CANONICAL"
+    ;;
+esac
+
+EXPECTED_PROJECT_DELETE_PATH="$EXPECTED_PROJECT_PARENT/${EXPECTED_PROJECT_PATH##*/}"
+
+XCODEGEN_BIN="${XCODEGEN_BIN:-$(command -v xcodegen 2>/dev/null || true)}"
+[ -n "$XCODEGEN_BIN" ] || fail "XcodeGen is not available; provision the reviewed version deterministically"
+[ -x "$XCODEGEN_BIN" ] || fail "XCODEGEN_BIN is not executable: $XCODEGEN_BIN"
+
+VERSION_OUTPUT="$("$XCODEGEN_BIN" --version 2>&1)" || fail "unable to read XcodeGen version"
+case "$VERSION_OUTPUT" in
+  "$XCODEGEN_REQUIRED_VERSION"|"Version: $XCODEGEN_REQUIRED_VERSION")
+    ;;
+  *)
+    fail "XcodeGen version mismatch: expected $XCODEGEN_REQUIRED_VERSION, got $VERSION_OUTPUT"
+    ;;
+esac
+
+echo "Regenerating $EXPECTED_PROJECT_PATH from $PROJECT_SPEC_PATH with XcodeGen $XCODEGEN_REQUIRED_VERSION"
+PACKAGE_RESOLVED_PATH="$EXPECTED_PROJECT_PATH/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+PACKAGE_RESOLVED_BACKUP=""
+cleanup_package_resolved_backup() {
+  if [ -n "$PACKAGE_RESOLVED_BACKUP" ]; then
+    rm -f "$PACKAGE_RESOLVED_BACKUP"
   fi
-elif [ -f "project.yml" ]; then
-  PROJECT_SPEC_PATH="project.yml"
-elif [ -f "project.yaml" ]; then
-  PROJECT_SPEC_PATH="project.yaml"
-else
-  echo "ERROR: project.yml or project.yaml not found at repo root: $(pwd)"
-  exit 1
+}
+trap cleanup_package_resolved_backup EXIT
+
+if [ -f "$PACKAGE_RESOLVED_PATH" ]; then
+  PACKAGE_RESOLVED_BACKUP="$(mktemp .xcodegen-package-resolved.XXXXXX)"
+  cp "$PACKAGE_RESOLVED_PATH" "$PACKAGE_RESOLVED_BACKUP"
 fi
 
-if command -v xcodegen >/dev/null 2>&1; then
-  echo "XcodeGen already installed: $(xcodegen --version)"
-else
-  echo "Installing XcodeGen..."
-  brew install xcodegen
+rm -rf "$EXPECTED_PROJECT_DELETE_PATH"
+"$XCODEGEN_BIN" generate --spec "$PROJECT_SPEC_PATH" --project "$EXPECTED_PROJECT_DIR"
+[ -e "$EXPECTED_PROJECT_PATH" ] || fail "regeneration did not create expected project: $EXPECTED_PROJECT_PATH"
+
+if [ -n "$PACKAGE_RESOLVED_BACKUP" ]; then
+  mkdir -p "$(dirname "$PACKAGE_RESOLVED_PATH")"
+  cp "$PACKAGE_RESOLVED_BACKUP" "$PACKAGE_RESOLVED_PATH"
 fi
 
-echo "Generating Xcode project from ${PROJECT_SPEC_PATH}..."
-xcodegen generate --spec "${PROJECT_SPEC_PATH}"
-
-echo "=== pre-xcodebuild complete ==="
+echo "XcodeGen regeneration guard complete"

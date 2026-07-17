@@ -1,7 +1,7 @@
 # Manager Boundary
 
 Status: accepted
-Last verified: 2026-07-08
+Last verified: 2026-07-17
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Usage](usage.md), [Setup And Update Workflow](setup-update-workflow.md),
@@ -134,10 +134,10 @@ a primary source or reproducible failure.
 
 ## Proven Manager-Owned Targets
 
-Ten shared global manager-copy targets are already proven on the default
+Eight shared global manager-copy targets are already proven on the default
 example profile. The command currently uses `--agent codex` because that is the
 reviewed manager write path for `~/.agents/skills`; the upstream manager reports
-that same shared-root install as visible to OpenCode. Claude Code has ten
+that same shared-root install as visible to OpenCode. Claude Code has eight
 separate proven global targets through `~/.claude/skills`, matching the
 profile-selected registry-local skills whose Claude client status is
 `supported`. External-git entries such as `swift-concurrency` and `swiftui-pro`,
@@ -151,13 +151,11 @@ remain manual-review until equivalent proof exists.
 | `harness-engineering` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent codex --global --yes` | `~/.agents/skills/harness-engineering` | `skills.harness-engineering` |
 | `meeting-transcription` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill meeting-transcription --agent codex --global --yes` | `~/.agents/skills/meeting-transcription` | `skills.meeting-transcription` |
 | `spec-creation-updating` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent codex --global --yes` | `~/.agents/skills/spec-creation-updating` | `skills.spec-creation-updating` |
-| `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes` | `~/.agents/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent codex --global --yes` | `~/.agents/skills/xcode-build` | `skills.xcode-build` |
-| `xcode-cloud` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent codex --global --yes` | `~/.agents/skills/xcode-cloud` | `skills.xcode-cloud` |
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent codex --global --yes` | `~/.agents/skills/swift-testing` | `skills.swift-testing` |
 | `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent codex --global --yes` | `~/.agents/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
 
-Ten separate Claude Code global manager-copy targets are proven on the default
+Eight separate Claude Code global manager-copy targets are proven on the default
 example profile:
 
 | Skill | Manager command | Adapter target | Lock key |
@@ -167,11 +165,13 @@ example profile:
 | `harness-engineering` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill harness-engineering --agent claude-code --global --yes` | `~/.claude/skills/harness-engineering` | `skills.harness-engineering` |
 | `meeting-transcription` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill meeting-transcription --agent claude-code --global --yes` | `~/.claude/skills/meeting-transcription` | `skills.meeting-transcription` |
 | `spec-creation-updating` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill spec-creation-updating --agent claude-code --global --yes` | `~/.claude/skills/spec-creation-updating` | `skills.spec-creation-updating` |
-| `ios-xcodegen` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent claude-code --global --yes` | `~/.claude/skills/ios-xcodegen` | `skills.ios-xcodegen` |
 | `xcode-build` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-build --agent claude-code --global --yes` | `~/.claude/skills/xcode-build` | `skills.xcode-build` |
-| `xcode-cloud` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent claude-code --global --yes` | `~/.claude/skills/xcode-cloud` | `skills.xcode-cloud` |
 | `swift-testing` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swift-testing --agent claude-code --global --yes` | `~/.claude/skills/swift-testing` | `skills.swift-testing` |
 | `swiftui-view-refactor` | `npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill swiftui-view-refactor --agent claude-code --global --yes` | `~/.claude/skills/swiftui-view-refactor` | `skills.swiftui-view-refactor` |
+
+The historical `ios-xcodegen` and `xcode-cloud` proofs predate their current
+source contents and digests. Both remain `manual-review` in the example profile
+until fresh manager materialization and digest checks are recorded.
 
 The Claude Code proofs use the same standard as the shared-root proofs:
 pre-write sync emitted the exact pinned manager command, the command created a

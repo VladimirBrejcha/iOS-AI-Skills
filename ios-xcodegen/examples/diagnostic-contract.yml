@@ -1,0 +1,34 @@
+reviewedWith:
+  xcodegen: 2.45.4
+  retrieved: "2026-07-16"
+destination:
+  discoveryCommand: xcodebuild -project path/to/App.xcodeproj -scheme App -showdestinations
+  hardCodedVariant: false
+  selectionSource: active-toolchain-output
+swiftpm:
+  declarationExample: project.yml
+  universalPackageResolvedPath: false
+  discoveryPattern: "*/xcshareddata/swiftpm/Package.resolved"
+  restoreRelativeTo: generated-container
+binaryPackaging:
+  rawArchive:
+    example: Vendor/libFixture.a
+    documentedXcodeGenDependencyRecipe: null
+    link: required
+    embedOrCopy: forbidden
+  staticFrameworkWithoutResources:
+    example: Vendor/StaticCode.framework
+    link: required
+    embed: normally-not-required
+  staticFrameworkWithResources:
+    example: Vendor/StaticResources.framework
+    link: required
+    embed: allowed-when-resources-are-required
+  staticXCFrameworkVariant:
+    example: Vendor/StaticVariants.xcframework
+    inspectSelectedContainedProduct: true
+    embed: depends-on-selected-product-and-resources
+  dynamicFramework:
+    example: Vendor/DynamicCode.framework
+    link: required
+    embed: required-when-app-needs-it-at-runtime

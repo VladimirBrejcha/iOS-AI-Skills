@@ -104,14 +104,9 @@ selected_skills:
       - agents_user
       - codex_legacy_user
       - claude_user
-    state: active
-    consumer_overrides:
-      agents_user:
-        adapter: manager-copy
-        status: proven-manager-copy
-      claude_user:
-        adapter: manager-copy
-        status: proven-manager-copy
+    # The prior manager-copy proof predates the reviewed content expansion.
+    # Keep rollout blocked until the replacement is materialized and verified.
+    state: manual-review
   - skill_id: xcode-build
     expose_to:
       - agents_user
@@ -130,14 +125,9 @@ selected_skills:
       - agents_user
       - codex_legacy_user
       - claude_user
-    state: active
-    consumer_overrides:
-      agents_user:
-        adapter: manager-copy
-        status: proven-manager-copy
-      claude_user:
-        adapter: manager-copy
-        status: proven-manager-copy
+    # The prior manager-copy proof predates the reviewed content replacement.
+    # Keep rollout blocked until the replacement is materialized and verified.
+    state: manual-review
   - skill_id: swift-concurrency
     expose_to:
       - agents_user

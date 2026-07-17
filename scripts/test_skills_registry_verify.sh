@@ -453,4 +453,12 @@ printf 'token=%s\n' "$(fake_openai_key)" >"$hidden_skill_leak_dir/example-skill/
 hidden_skill_output="$(expect_failure run_public_safety "$hidden_skill_leak_dir")"
 assert_contains "$hidden_skill_output" "example-skill/assets/.env: OpenAI key"
 
+bash -n "$repo_root/ios-xcodegen/scripts/test_contract.sh"
+bash -n "$repo_root/xcode-cloud/scripts/test_skill_contract.sh"
+for asset in "$repo_root"/xcode-cloud/assets/*.sh; do
+  sh -n "$asset"
+done
+"$repo_root/ios-xcodegen/scripts/test_contract.sh"
+"$repo_root/xcode-cloud/scripts/test_skill_contract.sh"
+
 echo "skills_registry_verify test ok"

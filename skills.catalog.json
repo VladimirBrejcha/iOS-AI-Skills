@@ -191,7 +191,7 @@
     {
       "id": "ios-xcodegen",
       "name": "ios-xcodegen",
-      "description": "XcodeGen workflows for iOS/iPadOS apps: generate projects from project.yml/project.yaml, fix build/test destination issues, wire asset catalogs, configure test hosts, manage SwiftPM resolution in CI, and resolve App Store packaging errors related to embedded static libraries.",
+      "description": "Use for repositories that already use or explicitly evaluate XcodeGen: maintain project.yml/project.yaml as source of truth, diagnose generated projects, configure resources and test hosts, manage SwiftPM state, and verify binary packaging without replacing general Xcode build guidance.",
       "status": "active",
       "source": {
         "type": "registry-local",
@@ -213,14 +213,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "ios-xcodegen",
-        "digest_sha256": "8cb369d77201d30bdd79cba8cdb8886675a6cfc3962d34469203d76f590fdec9"
-      },
-      "install": {
-        "manager_package": "skills@1.5.14",
-        "registry_source": "fiveonecode/agent-skills",
-        "skill": "ios-xcodegen",
-        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent codex --global --yes",
-        "claude_code_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill ios-xcodegen --agent claude-code --global --yes"
+        "digest_sha256": "133c15690e10c1ccd8c6d0ab1204a1a0c107c2db1b757c896c55e801795c87ec"
       }
     },
     {
@@ -261,7 +254,7 @@
     {
       "id": "xcode-cloud",
       "name": "xcode-cloud",
-      "description": "Set up, configure, or troubleshoot Xcode Cloud CI/CD workflows and custom build scripts, especially for iOS apps using XcodeGen. Use for requests about Xcode Cloud setup, ci_scripts (ci_post_clone.sh/ci_pre_xcodebuild.sh/ci_post_xcodebuild.sh), build/test/archive automation, or tag-pushing after archives.",
+      "description": "Configure or troubleshoot Xcode Cloud workflows and lifecycle scripts using Apple's project-presence, dependency, environment, and fail-closed CI contracts. Use for Xcode Cloud setup, custom ci_scripts, build/test/archive diagnosis, or a separately reviewed XcodeGen regeneration exception.",
       "status": "active",
       "source": {
         "type": "registry-local",
@@ -283,14 +276,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "xcode-cloud",
-        "digest_sha256": "9ca461291d4d748ee6fc9c3f99fc89a4e51cd923e03051530337141321dbb431"
-      },
-      "install": {
-        "manager_package": "skills@1.5.14",
-        "registry_source": "fiveonecode/agent-skills",
-        "skill": "xcode-cloud",
-        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent codex --global --yes",
-        "claude_code_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent claude-code --global --yes"
+        "digest_sha256": "bf2d804556b2338b7dacb172fa0de95d768171e45b27a0ea5832018b45acc844"
       }
     },
     {
@@ -1714,7 +1700,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "mechanism-audit",
-        "digest_sha256": "bdf2a2c41e20f46500724712df95da4cfa80d550a32b00d850d91e2bca5dc919"
+        "digest_sha256": "7e9739cd38a8ebb194d792b15bbcbf28bf654824521d1422e64c6eb98a5f186d"
       }
     },
     {

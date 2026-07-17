@@ -169,11 +169,15 @@ skills:
       - repo
     update_policy: internal-reviewed
     notes:
+      - Retained after the 2026-07-16 source review as a narrow XcodeGen
+        workflow for repositories that already use or explicitly evaluate
+        XcodeGen. Mutable toolchain claims are tied to reviewed primary sources
+        and focused contract fixtures.
       - Narrow iOS project-generation workflow selected as the next managed
         profile expansion after the shared global manager-copy path was proven.
-      - Claude Code support is proven through a pinned upstream manager write
-        to ~/.claude/skills for this skill; additional Claude Code targets stay
-        planned until separately promoted.
+      - The prior Claude Code manager-copy proof predates the 2026-07-16 content
+        expansion. The checked-in example profile keeps this skill in manual
+        review until fresh manager materialization and digest proof are recorded.
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 
@@ -227,11 +231,16 @@ skills:
       - repo
     update_policy: internal-reviewed
     notes:
-      - Xcode Cloud CI/CD and ci_scripts workflow selected as the next managed
-        profile expansion after the local Xcode build/test lane was proven.
-      - Claude Code support is proven through a pinned upstream manager write
-        to ~/.claude/skills for this skill; additional Claude Code targets stay
-        planned until separately promoted.
+      - Content replaced in place after the 2026-07-16 source review. The
+        workflow is Apple-source-first, requires a continuously present project
+        or workspace, and keeps XcodeGen regeneration as a fail-closed,
+        version-checked exception.
+      - Default remote tag publication and credential-bearing URL behavior were
+        removed. External publication requires a separate reviewed
+        authorization and recovery contract.
+      - The prior Claude Code manager-copy proof predates the 2026-07-16 content
+        replacement. The checked-in example profile keeps this skill in manual
+        review until fresh manager materialization and digest proof are recorded.
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 
@@ -1573,6 +1582,9 @@ skills:
       commit 79a7bfe; the provenance review found no external source claim.
     - >-
       This repository is the canonical source. The top-level MIT license covers this public, reusable skill.
+    - >-
+      Retained after the 2026-07-16 source review as the bounded audit workflow for path-scoped repository
+      contract enforcement. Controller-specific result schemas remain outside this canonical skill source.
     - >-
       Keep profile rollout planned until the same manager-write and doctor/sync proof used by existing managed
       registry-local skills is completed.

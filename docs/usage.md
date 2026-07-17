@@ -1,7 +1,7 @@
 # Usage
 
 Status: catalog-dispositions-finalized
-Last updated: 2026-07-15
+Last updated: 2026-07-17
 
 Related: [README](../README.md), [Registry Contract](registry-contract.md),
 [Setup And Update Workflow](setup-update-workflow.md),
@@ -126,27 +126,16 @@ npx --yes skills@1.5.14 add fiveonecode/agent-skills \
 
 ```bash
 npx --yes skills@1.5.14 add fiveonecode/agent-skills \
-  --skill ios-xcodegen \
-  --agent claude-code \
-  --global \
-  --yes
-```
-
-```bash
-npx --yes skills@1.5.14 add fiveonecode/agent-skills \
   --skill xcode-build \
   --agent claude-code \
   --global \
   --yes
 ```
 
-```bash
-npx --yes skills@1.5.14 add fiveonecode/agent-skills \
-  --skill xcode-cloud \
-  --agent claude-code \
-  --global \
-  --yes
-```
+The `ios-xcodegen` and `xcode-cloud` sources changed after their recorded
+manager-copy proofs. Their current example-profile rollout is `manual-review`,
+so do not reuse the historical install commands until fresh materialization and
+digest evidence promote them again.
 
 List the current reviewed global install ids from this clone:
 

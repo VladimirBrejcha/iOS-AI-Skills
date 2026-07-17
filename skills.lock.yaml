@@ -309,7 +309,7 @@ skills:
 - id: ios-xcodegen
   source_type: registry-local
   path: ios-xcodegen
-  digest_sha256: 8cb369d77201d30bdd79cba8cdb8886675a6cfc3962d34469203d76f590fdec9
+  digest_sha256: 133c15690e10c1ccd8c6d0ab1204a1a0c107c2db1b757c896c55e801795c87ec
   exported_names:
   - ios-xcodegen
 - id: launch
@@ -339,7 +339,7 @@ skills:
 - id: mechanism-audit
   source_type: registry-local
   path: mechanism-audit
-  digest_sha256: bdf2a2c41e20f46500724712df95da4cfa80d550a32b00d850d91e2bca5dc919
+  digest_sha256: 7e9739cd38a8ebb194d792b15bbcbf28bf654824521d1422e64c6eb98a5f186d
   exported_names:
   - mechanism-audit
 - id: meeting-transcription
@@ -493,6 +493,6 @@ skills:
 - id: xcode-cloud
   source_type: registry-local
   path: xcode-cloud
-  digest_sha256: 9ca461291d4d748ee6fc9c3f99fc89a4e51cd923e03051530337141321dbb431
+  digest_sha256: bf2d804556b2338b7dacb172fa0de95d768171e45b27a0ea5832018b45acc844
   exported_names:
   - xcode-cloud
