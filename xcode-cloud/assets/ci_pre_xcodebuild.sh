@@ -75,7 +75,8 @@ case "$VERSION_OUTPUT" in
 esac
 
 echo "Regenerating $EXPECTED_PROJECT_PATH from $PROJECT_SPEC_PATH with XcodeGen $XCODEGEN_REQUIRED_VERSION"
+rm -rf "./$EXPECTED_PROJECT_PATH"
 "$XCODEGEN_BIN" generate --spec "$PROJECT_SPEC_PATH" --project "$EXPECTED_PROJECT_DIR"
-[ -e "$EXPECTED_PROJECT_PATH" ] || fail "regeneration did not preserve expected project: $EXPECTED_PROJECT_PATH"
+[ -e "$EXPECTED_PROJECT_PATH" ] || fail "regeneration did not create expected project: $EXPECTED_PROJECT_PATH"
 
 echo "XcodeGen regeneration guard complete"

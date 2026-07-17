@@ -67,6 +67,7 @@ if [ "${1:-}" = "--version" ]; then
   exit 0
 fi
 printf '%s\n' "$*" >>"$FAKE_XCODEGEN_LOG"
+mkdir -p "$FAKE_XCODEGEN_OUTPUT"
 SH
 chmod +x "$fixture_root/fake-xcodegen"
 
@@ -119,6 +120,7 @@ missing_project_output="$(
 assert_contains "$missing_project_output" "must exist before regeneration"
 
 FAKE_XCODEGEN_LOG="$fixture_root/xcodegen.log" \
+FAKE_XCODEGEN_OUTPUT=App/App.xcodeproj \
 CI_PRIMARY_REPOSITORY_PATH="$repo_root" \
 ALLOW_XCODEGEN_REGENERATION=1 \
 PROJECT_SPEC_PATH=Config/project.yml \
@@ -128,5 +130,21 @@ XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
   sh "$project_root/ci_scripts/ci_pre_xcodebuild.sh" >/dev/null
 
 assert_contains "$(<"$fixture_root/xcodegen.log")" "generate --spec Config/project.yml --project App"
+
+mismatched_project_output="$(
+  expect_failure env \
+    FAKE_XCODEGEN_LOG="$fixture_root/xcodegen.log" \
+    FAKE_XCODEGEN_OUTPUT=App/Other.xcodeproj \
+    CI_PRIMARY_REPOSITORY_PATH="$repo_root" \
+    ALLOW_XCODEGEN_REGENERATION=1 \
+    PROJECT_SPEC_PATH=Config/project.yml \
+    EXPECTED_PROJECT_PATH=App/App.xcodeproj \
+    XCODEGEN_REQUIRED_VERSION=2.45.4 \
+    XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
+    sh "$project_root/ci_scripts/ci_pre_xcodebuild.sh"
+)"
+assert_contains "$mismatched_project_output" "regeneration did not create expected project"
+[[ ! -e "$project_root/App.xcodeproj" ]]
+[[ -e "$project_root/Other.xcodeproj" ]]
 
 echo "xcode-cloud contract tests passed"
