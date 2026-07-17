@@ -14,7 +14,7 @@ profile, generated catalog, or consumer root.
 
 | Skill | Disposition | Decision | Required before the decision is integrated |
 | --- | --- | --- | --- |
-| `mechanism-audit` | **retain** | The bounded enforcement-chain audit is necessary and distinct from general harness design or code review. The canonical source and one downstream runtime have diverged, so current rollout must remain planned. | Reconcile the structured result contract, add path-scoped audit selection and tests, refresh the lock and generated catalog, reconcile the downstream copy in its owning repository, then prove manager rollout in isolation. |
+| `mechanism-audit` | **retain** | The bounded enforcement-chain audit is necessary and distinct from general harness design or code review. Current rollout must remain planned until its repository integration is mechanically enforced. | Add path-scoped audit selection and tests, cover unmatched governance files, refresh the lock and generated catalog, then prove manager rollout in isolation. |
 | `ios-xcodegen` | **retain** | A narrow XcodeGen source-of-truth and troubleshooting skill remains useful for repositories that already use XcodeGen. It must not be treated as general iOS build guidance. | Correct the asset-symbol, raw archive, static framework, and destination claims; add current XcodeGen and Apple references plus fixture coverage; refresh the lock/catalog and materialized copies. |
 | `xcode-cloud` | **replace** | Xcode Cloud guidance is necessary, but the current template-first implementation conflicts with Apple's current project-presence requirement and contains unsafe external-mutation defaults. Replace the content in place while retaining the skill ID and its Xcode Cloud boundary. | Rewrite against current Apple lifecycle rules, remove or redesign the tag-push template, pin tool acquisition, add fail-closed fixture tests and shell checks, then refresh registry-derived state and re-materialize only after review. |
 
@@ -123,20 +123,9 @@ Confirmed facts:
   `harness-engineering`, which designs and improves agent harnesses;
   `spec-creation-updating`, which makes specifications implementation-ready;
   and `code-review`, which reviews a change for defects and merge risk.
-- A public downstream controller imported the canonical skill in
-  [`fiveonecode/autopilot` commit `2689e344`](https://github.com/fiveonecode/autopilot/commit/2689e34478c1475d3221885a36e9c31e5d1c847a),
-  then added a JSON sidecar in
-  [commit `6ef4b629`](https://github.com/fiveonecode/autopilot/commit/6ef4b629e7ed86f7ac147300fe2640dc28c34682)
-  and hardened P0 routing in
-  [commit `d09bc613`](https://github.com/fiveonecode/autopilot/commit/d09bc613cd486be6e75609339d2d09b056aa3f3e).
-  Its current [runtime contract](https://github.com/fiveonecode/autopilot/blob/ce3bbab119358267319aff8173603ec818a5155a/spec/agents.md)
-  and [tests](https://github.com/fiveonecode/autopilot/blob/ce3bbab119358267319aff8173603ec818a5155a/agent-harness/tests/mechanism-audit.test.ts)
-  consume `verdict`, `p0Fixes`, and `needsHumanDecision` from adjacent JSON.
-  The canonical skill still documents only `mechanism-audit.md`.
-
 Inference: merging this workflow into a broader skill would make runtime
-selection and artifact routing less precise. Retaining it is justified, but a
-downstream product copy must not silently become a second source owner.
+selection and artifact routing less precise. Retaining it as a distinct,
+registry-owned skill is justified.
 
 ### Content and runtime safety
 
@@ -146,7 +135,7 @@ downstream product copy must not silently become a second source owner.
 | Files and side effects | It conditionally writes `<session-dir>/mechanism-audit.md` when the harness requires it. It does not otherwise request a durable write. |
 | Network and credentials | None. |
 | Destructive behavior | None. |
-| Mutable assumptions | Its Markdown-only artifact contract is already stale relative to the public controller that consumes it. |
+| Mutable assumptions | Its artifact requirement depends on task or harness context that is not selected by the current repository manifest. |
 
 ### Mechanism audit of the current catalog promise
 
@@ -170,8 +159,6 @@ Bypass paths:
 
 - The registry manifest declares no `mechanism_audits` rule, so contract and
   verifier changes do not mechanically require the controller's audit artifact.
-- The canonical skill omits the JSON sidecar required by the current downstream
-  completion gate.
 - `provenance.sources.yaml`, `skills.catalog.json`, `THIRD_PARTY_NOTICES.md`,
   and `LICENSE` are not matched by a checked-in manifest.
 - The canonical shell-syntax command omits `xcode-cloud/assets/*.sh`.
@@ -192,25 +179,19 @@ Verdict:
 
 Fixes:
 
-- P0: Add the conditional JSON-sidecar contract to the canonical skill; add
-  path-scoped `mechanism_audits` selection and controller regression tests;
-  cover unmatched governance files; reconcile the downstream copy through its
-  owning repository.
+- P0: Add path-scoped `mechanism_audits` selection and controller regression
+  tests; cover unmatched governance files.
 - P1: Add scenario and boundary identifiers, add the Xcode Cloud assets to
   syntax verification, and add an explicit exact-changed-file assertion where
   the runner does not already enforce it.
 
 ### Integration changes for `retain`
 
-1. Update the canonical output contract to describe both Markdown and the
-   conditional adjacent JSON result consumed by an enforcing harness.
-2. Add path-scoped manifest triggers and fixture tests for mechanism-audit
+1. Add path-scoped manifest triggers and fixture tests for mechanism-audit
    selection, verdict validation, P0 routing, and missing/stale artifacts.
-3. Expand manifest and verification coverage as listed in the audit.
-4. Refresh the registry-local lock digest and generated catalog artifacts.
-5. Reconcile the downstream copy in a separate authorized change; do not edit
-   its imported consumer folder from this repository.
-6. Keep clients planned until isolated manager writes, digest verification,
+2. Expand manifest and verification coverage as listed in the audit.
+3. Refresh the registry-local lock digest and generated catalog artifacts.
+4. Keep clients planned until isolated manager writes, digest verification,
    runtime discovery, and rollback behavior are proven.
 
 ## `ios-xcodegen`
