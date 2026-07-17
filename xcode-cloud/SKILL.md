@@ -55,6 +55,8 @@ present. `assets/ci_pre_xcodebuild.sh` is an opt-in guard for that exception:
 
 - it requires `ALLOW_XCODEGEN_REGENERATION=1`
 - it requires relative `PROJECT_SPEC_PATH` and `EXPECTED_PROJECT_PATH` values
+- it resolves the expected project's parent and project paths and requires both
+  to remain inside the canonical repository root before deletion
 - it requires `EXPECTED_PROJECT_PATH` to name an `.xcodeproj`; it rejects
   `.xcworkspace` paths because XcodeGen does not regenerate a selected workspace
   through this guard

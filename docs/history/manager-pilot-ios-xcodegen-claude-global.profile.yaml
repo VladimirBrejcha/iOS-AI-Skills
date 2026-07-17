@@ -22,7 +22,7 @@ selected_skills:
   - skill_id: ios-xcodegen
     expose_to:
       - claude_global_manager
-    state: active
+    state: manual-review
 
 non_goals:
   - installing more than ios-xcodegen

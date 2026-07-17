@@ -134,7 +134,40 @@ missing_project_output="$(
     XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
     sh "$project_root/ci_scripts/ci_pre_xcodebuild.sh"
 )"
-assert_contains "$missing_project_output" "must exist before regeneration"
+assert_contains "$missing_project_output" "must be an existing project directory before regeneration"
+
+external_root="$fixture_root/external"
+mkdir -p "$external_root/ParentLinked.xcodeproj" "$external_root/ProjectLinked.xcodeproj"
+printf '%s\n' 'keep parent-linked project' >"$external_root/ParentLinked.xcodeproj/marker"
+printf '%s\n' 'keep project-linked project' >"$external_root/ProjectLinked.xcodeproj/marker"
+ln -s "$external_root" "$repo_root/Linked"
+ln -s "$external_root/ProjectLinked.xcodeproj" "$project_root/ProjectLinked.xcodeproj"
+
+linked_parent_output="$(
+  expect_failure env \
+    CI_PRIMARY_REPOSITORY_PATH="$repo_root" \
+    ALLOW_XCODEGEN_REGENERATION=1 \
+    PROJECT_SPEC_PATH=Config/project.yml \
+    EXPECTED_PROJECT_PATH=Linked/ParentLinked.xcodeproj \
+    XCODEGEN_REQUIRED_VERSION=2.45.4 \
+    XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
+    sh "$project_root/ci_scripts/ci_pre_xcodebuild.sh"
+)"
+assert_contains "$linked_parent_output" "parent resolves outside repository root"
+[[ "$(<"$external_root/ParentLinked.xcodeproj/marker")" == 'keep parent-linked project' ]]
+
+linked_project_output="$(
+  expect_failure env \
+    CI_PRIMARY_REPOSITORY_PATH="$repo_root" \
+    ALLOW_XCODEGEN_REGENERATION=1 \
+    PROJECT_SPEC_PATH=Config/project.yml \
+    EXPECTED_PROJECT_PATH=App/ProjectLinked.xcodeproj \
+    XCODEGEN_REQUIRED_VERSION=2.45.4 \
+    XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
+    sh "$project_root/ci_scripts/ci_pre_xcodebuild.sh"
+)"
+assert_contains "$linked_project_output" "resolves outside repository root"
+[[ "$(<"$external_root/ProjectLinked.xcodeproj/marker")" == 'keep project-linked project' ]]
 
 FAKE_XCODEGEN_LOG="$fixture_root/xcodegen.log" \
 FAKE_XCODEGEN_OUTPUT=App/App.xcodeproj \

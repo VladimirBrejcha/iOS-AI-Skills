@@ -15,7 +15,8 @@ path remains the current example profile plus `scripts/skills_sync.rb --plan`.
 This proof predates the 2026-07-16 replacement of the `xcode-cloud` source and
 does not prove the replacement content. The checked-in example profile keeps
 `xcode-cloud` in `manual-review` until a fresh manager write and digest check
-are recorded.
+are recorded. The companion historical proof profile is also blocked in
+`manual-review` and must not be reused as an install path.
 
 ## Observed Evidence
 

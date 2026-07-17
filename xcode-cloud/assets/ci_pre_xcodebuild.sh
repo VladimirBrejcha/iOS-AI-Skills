@@ -50,16 +50,40 @@ case "${CI_PRIMARY_REPOSITORY_PATH:-}" in
 esac
 
 [ -d "$REPO_ROOT" ] || fail "repository root not found: $REPO_ROOT"
+REPO_ROOT="$(cd "$REPO_ROOT" && pwd -P)" || fail "unable to resolve repository root: $REPO_ROOT"
 
 cd "$REPO_ROOT"
 
 [ -f "$PROJECT_SPEC_PATH" ] || fail "PROJECT_SPEC_PATH not found: $PROJECT_SPEC_PATH"
-[ -e "$EXPECTED_PROJECT_PATH" ] || fail "EXPECTED_PROJECT_PATH must exist before regeneration: $EXPECTED_PROJECT_PATH"
+[ -d "$EXPECTED_PROJECT_PATH" ] || fail "EXPECTED_PROJECT_PATH must be an existing project directory before regeneration: $EXPECTED_PROJECT_PATH"
 
 EXPECTED_PROJECT_DIR="${EXPECTED_PROJECT_PATH%/*}"
 if [ "$EXPECTED_PROJECT_DIR" = "$EXPECTED_PROJECT_PATH" ]; then
   EXPECTED_PROJECT_DIR=.
 fi
+
+EXPECTED_PROJECT_PARENT="$(cd "$EXPECTED_PROJECT_DIR" && pwd -P)" ||
+  fail "unable to resolve EXPECTED_PROJECT_PATH parent: $EXPECTED_PROJECT_DIR"
+EXPECTED_PROJECT_CANONICAL="$(cd "$EXPECTED_PROJECT_PATH" && pwd -P)" ||
+  fail "unable to resolve EXPECTED_PROJECT_PATH: $EXPECTED_PROJECT_PATH"
+
+case "$EXPECTED_PROJECT_PARENT" in
+  "$REPO_ROOT"|"$REPO_ROOT"/*)
+    ;;
+  *)
+    fail "EXPECTED_PROJECT_PATH parent resolves outside repository root: $EXPECTED_PROJECT_PARENT"
+    ;;
+esac
+
+case "$EXPECTED_PROJECT_CANONICAL" in
+  "$REPO_ROOT"|"$REPO_ROOT"/*)
+    ;;
+  *)
+    fail "EXPECTED_PROJECT_PATH resolves outside repository root: $EXPECTED_PROJECT_CANONICAL"
+    ;;
+esac
+
+EXPECTED_PROJECT_DELETE_PATH="$EXPECTED_PROJECT_PARENT/${EXPECTED_PROJECT_PATH##*/}"
 
 XCODEGEN_BIN="${XCODEGEN_BIN:-$(command -v xcodegen 2>/dev/null || true)}"
 [ -n "$XCODEGEN_BIN" ] || fail "XcodeGen is not available; provision the reviewed version deterministically"
@@ -89,7 +113,7 @@ if [ -f "$PACKAGE_RESOLVED_PATH" ]; then
   cp "$PACKAGE_RESOLVED_PATH" "$PACKAGE_RESOLVED_BACKUP"
 fi
 
-rm -rf "./$EXPECTED_PROJECT_PATH"
+rm -rf "$EXPECTED_PROJECT_DELETE_PATH"
 "$XCODEGEN_BIN" generate --spec "$PROJECT_SPEC_PATH" --project "$EXPECTED_PROJECT_DIR"
 [ -e "$EXPECTED_PROJECT_PATH" ] || fail "regeneration did not create expected project: $EXPECTED_PROJECT_PATH"
 
