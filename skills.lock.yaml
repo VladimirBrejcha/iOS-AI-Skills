@@ -493,6 +493,6 @@ skills:
 - id: xcode-cloud
   source_type: registry-local
   path: xcode-cloud
-  digest_sha256: a81f986f7e69b41aac25b5580e58cbe8d3c32e970df7b89f048b7f7f875f88a1
+  digest_sha256: dfcf61d6266c985a5ba2f0953815e283b4643b60720f68c0fab6ff03badb916e
   exported_names:
   - xcode-cloud

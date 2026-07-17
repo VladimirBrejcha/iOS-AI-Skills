@@ -56,6 +56,11 @@ cd "$REPO_ROOT"
 [ -f "$PROJECT_SPEC_PATH" ] || fail "PROJECT_SPEC_PATH not found: $PROJECT_SPEC_PATH"
 [ -e "$EXPECTED_PROJECT_PATH" ] || fail "EXPECTED_PROJECT_PATH must exist before regeneration: $EXPECTED_PROJECT_PATH"
 
+EXPECTED_PROJECT_DIR="${EXPECTED_PROJECT_PATH%/*}"
+if [ "$EXPECTED_PROJECT_DIR" = "$EXPECTED_PROJECT_PATH" ]; then
+  EXPECTED_PROJECT_DIR=.
+fi
+
 XCODEGEN_BIN="${XCODEGEN_BIN:-$(command -v xcodegen 2>/dev/null || true)}"
 [ -n "$XCODEGEN_BIN" ] || fail "XcodeGen is not available; provision the reviewed version deterministically"
 [ -x "$XCODEGEN_BIN" ] || fail "XCODEGEN_BIN is not executable: $XCODEGEN_BIN"
@@ -70,7 +75,7 @@ case "$VERSION_OUTPUT" in
 esac
 
 echo "Regenerating $EXPECTED_PROJECT_PATH from $PROJECT_SPEC_PATH with XcodeGen $XCODEGEN_REQUIRED_VERSION"
-"$XCODEGEN_BIN" generate --spec "$PROJECT_SPEC_PATH"
+"$XCODEGEN_BIN" generate --spec "$PROJECT_SPEC_PATH" --project "$EXPECTED_PROJECT_DIR"
 [ -e "$EXPECTED_PROJECT_PATH" ] || fail "regeneration did not preserve expected project: $EXPECTED_PROJECT_PATH"
 
 echo "XcodeGen regeneration guard complete"

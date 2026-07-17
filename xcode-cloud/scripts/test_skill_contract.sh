@@ -54,9 +54,10 @@ fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 repo_root="$fixture_root/repository"
 project_root="$repo_root/App"
-mkdir -p "$project_root/ci_scripts" "$project_root/App.xcodeproj"
+spec_root="$repo_root/Config"
+mkdir -p "$project_root/ci_scripts" "$project_root/App.xcodeproj" "$spec_root"
 cp "$asset" "$project_root/ci_scripts/ci_pre_xcodebuild.sh"
-printf '%s\n' 'name: App' 'options:' '  minimumXcodeGenVersion: 2.45.4' >"$project_root/project.yml"
+printf '%s\n' 'name: App' 'options:' '  minimumXcodeGenVersion: 2.45.4' >"$spec_root/project.yml"
 
 cat >"$fixture_root/fake-xcodegen" <<'SH'
 #!/bin/sh
@@ -72,7 +73,7 @@ chmod +x "$fixture_root/fake-xcodegen"
 missing_opt_in_output="$(
   expect_failure env \
     CI_PRIMARY_REPOSITORY_PATH="$repo_root" \
-    PROJECT_SPEC_PATH=App/project.yml \
+    PROJECT_SPEC_PATH=Config/project.yml \
     EXPECTED_PROJECT_PATH=App/App.xcodeproj \
     XCODEGEN_REQUIRED_VERSION=2.45.4 \
     XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
@@ -84,7 +85,7 @@ relative_repo_root_output="$(
   expect_failure env \
     CI_PRIMARY_REPOSITORY_PATH=relative/path \
     ALLOW_XCODEGEN_REGENERATION=1 \
-    PROJECT_SPEC_PATH=App/project.yml \
+    PROJECT_SPEC_PATH=Config/project.yml \
     EXPECTED_PROJECT_PATH=App/App.xcodeproj \
     XCODEGEN_REQUIRED_VERSION=2.45.4 \
     XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
@@ -96,7 +97,7 @@ version_mismatch_output="$(
   expect_failure env \
     CI_PRIMARY_REPOSITORY_PATH="$repo_root" \
     ALLOW_XCODEGEN_REGENERATION=1 \
-    PROJECT_SPEC_PATH=App/project.yml \
+    PROJECT_SPEC_PATH=Config/project.yml \
     EXPECTED_PROJECT_PATH=App/App.xcodeproj \
     XCODEGEN_REQUIRED_VERSION=2.45.4 \
     XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
@@ -109,7 +110,7 @@ missing_project_output="$(
   expect_failure env \
     CI_PRIMARY_REPOSITORY_PATH="$repo_root" \
     ALLOW_XCODEGEN_REGENERATION=1 \
-    PROJECT_SPEC_PATH=App/project.yml \
+    PROJECT_SPEC_PATH=Config/project.yml \
     EXPECTED_PROJECT_PATH=App/Missing.xcodeproj \
     XCODEGEN_REQUIRED_VERSION=2.45.4 \
     XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
@@ -120,12 +121,12 @@ assert_contains "$missing_project_output" "must exist before regeneration"
 FAKE_XCODEGEN_LOG="$fixture_root/xcodegen.log" \
 CI_PRIMARY_REPOSITORY_PATH="$repo_root" \
 ALLOW_XCODEGEN_REGENERATION=1 \
-PROJECT_SPEC_PATH=App/project.yml \
+PROJECT_SPEC_PATH=Config/project.yml \
 EXPECTED_PROJECT_PATH=App/App.xcodeproj \
 XCODEGEN_REQUIRED_VERSION=2.45.4 \
 XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
   sh "$project_root/ci_scripts/ci_pre_xcodebuild.sh" >/dev/null
 
-assert_contains "$(<"$fixture_root/xcodegen.log")" "generate --spec App/project.yml"
+assert_contains "$(<"$fixture_root/xcodegen.log")" "generate --spec Config/project.yml --project App"
 
 echo "xcode-cloud contract tests passed"
