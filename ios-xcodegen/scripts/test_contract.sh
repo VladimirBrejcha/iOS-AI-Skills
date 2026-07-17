@@ -38,8 +38,13 @@ assert(settings["ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS"] 
        "asset symbol extension setting is missing")
 
 tests = project.fetch("targets").fetch("FixtureTests")
-assert(tests["hostApplication"] == "FixtureApp",
-       "test fixture must declare its host application")
+assert(!tests.key?("hostApplication"),
+       "test fixture must not use an undocumented hostApplication key")
+host_dependency = tests.fetch("dependencies").find do |dependency|
+  dependency["target"] == "FixtureApp"
+end
+assert(host_dependency,
+       "hosted test fixture must depend on the application target")
 test_targets = project.fetch("schemes").fetch("FixtureApp")
                       .fetch("test").fetch("targets")
 assert(test_targets.include?("FixtureTests"),

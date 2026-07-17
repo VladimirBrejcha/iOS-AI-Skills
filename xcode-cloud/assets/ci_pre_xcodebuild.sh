@@ -29,10 +29,10 @@ validate_relative_path "$EXPECTED_PROJECT_PATH" "EXPECTED_PROJECT_PATH"
 [ -n "$XCODEGEN_REQUIRED_VERSION" ] || fail "XCODEGEN_REQUIRED_VERSION is required"
 
 case "$EXPECTED_PROJECT_PATH" in
-  *.xcodeproj|*.xcworkspace)
+  *.xcodeproj)
     ;;
   *)
-    fail "EXPECTED_PROJECT_PATH must name an .xcodeproj or .xcworkspace"
+    fail "EXPECTED_PROJECT_PATH must name an .xcodeproj; workspace regeneration is not supported"
     ;;
 esac
 

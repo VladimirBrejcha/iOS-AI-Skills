@@ -55,6 +55,9 @@ present. `assets/ci_pre_xcodebuild.sh` is an opt-in guard for that exception:
 
 - it requires `ALLOW_XCODEGEN_REGENERATION=1`
 - it requires relative `PROJECT_SPEC_PATH` and `EXPECTED_PROJECT_PATH` values
+- it requires `EXPECTED_PROJECT_PATH` to name an `.xcodeproj`; it rejects
+  `.xcworkspace` paths because XcodeGen does not regenerate a selected workspace
+  through this guard
 - in Xcode Cloud, it resolves those paths from Apple's
   `CI_PRIMARY_REPOSITORY_PATH`; outside Xcode Cloud, it falls back to the
   directory that contains `ci_scripts`

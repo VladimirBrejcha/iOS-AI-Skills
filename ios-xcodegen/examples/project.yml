@@ -25,7 +25,6 @@ targets:
     platform: iOS
     sources:
       - path: Tests/FixtureTests
-    hostApplication: FixtureApp
     dependencies:
       - target: FixtureApp
 schemes:

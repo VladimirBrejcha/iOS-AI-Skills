@@ -56,6 +56,7 @@ repo_root="$fixture_root/repository"
 project_root="$repo_root/App"
 spec_root="$repo_root/Config"
 mkdir -p "$project_root/ci_scripts" "$project_root/App.xcodeproj" "$spec_root"
+mkdir -p "$project_root/App.xcworkspace"
 cp "$asset" "$project_root/ci_scripts/ci_pre_xcodebuild.sh"
 printf '%s\n' 'name: App' 'options:' '  minimumXcodeGenVersion: 2.45.4' >"$spec_root/project.yml"
 
@@ -93,6 +94,19 @@ relative_repo_root_output="$(
     sh "$project_root/ci_scripts/ci_pre_xcodebuild.sh"
 )"
 assert_contains "$relative_repo_root_output" "CI_PRIMARY_REPOSITORY_PATH must be absolute"
+
+workspace_output="$(
+  expect_failure env \
+    CI_PRIMARY_REPOSITORY_PATH="$repo_root" \
+    ALLOW_XCODEGEN_REGENERATION=1 \
+    PROJECT_SPEC_PATH=Config/project.yml \
+    EXPECTED_PROJECT_PATH=App/App.xcworkspace \
+    XCODEGEN_REQUIRED_VERSION=2.45.4 \
+    XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
+    sh "$project_root/ci_scripts/ci_pre_xcodebuild.sh"
+)"
+assert_contains "$workspace_output" "workspace regeneration is not supported"
+[[ -d "$project_root/App.xcworkspace" ]]
 
 version_mismatch_output="$(
   expect_failure env \

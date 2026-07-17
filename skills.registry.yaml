@@ -238,9 +238,9 @@ skills:
       - Default remote tag publication and credential-bearing URL behavior were
         removed. External publication requires a separate reviewed
         authorization and recovery contract.
-      - Claude Code support is proven through a pinned upstream manager write
-        to ~/.claude/skills for this skill; additional Claude Code targets stay
-        planned until separately promoted.
+      - The prior Claude Code manager-copy proof predates the 2026-07-16 content
+        replacement. The checked-in example profile keeps this skill in manual
+        review until fresh manager materialization and digest proof are recorded.
       - Repo-local usage remains manual review until project profile and
         upstream manager behavior have equivalent proof.
 

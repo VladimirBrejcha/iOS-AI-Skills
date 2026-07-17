@@ -213,7 +213,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "ios-xcodegen",
-        "digest_sha256": "aa4656eccd57ba092cdf9908efdc8067759eff04914255d4d953fbf6a0121430"
+        "digest_sha256": "133c15690e10c1ccd8c6d0ab1204a1a0c107c2db1b757c896c55e801795c87ec"
       },
       "install": {
         "manager_package": "skills@1.5.14",
@@ -283,14 +283,7 @@
       "lock": {
         "source_type": "registry-local",
         "path": "xcode-cloud",
-        "digest_sha256": "2101e515c37bcd2b37da62491b71a57443967ceb133651452a0b731d2363b603"
-      },
-      "install": {
-        "manager_package": "skills@1.5.14",
-        "registry_source": "fiveonecode/agent-skills",
-        "skill": "xcode-cloud",
-        "codex_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent codex --global --yes",
-        "claude_code_global_command": "npx --yes skills@1.5.14 add fiveonecode/agent-skills --skill xcode-cloud --agent claude-code --global --yes"
+        "digest_sha256": "b770c278a73d1a01e7ad9445002500bc8ddc45f0d8c9c6e6ec515086c7955bcd"
       }
     },
     {

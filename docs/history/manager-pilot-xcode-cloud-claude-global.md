@@ -10,6 +10,13 @@ This note records the checked-in audit trail for the narrow Claude Code
 promotion in this PR. It is historical proof only; the active install/update
 path remains the current example profile plus `scripts/skills_sync.rb --plan`.
 
+## Superseded Status
+
+This proof predates the 2026-07-16 replacement of the `xcode-cloud` source and
+does not prove the replacement content. The checked-in example profile keeps
+`xcode-cloud` in `manual-review` until a fresh manager write and digest check
+are recorded.
+
 ## Observed Evidence
 
 - Proof target: `xcode-cloud` only, through `~/.claude/skills/xcode-cloud`.

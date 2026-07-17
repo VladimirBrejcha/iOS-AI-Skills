@@ -53,10 +53,10 @@ toolchain, asset, destination, Swift package, or packaging guidance.
 
 - Add every test target to the generated scheme or test plan. If discovery
   reports zero tests, inspect the generated scheme and selected test plan first.
-- For a hosted unit-test target, declare its host application in the XcodeGen
-  spec and verify the generated `TEST_HOST` and `BUNDLE_LOADER` settings. For UI
-  tests, verify the generated target-under-test relationship instead of copying
-  unit-test host settings.
+- For a hosted unit-test target, add a target dependency on the application in
+  the XcodeGen spec, then verify the generated `TEST_HOST` and `BUNDLE_LOADER`
+  settings. For UI tests, verify the generated target-under-test relationship
+  instead of copying unit-test host settings.
 - If `@testable import` fails, confirm the product module name, target
   membership, and that the test target and host build for the same discovered
   destination.
