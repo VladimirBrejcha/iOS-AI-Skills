@@ -63,6 +63,8 @@ present. `assets/ci_pre_xcodebuild.sh` is an opt-in guard for that exception:
   directory that contains `ci_scripts`
 - it requires `XCODEGEN_REQUIRED_VERSION` and verifies the exact installed tool
 - it refuses to install a mutable package or create a previously absent project
+- it preserves a shared `Package.resolved` stored inside the committed project
+  container while regenerating that container
 
 Copy it only after those project-specific conditions are reviewed, then run
 `chmod +x ci_scripts/ci_pre_xcodebuild.sh`.

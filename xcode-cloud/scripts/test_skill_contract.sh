@@ -57,6 +57,9 @@ project_root="$repo_root/App"
 spec_root="$repo_root/Config"
 mkdir -p "$project_root/ci_scripts" "$project_root/App.xcodeproj" "$spec_root"
 mkdir -p "$project_root/App.xcworkspace"
+package_resolved="$project_root/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+mkdir -p "$(dirname "$package_resolved")"
+printf '%s\n' '{"pins":[{"identity":"fixture"}]}' >"$package_resolved"
 cp "$asset" "$project_root/ci_scripts/ci_pre_xcodebuild.sh"
 printf '%s\n' 'name: App' 'options:' '  minimumXcodeGenVersion: 2.45.4' >"$spec_root/project.yml"
 
@@ -144,6 +147,7 @@ XCODEGEN_BIN="$fixture_root/fake-xcodegen" \
   sh "$project_root/ci_scripts/ci_pre_xcodebuild.sh" >/dev/null
 
 assert_contains "$(<"$fixture_root/xcodegen.log")" "generate --spec Config/project.yml --project App"
+[[ "$(<"$package_resolved")" == '{"pins":[{"identity":"fixture"}]}' ]]
 
 mismatched_project_output="$(
   expect_failure env \

@@ -75,8 +75,27 @@ case "$VERSION_OUTPUT" in
 esac
 
 echo "Regenerating $EXPECTED_PROJECT_PATH from $PROJECT_SPEC_PATH with XcodeGen $XCODEGEN_REQUIRED_VERSION"
+PACKAGE_RESOLVED_PATH="$EXPECTED_PROJECT_PATH/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+PACKAGE_RESOLVED_BACKUP=""
+cleanup_package_resolved_backup() {
+  if [ -n "$PACKAGE_RESOLVED_BACKUP" ]; then
+    rm -f "$PACKAGE_RESOLVED_BACKUP"
+  fi
+}
+trap cleanup_package_resolved_backup EXIT
+
+if [ -f "$PACKAGE_RESOLVED_PATH" ]; then
+  PACKAGE_RESOLVED_BACKUP="$(mktemp .xcodegen-package-resolved.XXXXXX)"
+  cp "$PACKAGE_RESOLVED_PATH" "$PACKAGE_RESOLVED_BACKUP"
+fi
+
 rm -rf "./$EXPECTED_PROJECT_PATH"
 "$XCODEGEN_BIN" generate --spec "$PROJECT_SPEC_PATH" --project "$EXPECTED_PROJECT_DIR"
 [ -e "$EXPECTED_PROJECT_PATH" ] || fail "regeneration did not create expected project: $EXPECTED_PROJECT_PATH"
+
+if [ -n "$PACKAGE_RESOLVED_BACKUP" ]; then
+  mkdir -p "$(dirname "$PACKAGE_RESOLVED_PATH")"
+  cp "$PACKAGE_RESOLVED_BACKUP" "$PACKAGE_RESOLVED_PATH"
+fi
 
 echo "XcodeGen regeneration guard complete"
