@@ -54,7 +54,62 @@ run_add 'pbakaus/impeccable#skill-v3.9.1' \
 run_add 'jamesrochabrun/skills#2.1.1' \
   --global --agent "${agents[@]}" --skill swift-concurrency --yes --copy
 
-managed_skills=("${owned_skills[@]}" impeccable swift-concurrency)
+asc_skills=(
+  asc-app-create-ui
+  asc-apple-ads
+  asc-aso-audit
+  asc-build-lifecycle
+  asc-cli-usage
+  asc-crash-triage
+  asc-id-resolver
+  asc-localize-metadata
+  asc-metadata-sync
+  asc-notarization
+  asc-ppp-pricing
+  asc-release-flow
+  asc-revenuecat-catalog-sync
+  asc-screenshot-resize
+  asc-shots-pipeline
+  asc-signing-setup
+  asc-submission-health
+  asc-subscription-localization
+  asc-testflight-orchestration
+  asc-wall-submit
+  asc-whats-new-writer
+  asc-workflow
+  asc-xcode-build
+)
+
+asc_commit='c77169ab1a9595bbd426ec943797b36072ccf8e3'
+asc_source_dir="$(mktemp -d "${TMPDIR:-/tmp}/asc-skills-source.XXXXXX")"
+cleanup_asc_source() {
+  rm -rf -- "$asc_source_dir"
+}
+trap cleanup_asc_source EXIT
+
+git -C "$asc_source_dir" init --quiet
+git -C "$asc_source_dir" remote add origin \
+  'https://github.com/rorkai/app-store-connect-cli-skills.git'
+git -C "$asc_source_dir" fetch --quiet --depth 1 origin "$asc_commit"
+git -C "$asc_source_dir" checkout --quiet --detach FETCH_HEAD
+
+if [[ "$(git -C "$asc_source_dir" rev-parse HEAD)" != "$asc_commit" ]]; then
+  echo "ASC skill source did not resolve to the reviewed commit." >&2
+  exit 1
+fi
+
+run_add "$asc_source_dir" \
+  --global --agent "${agents[@]}" --skill "${asc_skills[@]}" --yes --copy
+
+cleanup_asc_source
+trap - EXIT
+
+managed_skills=(
+  "${owned_skills[@]}"
+  impeccable
+  swift-concurrency
+  "${asc_skills[@]}"
+)
 
 for skill_root in "${managed_skill_roots[@]}"; do
   missing=false
@@ -77,4 +132,4 @@ for skill_root in "${managed_skill_roots[@]}"; do
   fi
 done
 
-echo "Installed the 15-skill global baseline. Restart agent clients to reload skills."
+echo "Installed the ${#managed_skills[@]}-skill global baseline. Restart agent clients to reload skills."
