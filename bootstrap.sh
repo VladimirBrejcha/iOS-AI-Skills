@@ -71,7 +71,6 @@ asc_skills=(
   asc-submission-health
   asc-subscription-localization
   asc-testflight-orchestration
-  asc-wall-submit
   asc-whats-new-writer
   asc-workflow
   asc-xcode-build

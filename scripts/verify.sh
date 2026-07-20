@@ -59,13 +59,13 @@ if (JSON.stringify(documentedOwned) !== JSON.stringify([...owned].sort())) {
   fail("README.md owned skill list does not match bootstrap.sh");
 }
 
-if (owned.length !== 13 || asc.length !== 23) {
-  fail(`Expected 13 owned and 23 ASC skills; found ${owned.length} and ${asc.length}`);
+if (owned.length !== 13 || asc.length !== 22) {
+  fail(`Expected 13 owned and 22 ASC skills; found ${owned.length} and ${asc.length}`);
 }
 
 const managed = [...owned, "swift-concurrency", ...asc];
-if (managed.length !== 37 || new Set(managed).size !== managed.length) {
-  fail("The 37-skill global baseline contains a missing or duplicate name");
+if (managed.length !== 36 || new Set(managed).size !== managed.length) {
+  fail("The 36-skill global baseline contains a missing or duplicate name");
 }
 
 console.log("validated direct package contract");
@@ -125,9 +125,10 @@ abort "public-safety scan failed:\n#{failures.join("\n")}" unless failures.empty
 puts "public-safety scan passed"
 RUBY
 
-while IFS= read -r script; do
+while IFS= read -r -d '' script; do
+  [[ "$script" == *.sh && -f "$script" && ! -L "$script" ]] || continue
   bash -n "$script"
-done < <(find . -path './.git' -prune -o -type f -name '*.sh' -print | LC_ALL=C sort)
+done < <(git ls-files -co --exclude-standard -z)
 
 grep -Fx 'npm ci --ignore-scripts' gemini-files-api/scripts/bootstrap.sh >/dev/null
 

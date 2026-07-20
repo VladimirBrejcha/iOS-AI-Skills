@@ -9,14 +9,14 @@ package directly.
 
 ## Global baseline
 
-The global baseline supports Codex and Claude Code and contains these 37 skills:
+The global baseline supports Codex and Claude Code and contains these 36 skills:
 
 - 51Code-owned: `code-review`, `gemini-files-api`, `harness-engineering`,
   `hint-overlay-visual-verification`, `ios-xcodegen`, `mechanism-audit`,
   `meeting-transcription`, `silent-pushes-setup`,
   `spec-creation-updating`, `swift-testing`, `swiftui-view-refactor`,
   `xcode-build`, and `xcode-cloud`
-- Third-party: `swift-concurrency` and the 23 `asc-*` App Store Connect CLI
+- Third-party: `swift-concurrency` and the 22 `asc-*` App Store Connect CLI
   skills from `rorkai/app-store-connect-cli-skills`
 
 Install or reconcile it from a checkout of the desired repository revision:
@@ -30,7 +30,7 @@ idempotent. The script uses `skills@1.5.14`, explicit Git tags or commits, and
 explicit skill names. In this CLI, `#ref` selects a Git branch or tag; `@name`
 selects a skill and must not be used as a version pin. Sources pinned to a raw
 commit are checked out and verified before being passed to the manager as a
-local source. Before reporting success, the script verifies all 37 entrypoints
+local source. Before reporting success, the script verifies all 36 entrypoints
 in the shared and Claude Code manager roots and bootstraps the copied
 `gemini-files-api` dependencies in both roots. The Claude Code root honors
 `CLAUDE_CONFIG_DIR` when it is set. The script also converts the pinned
