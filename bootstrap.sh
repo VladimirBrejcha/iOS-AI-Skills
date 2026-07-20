@@ -5,10 +5,10 @@ repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo_dir"
 
 cli=(npx --yes skills@1.5.14)
-agents=(codex claude-code opencode)
+agents=(codex claude-code)
 managed_skill_roots=(
   "${HOME}/.agents/skills"
-  "${HOME}/.claude/skills"
+  "${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/skills"
 )
 
 run_add() {
@@ -47,9 +47,6 @@ owned_skills=(
 
 run_add . \
   --global --agent "${agents[@]}" --skill "${owned_skills[@]}" --yes --copy
-
-run_add 'pbakaus/impeccable#skill-v3.9.1' \
-  --global --agent "${agents[@]}" --skill impeccable --yes --copy
 
 run_add 'jamesrochabrun/skills#2.1.1' \
   --global --agent "${agents[@]}" --skill swift-concurrency --yes --copy
@@ -106,7 +103,6 @@ trap - EXIT
 
 managed_skills=(
   "${owned_skills[@]}"
-  impeccable
   swift-concurrency
   "${asc_skills[@]}"
 )

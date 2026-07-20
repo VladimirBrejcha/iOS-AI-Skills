@@ -9,15 +9,15 @@ package directly.
 
 ## Global baseline
 
-The baseline contains these 38 skills:
+The global baseline supports Codex and Claude Code and contains these 37 skills:
 
 - 51Code-owned: `code-review`, `gemini-files-api`, `harness-engineering`,
   `hint-overlay-visual-verification`, `ios-xcodegen`, `mechanism-audit`,
   `meeting-transcription`, `silent-pushes-setup`,
   `spec-creation-updating`, `swift-testing`, `swiftui-view-refactor`,
   `xcode-build`, and `xcode-cloud`
-- Third-party: `impeccable`, `swift-concurrency`, and the 23 `asc-*` App Store
-  Connect CLI skills from `rorkai/app-store-connect-cli-skills`
+- Third-party: `swift-concurrency` and the 23 `asc-*` App Store Connect CLI
+  skills from `rorkai/app-store-connect-cli-skills`
 
 Install or reconcile it from a checkout of the desired repository revision:
 
@@ -30,9 +30,10 @@ idempotent. The script uses `skills@1.5.14`, explicit Git tags or commits, and
 explicit skill names. In this CLI, `#ref` selects a Git branch or tag; `@name`
 selects a skill and must not be used as a version pin. Sources pinned to a raw
 commit are checked out and verified before being passed to the manager as a
-local source. Before reporting success, the script verifies all 38 entrypoints
+local source. Before reporting success, the script verifies all 37 entrypoints
 in the shared and Claude Code manager roots and bootstraps the copied
-`gemini-files-api` dependencies in both roots. It also converts the pinned
+`gemini-files-api` dependencies in both roots. The Claude Code root honors
+`CLAUDE_CONFIG_DIR` when it is set. The script also converts the pinned
 manager's partial-install result into a non-zero bootstrap failure.
 
 The script installs and reconciles the baseline names only. It does not remove
@@ -57,6 +58,21 @@ Projects own their own committed skill folders and bootstrap. A project must
 not commit a local folder with the same name as a global skill. External
 project-only skills should be installed by that project's bootstrap from an
 explicit `#ref`, which also produces its project `skills-lock.json`.
+
+Projects that use Impeccable should install its reviewed version locally from
+`pbakaus/impeccable#skill-v3.9.1` in their project bootstrap. For example:
+
+```bash
+npx --yes skills@1.5.14 add 'pbakaus/impeccable#skill-v3.9.1' \
+  --skill impeccable --agent codex claude-code --yes --copy
+```
+
+## Automation
+
+`WORKFLOW.md` keeps this repository usable by Autopilot and Symphony after the
+old catalog harness is removed. Its validation command is the small,
+non-mutating `scripts/verify.sh`; neither file is a registry or compatibility
+layer.
 
 The archived catalog system is preserved at Git tag
 `archive/catalog-system-final`.

@@ -25,9 +25,10 @@ registry-local forks below also retain their reviewed upstream MIT notices.
 - Upstream notice: `Copyright (c) 2026 Thomas Ricouard`
 - Local state: modified maintained fork
 
-The global bootstrap also installs `impeccable` and `swift-concurrency`
-directly from their pinned upstream repositories. They are not vendored here;
-their upstream licenses and notices remain authoritative.
+The global bootstrap also installs `swift-concurrency` directly from its pinned
+upstream repository. It is not vendored here; its upstream license and notices
+remain authoritative. Impeccable remains an optional project-local install
+from its pinned upstream repository.
 
 ## App Store Connect CLI skills
 
