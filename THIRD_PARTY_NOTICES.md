@@ -25,5 +25,14 @@ registry-local forks below also retain their reviewed upstream MIT notices.
 - Upstream notice: `Copyright (c) 2026 Thomas Ricouard`
 - Local state: modified maintained fork
 
-External-git catalog entries are not vendored into this repository. Their
-upstream repositories and licenses remain authoritative.
+The global bootstrap also installs `swift-concurrency` directly from its pinned
+upstream repository. It is not vendored here; its upstream license and notices
+remain authoritative. Impeccable remains an optional project-local install
+from its pinned upstream repository.
+
+## App Store Connect CLI skills
+
+- Source: [rorkai/app-store-connect-cli-skills](https://github.com/rorkai/app-store-connect-cli-skills)
+- Reviewed upstream commit: `c77169ab1a9595bbd426ec943797b36072ccf8e3`
+- Upstream notice: `Copyright (c) 2026 Rudrank Riyam`
+- Local state: installed directly by the global bootstrap; not vendored

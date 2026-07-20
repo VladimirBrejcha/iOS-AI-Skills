@@ -1,86 +1,141 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-profile_path="$repo_root/.agents/verify/skills-registry.yaml"
-artifacts_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-skills-verify.XXXXXX")"
-trap 'rm -rf "$artifacts_dir"' EXIT
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_dir"
 
-REPO_ROOT="$repo_root" \
-PROFILE_PATH="$profile_path" \
-ARTIFACTS_DIR="$artifacts_dir" \
-ruby -ropen3 -ryaml <<'RUBY'
-repo_root = ENV.fetch("REPO_ROOT")
-profile_path = ENV.fetch("PROFILE_PATH")
-artifacts_dir = ENV.fetch("ARTIFACTS_DIR")
+bash -n bootstrap.sh
 
-unless artifacts_dir.match?(%r{\A[[:alnum:]_/.\-]+\z})
-  abort "temporary artifact path contains unsupported characters"
-end
+node <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
 
-profile = YAML.safe_load(
-  File.read(profile_path),
-  aliases: false,
-  filename: profile_path
-)
-commands = profile.fetch("commands")
-command_ids = commands.map { |entry| entry.fetch("id") }
-duplicate_ids = command_ids.group_by { |id| id }.select { |_id, values| values.length > 1 }.keys
-abort "verification profile has duplicate command ids: #{duplicate_ids.join(", ")}" unless duplicate_ids.empty?
+const bootstrap = fs.readFileSync("bootstrap.sh", "utf8");
+const readme = fs.readFileSync("README.md", "utf8");
 
-required_ids = profile.fetch("required_pass_signals")
-missing_ids = required_ids - command_ids
-abort "verification profile is missing required commands: #{missing_ids.join(", ")}" unless missing_ids.empty?
+function fail(message) {
+  throw new Error(message);
+}
 
-failure_patterns = profile.fetch("failure_patterns", []).map do |pattern|
-  [pattern, Regexp.new(pattern, Regexp::IGNORECASE)]
-rescue RegexpError => error
-  abort "verification profile has invalid failure pattern #{pattern.inspect}: #{error.message}"
-end
+function parseArray(name) {
+  const match = bootstrap.match(new RegExp(`^${name}=\\(\\n([\\s\\S]*?)^\\)`, "m"));
+  if (!match) fail(`Missing ${name} array in bootstrap.sh`);
+  return match[1]
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
 
-# The harness normally supplies this manifest. The standalone gate verifies the
-# whole repository, so record that scope before checking the profile artifacts.
-File.write(File.join(artifacts_dir, "paths.txt"), ".\n")
+if (!bootstrap.includes("npx --yes skills@1.5.14")) {
+  fail("bootstrap.sh must remain pinned to skills@1.5.14");
+}
+if (!bootstrap.includes("agents=(codex claude-code)")) {
+  fail("The global baseline must target Codex and Claude Code only");
+}
+if (!bootstrap.includes('${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/skills')) {
+  fail("The Claude Code root must honor CLAUDE_CONFIG_DIR");
+}
+if (bootstrap.includes("pbakaus/impeccable") || /agents=\([^\n]*opencode/.test(bootstrap)) {
+  fail("Impeccable must remain project-local and OpenCode must remain outside this baseline");
+}
 
-commands.each do |entry|
-  id = entry.fetch("id")
-  command = entry.fetch("run").to_s
-  abort "verification command is blank: #{id}" if command.strip.empty?
+const owned = parseArray("owned_skills");
+const asc = parseArray("asc_skills");
+const checkedIn = fs.readdirSync(".", { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(entry.name, "SKILL.md")))
+  .map((entry) => entry.name)
+  .sort();
 
-  command = command.gsub("{artifactsDir}", artifacts_dir)
-  puts "==> #{id}"
-  $stdout.flush
+if (JSON.stringify([...owned].sort()) !== JSON.stringify(checkedIn)) {
+  fail(`owned_skills does not match checked-in skills: ${checkedIn.join(", ")}`);
+}
 
-  stdout, stderr, status = Open3.capture3(
-    "/bin/bash", "-o", "errexit", "-o", "pipefail", "-c", command,
-    chdir: repo_root
-  )
-  $stdout.write(stdout)
-  $stderr.write(stderr)
-  $stdout.flush
-  $stderr.flush
+const documentedOwnedSection = readme.match(/^- 51Code-owned:([\s\S]*?)^- Third-party:/m)?.[1];
+if (!documentedOwnedSection) fail("README.md is missing the 51Code-owned skill list");
+const documentedOwned = [...documentedOwnedSection.matchAll(/`([^`]+)`/g)]
+  .map((match) => match[1])
+  .sort();
+if (JSON.stringify(documentedOwned) !== JSON.stringify([...owned].sort())) {
+  fail("README.md owned skill list does not match bootstrap.sh");
+}
 
-  abort "verification failed: #{id}" unless status.success?
+if (owned.length !== 13 || asc.length !== 22) {
+  fail(`Expected 13 owned and 22 ASC skills; found ${owned.length} and ${asc.length}`);
+}
 
-  output = "#{stdout}\n#{stderr}"
-  failure_match = failure_patterns.find { |_pattern, regexp| regexp.match?(output) }
-  if failure_match
-    abort "verification failed: #{id} matched failure pattern #{failure_match.first.inspect}"
+const managed = [...owned, "swift-concurrency", ...asc];
+if (managed.length !== 36 || new Set(managed).size !== managed.length) {
+  fail("The 36-skill global baseline contains a missing or duplicate name");
+}
+
+console.log("validated direct package contract");
+NODE
+
+ruby -ryaml <<'RUBY'
+Dir.glob("*/SKILL.md").sort.each do |file|
+  lines = File.readlines(file, chomp: true)
+  abort "#{file}: missing YAML front matter" unless lines.first == "---"
+
+  closing = lines[1..]&.index("---")
+  abort "#{file}: unterminated YAML front matter" unless closing
+
+  begin
+    metadata = YAML.safe_load(
+      lines[1, closing].join("\n"),
+      aliases: false,
+      filename: file
+    )
+  rescue Psych::SyntaxError => error
+    abort "#{file}: invalid YAML front matter: #{error.problem}"
   end
+
+  abort "#{file}: front matter must be a mapping" unless metadata.is_a?(Hash)
+  abort "#{file}: name must match its directory" unless metadata["name"] == File.dirname(file)
+  abort "#{file}: missing description" unless metadata["description"].is_a?(String) && !metadata["description"].strip.empty?
 end
 
-artifact_files = Dir.glob("**/*", File::FNM_DOTMATCH, base: artifacts_dir).select do |path|
-  File.file?(File.join(artifacts_dir, path))
-end
-required_artifacts = profile.fetch("required_artifacts", [])
-missing_artifacts = required_artifacts.reject do |pattern|
-  artifact_files.any? do |path|
-    File.fnmatch?(pattern, path, File::FNM_PATHNAME | File::FNM_DOTMATCH | File::FNM_EXTGLOB)
-  end
-end
-unless missing_artifacts.empty?
-  abort "verification missing required artifacts: #{missing_artifacts.join(", ")}"
-end
-
-puts "agent-skills verification ok (#{commands.length} commands)"
+puts "validated skill front matter YAML"
 RUBY
+
+ruby <<'RUBY'
+patterns = {
+  "machine-local home path" => %r{/(?:Users|home)/[A-Za-z0-9._-]+(?:/|\b)},
+  "AWS access key" => /AKIA[0-9A-Z]{16}/,
+  "bearer credential" => /Authorization:\s*Bearer\s+[A-Za-z0-9._~-]{16,}/i,
+  "GitHub token" => /gh[pousr]_[A-Za-z0-9]{20,}/,
+  "API secret" => /sk-(?:proj-)?[A-Za-z0-9_-]{20,}/,
+  "private key" => /-----BEGIN (?:RSA )?PRIVATE KEY-----/
+}
+
+files = IO.popen(["git", "ls-files", "-co", "--exclude-standard", "-z"], &:read).split("\0")
+failures = files.sort.filter_map do |file|
+  next unless File.file?(file) && !File.symlink?(file)
+
+  content = File.binread(file)
+  next if content.include?("\0")
+
+  text = content.force_encoding(Encoding::UTF_8)
+  next unless text.valid_encoding?
+
+  labels = patterns.filter_map { |label, pattern| label if text.match?(pattern) }
+  "#{file}: #{labels.join(", ")}" unless labels.empty?
+end
+
+abort "public-safety scan failed:\n#{failures.join("\n")}" unless failures.empty?
+puts "public-safety scan passed"
+RUBY
+
+while IFS= read -r -d '' script; do
+  [[ "$script" == *.sh && -f "$script" && ! -L "$script" ]] || continue
+  bash -n "$script"
+done < <(git ls-files -co --exclude-standard -z)
+
+grep -Fx 'npm ci --ignore-scripts' gemini-files-api/scripts/bootstrap.sh >/dev/null
+
+silent-pushes-setup/scripts/test_skill_contract.sh
+ios-xcodegen/scripts/test_contract.sh
+xcode-cloud/scripts/test_skill_contract.sh
+meeting-transcription/scripts/test_transcribe_meeting_audio.sh
+node gemini-files-api/scripts/test_gemini_mm.mjs
+
+echo "agent-skills verification passed"

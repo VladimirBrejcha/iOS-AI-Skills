@@ -26,19 +26,15 @@ safety:
 
 # Agent Skills Workflow
 
-Implement one reviewed catalog or harness task in this repository.
+Maintain the direct skill package and its pinned global bootstrap.
 
-- Read `AGENTS.md`, the matched `.agents/manifests/*.yaml` files, and their
-  linked registry documentation before editing.
-- Keep `skills.registry.yaml` as the only source and disposition manifest.
-- Do not hand-edit generated catalog files or imported consumer copies.
-- Keep public files free of private context, local machine paths, credentials,
+- Read `AGENTS.md` before editing.
+- Edit checked-in skill sources, never installed consumer copies.
+- Keep the repository free of registry, generated catalog, sync-planner, and
+  backward-compatibility machinery.
+- Keep public files free of credentials, local machine paths, private context,
   internal task links, and company-only notes.
-- Research-only tasks may write only their explicitly assigned evidence files.
-  Tasks that change registry, lock, generated catalog, profile, or consumer
-  state must follow the serialized integration boundary in their task contract.
 - Run `./scripts/verify.sh` before handoff.
-- Do not push, open a pull request, merge, update planner state, or write real
-  consumer roots from the default run path.
-- Do not run `git add` or `git commit`; leave validated source changes for the
-  runner to commit, then stop at the validated local handoff boundary.
+- Do not push or open a pull request from the default Symphony run path.
+- Leave validated source changes for the runner to commit and stop at the
+  validated local handoff boundary.
