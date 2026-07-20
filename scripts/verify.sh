@@ -11,6 +11,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const bootstrap = fs.readFileSync("bootstrap.sh", "utf8");
+const readme = fs.readFileSync("README.md", "utf8");
 
 function fail(message) {
   throw new Error(message);
@@ -48,6 +49,16 @@ const checkedIn = fs.readdirSync(".", { withFileTypes: true })
 if (JSON.stringify([...owned].sort()) !== JSON.stringify(checkedIn)) {
   fail(`owned_skills does not match checked-in skills: ${checkedIn.join(", ")}`);
 }
+
+const documentedOwnedSection = readme.match(/^- 51Code-owned:([\s\S]*?)^- Third-party:/m)?.[1];
+if (!documentedOwnedSection) fail("README.md is missing the 51Code-owned skill list");
+const documentedOwned = [...documentedOwnedSection.matchAll(/`([^`]+)`/g)]
+  .map((match) => match[1])
+  .sort();
+if (JSON.stringify(documentedOwned) !== JSON.stringify([...owned].sort())) {
+  fail("README.md owned skill list does not match bootstrap.sh");
+}
+
 if (owned.length !== 13 || asc.length !== 23) {
   fail(`Expected 13 owned and 23 ASC skills; found ${owned.length} and ${asc.length}`);
 }
@@ -57,27 +68,68 @@ if (managed.length !== 37 || new Set(managed).size !== managed.length) {
   fail("The 37-skill global baseline contains a missing or duplicate name");
 }
 
-for (const skill of checkedIn) {
-  const file = path.join(skill, "SKILL.md");
-  const source = fs.readFileSync(file, "utf8");
-  const frontmatter = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-  if (!frontmatter) fail(`${file}: missing YAML front matter`);
-
-  const name = frontmatter[1].match(/^name:\s*["']?([^"'\r\n]+)["']?\s*$/m)?.[1]?.trim();
-  if (name !== skill) fail(`${file}: name must match its directory`);
-
-  const description = frontmatter[1].match(/^description:\s*(.*)$/m)?.[1]?.trim();
-  if (description === undefined || description === "") {
-    fail(`${file}: missing description`);
-  }
-}
-
 console.log("validated direct package contract");
 NODE
+
+ruby -ryaml <<'RUBY'
+Dir.glob("*/SKILL.md").sort.each do |file|
+  lines = File.readlines(file, chomp: true)
+  abort "#{file}: missing YAML front matter" unless lines.first == "---"
+
+  closing = lines[1..]&.index("---")
+  abort "#{file}: unterminated YAML front matter" unless closing
+
+  begin
+    metadata = YAML.safe_load(
+      lines[1, closing].join("\n"),
+      aliases: false,
+      filename: file
+    )
+  rescue Psych::SyntaxError => error
+    abort "#{file}: invalid YAML front matter: #{error.problem}"
+  end
+
+  abort "#{file}: front matter must be a mapping" unless metadata.is_a?(Hash)
+  abort "#{file}: name must match its directory" unless metadata["name"] == File.dirname(file)
+  abort "#{file}: missing description" unless metadata["description"].is_a?(String) && !metadata["description"].strip.empty?
+end
+
+puts "validated skill front matter YAML"
+RUBY
+
+ruby <<'RUBY'
+patterns = {
+  "machine-local home path" => %r{/(?:Users|home)/[A-Za-z0-9._-]+(?:/|\b)},
+  "AWS access key" => /AKIA[0-9A-Z]{16}/,
+  "bearer credential" => /Authorization:\s*Bearer\s+[A-Za-z0-9._~-]{16,}/i,
+  "GitHub token" => /gh[pousr]_[A-Za-z0-9]{20,}/,
+  "API secret" => /sk-(?:proj-)?[A-Za-z0-9_-]{20,}/,
+  "private key" => /-----BEGIN (?:RSA )?PRIVATE KEY-----/
+}
+
+files = IO.popen(["git", "ls-files", "-co", "--exclude-standard", "-z"], &:read).split("\0")
+failures = files.sort.filter_map do |file|
+  next unless File.file?(file) && !File.symlink?(file)
+
+  content = File.binread(file)
+  next if content.include?("\0")
+
+  text = content.force_encoding(Encoding::UTF_8)
+  next unless text.valid_encoding?
+
+  labels = patterns.filter_map { |label, pattern| label if text.match?(pattern) }
+  "#{file}: #{labels.join(", ")}" unless labels.empty?
+end
+
+abort "public-safety scan failed:\n#{failures.join("\n")}" unless failures.empty?
+puts "public-safety scan passed"
+RUBY
 
 while IFS= read -r script; do
   bash -n "$script"
 done < <(find . -path './.git' -prune -o -type f -name '*.sh' -print | LC_ALL=C sort)
+
+grep -Fx 'npm ci --ignore-scripts' gemini-files-api/scripts/bootstrap.sh >/dev/null
 
 silent-pushes-setup/scripts/test_skill_contract.sh
 ios-xcodegen/scripts/test_contract.sh
