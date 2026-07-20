@@ -25,5 +25,6 @@ registry-local forks below also retain their reviewed upstream MIT notices.
 - Upstream notice: `Copyright (c) 2026 Thomas Ricouard`
 - Local state: modified maintained fork
 
-External-git catalog entries are not vendored into this repository. Their
-upstream repositories and licenses remain authoritative.
+The global bootstrap also installs `impeccable` and `swift-concurrency`
+directly from their pinned upstream repositories. They are not vendored here;
+their upstream licenses and notices remain authoritative.
