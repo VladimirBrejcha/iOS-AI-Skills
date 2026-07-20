@@ -27,10 +27,13 @@ Install or reconcile it from a checkout of the desired repository revision:
 Run the same command again after pulling a reviewed repository revision. It is
 idempotent. The script uses `skills@1.5.14`, explicit Git tags, and explicit
 skill names. In this CLI, `#ref` selects a Git ref; `@name` selects a skill and
-must not be used as a version pin.
+must not be used as a version pin. Before reporting success, the script verifies
+all 15 entrypoints in the shared and Claude Code manager roots and bootstraps
+the copied `gemini-files-api` dependencies in both roots. It also converts the
+pinned manager's partial-install result into a non-zero bootstrap failure.
 
-The script removes the retired pre-consolidation Impeccable command folders.
-It does not remove unrelated global skills installed outside this baseline.
+The script installs and reconciles the baseline names only. It does not remove
+retired names or unrelated global skills installed outside this baseline.
 
 ## Updating the baseline
 
