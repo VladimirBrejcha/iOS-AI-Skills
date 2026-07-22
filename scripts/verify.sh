@@ -59,13 +59,13 @@ if (JSON.stringify(documentedOwned) !== JSON.stringify([...owned].sort())) {
   fail("README.md owned skill list does not match bootstrap.sh");
 }
 
-if (owned.length !== 13 || asc.length !== 22) {
-  fail(`Expected 13 owned and 22 ASC skills; found ${owned.length} and ${asc.length}`);
+if (owned.length !== 14 || asc.length !== 22) {
+  fail(`Expected 14 owned and 22 ASC skills; found ${owned.length} and ${asc.length}`);
 }
 
 const managed = [...owned, "swift-concurrency", ...asc];
-if (managed.length !== 36 || new Set(managed).size !== managed.length) {
-  fail("The 36-skill global baseline contains a missing or duplicate name");
+if (managed.length !== 37 || new Set(managed).size !== managed.length) {
+  fail("The 37-skill global baseline contains a missing or duplicate name");
 }
 
 console.log("validated direct package contract");

@@ -20,6 +20,8 @@ Use this checklist as a hard gate before marking a spec as ready.
 | M12 | Completion criteria with pass/fail outcomes. | Define "done" objectively. |
 | M13 | Traceability links to related docs/specs/ADRs/tickets. | Preserve context and decision lineage. |
 | M14 | Document history (change log by version/date/summary). | Keep updates auditable. |
+| M15 | Machine-checkable contract block for external, generated, AI-facing, or verifier-owned contracts. | Prevent ambiguous enums, predicates, validator order, redaction, publication gates, and boundary cases from becoming review-time discoveries. |
+| M16 | Requirement-to-verifier binding with stable IDs. | Prevent specs and verifiers from drifting into false coverage. |
 
 ## SHOULD items (strongly recommended)
 
@@ -38,3 +40,18 @@ Use this checklist as a hard gate before marking a spec as ready.
 - Mark `Ready` only if all MUST items are present.
 - Mark `Conditionally Ready` only if all MUST items are present and open questions are low-risk.
 - Mark `Not Ready` if any MUST item is missing or ambiguous.
+
+## Machine-checkable contract block
+
+For M15, require the applicable subset of:
+
+- canonical tokens, enums, identifiers, and versions;
+- predicate or mapping tables;
+- app-owned envelope versus generated/model/service output;
+- validator order and failure semantics;
+- retry and idempotency rules;
+- redaction and observability rules;
+- publication or rollout gates; and
+- exact boundary-proof cases.
+
+If the spec does not cross one of these boundaries, mark M15 `N/A` with a short rationale.

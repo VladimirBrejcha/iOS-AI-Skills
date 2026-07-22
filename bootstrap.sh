@@ -35,6 +35,7 @@ owned_skills=(
   harness-engineering
   hint-overlay-visual-verification
   ios-xcodegen
+  lifecycle-and-side-effects-correctness
   mechanism-audit
   meeting-transcription
   silent-pushes-setup

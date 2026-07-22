@@ -37,10 +37,12 @@ Apply this workflow to any project domain (product, backend, API, data, UI, infr
 - Define success paths, edge cases, and failure behavior.
 - Specify interfaces, data contracts, and state transitions when relevant.
 - Specify non-functional requirements: performance, reliability, scalability, observability.
+- For external, generated, AI-facing, or verifier-owned contracts, add a machine-checkable contract block before implementation details.
 
 ### 5. Define verification and completion
 
 - Map each requirement to a verification method.
+- Bind every requirement to a concrete verifier, test, or manual check ID; bind every verifier back to the requirement it proves.
 - Include reproducible commands, tests, and manual checks when automation is unavailable.
 - Define completion criteria with pass/fail outcomes.
 
@@ -63,6 +65,23 @@ Apply this workflow to any project domain (product, backend, API, data, UI, infr
 - Mark implemented vs planned behavior with explicit status labels.
 - Keep requirements and facts in the spec; keep narrative concise.
 - Avoid embedding secrets or private credentials in reusable specs.
+
+## Machine-checkable contract blocks
+
+Use this block when a contract crosses a subsystem boundary, drives generated data, constrains model/tool output, or owns verifier behavior.
+
+Include:
+
+- Canonical tokens, enum values, identifiers, and version fields.
+- Predicate tables or mapping rules for eligibility, routing, projection, fallback, and publication decisions.
+- App-owned envelope fields separated from model, user, service, or generated output.
+- Validator order, fail-closed behavior, retry/idempotency rules, and forbidden silent-discard cases.
+- Redaction and observability rules for logs, traces, QA artifacts, and analytics.
+- Publication gates, rollout state, and backwards-compatibility rules when output becomes durable.
+- Boundary-proof cases that show the exact allowed and disallowed edges.
+- Requirement-to-verifier binding with stable IDs.
+
+Do not rely on prose such as "validate the output" or "handle failures" when a table, enum list, state transition, or verifier binding would make the rule mechanically checkable.
 
 ## Output expectations
 

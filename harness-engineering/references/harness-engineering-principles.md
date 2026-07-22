@@ -6,9 +6,10 @@
 2. Repository as system of record
 3. Agent legibility checklist
 4. Constraints and guardrails
-5. Merge and autonomy patterns
-6. Entropy management loop
-7. Anti-patterns and fixes
+5. Verifier integrity
+6. Merge and autonomy patterns
+7. Entropy management loop
+8. Anti-patterns and fixes
 
 ## 1. Human role shift
 
@@ -46,7 +47,19 @@
   - Required code-owner reviews for sensitive paths.
 - Prefer deterministic scripts over free-form command sequences.
 
-## 5. Merge and autonomy patterns
+## 5. Verifier integrity
+
+A verifier is not trustworthy just because it exits successfully. Review its truth model:
+
+- Oracle truth: the assertion proves the intended behavior and includes meaningful negative or boundary cases.
+- Coverage truth: the command actually runs the files, generated artifacts, profiles, rows, or paths it claims to cover.
+- Artifact truth: summaries and persisted QA output cannot report success after completeness or source evidence fails.
+- Failure-signal truth: broken contracts fail loudly with actionable diagnostics instead of being skipped, normalized away, or hidden in logs.
+- Binding truth: every verifier is tied to the requirement or contract it proves, and every required contract has a named verifier.
+
+For generated pipelines, require source/runtime inventory alignment, output validation after generation, redaction before persistence, idempotent retries, and fail-closed handling when generated storage cannot build.
+
+## 6. Merge and autonomy patterns
 
 - Split work into small, reviewable increments.
 - Run independent tracks for unrelated files.
@@ -54,7 +67,7 @@
 - Grant high autonomy where guardrails are strong.
 - Reduce autonomy where risk is high or constraints are incomplete.
 
-## 6. Entropy management loop
+## 7. Entropy management loop
 
 - Run recurring cleanup tasks:
   - Remove dead files and stale configs.
@@ -63,7 +76,7 @@
 - Convert repeated failures into explicit rules or checks.
 - Keep maintenance ownership explicit by directory or subsystem.
 
-## 7. Anti-patterns and fixes
+## 8. Anti-patterns and fixes
 
 | Anti-pattern | Symptom | Correction |
 | --- | --- | --- |
@@ -72,3 +85,4 @@
 | Manual quality gates | Reviews become bottlenecks | Automate checks in local and CI flows |
 | Large branch batches | Frequent merge conflicts | Break work into smaller merges |
 | No cleanup cycle | Docs and scripts drift quickly | Schedule recurring maintenance sweeps |
+| False-pass verifier | QA artifact says pass while required evidence is missing | Add oracle, coverage, artifact, failure-signal, and binding checks |
