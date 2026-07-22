@@ -51,6 +51,7 @@ Use this skill to translate harness engineering principles into concrete reposit
   - Static analysis for known failure classes.
 - Fail with actionable messages that point to exact fixes.
 - Keep checks strict enough to prevent regressions, but fast enough for daily use.
+- For any verifier or generated QA artifact, check verifier integrity before trusting a pass result.
 
 ### 6) Optimize merge throughput
 
@@ -72,6 +73,24 @@ Use this skill to translate harness engineering principles into concrete reposit
 - `Guardrail plan`: checks to enforce and where they run.
 - `Rollout plan`: phased adoption with fallback strategy.
 - `Entropy plan`: recurring cleanup cadence and ownership.
+
+## Verifier integrity model
+
+Use this model whenever changing tests, manifests, verifier profiles, generated artifacts, QA summaries, or completion gates.
+
+- `Oracle truth`: the verifier defines correctness explicitly and cannot pass because the assertion is vacuous, normalized too broadly, or missing the negative case.
+- `Coverage truth`: the verifier reaches the intended files, rows, paths, states, profiles, and generated outputs.
+- `Artifact truth`: summaries, reports, and persisted artifacts cannot claim pass when required completeness or source evidence failed.
+- `Failure-signal truth`: the exact broken condition produces a non-zero or blocking result with an actionable message.
+- `Binding truth`: each verifier names the requirement, policy, or contract it proves, and each required contract names the verifier that owns it.
+
+For generated or tool-driven pipelines, also check input normalization, output validation, retry/idempotency, redaction, source-to-runtime inventory alignment, and fail-closed behavior when storage or semantic inventories drift.
+
+Classify failure semantics before implementation:
+
+- `deterministic failure`: invalid state or broken contract; fail immediately.
+- `retryable failure`: transient dependency or transport issue; retry only within a bounded policy.
+- `silent discard`: forbidden unless a spec explicitly permits it and defines observability.
 
 ## References
 

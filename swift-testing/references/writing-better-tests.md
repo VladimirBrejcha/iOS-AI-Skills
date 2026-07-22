@@ -27,6 +27,33 @@ For a given function, aim to generate the following tests:
 And, if appropriate, concurrency tests.
 
 
+## Design strong oracles
+
+A test oracle is the rule that decides whether the behavior is correct. A test with the right API can still be weak if it accepts too much.
+
+Before accepting a regression test, ask:
+
+- Would this fail for the bug or review finding that motivated it?
+- Does it prove both sides of a boundary, not only a representative allowed value?
+- Does it reject invalid duplicates, stale IDs, cancelled work, missing emissions, or forbidden transitions?
+- Does it assert exact output when exact output is contractual?
+- If normalization is used, is the normalized-away data irrelevant to the behavior under test?
+- Does it check ordering when order matters, and multiset/set equality when order does not?
+- Does it assert paired consistency across source/projection, input/output, persisted/runtime state, or action/event?
+- Does the command that runs this test actually cover the changed source path?
+
+Prefer small, explicit expected values over broad predicates such as "not empty", "contains something", or "no throw" when the contract has exact behavior.
+
+Use negative proofs for known forbidden states:
+
+```swift
+#expect(result.groups.contains { $0.id == staleID } == false)
+#expect(result.events.map(\.name) == ["started", "completed"])
+```
+
+When exact ordering is not contractual, compare a multiset or a sorted stable projection instead of relying on incidental array order.
+
+
 ## Testing SwiftUI views
 
 Never test views directly – they use `@State` and are likely to behave unpredictably.

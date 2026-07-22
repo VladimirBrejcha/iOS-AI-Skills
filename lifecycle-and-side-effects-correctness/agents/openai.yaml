@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lifecycle Side Effects"
+  short_description: "Audit lifecycle side-effect correctness"
+  default_prompt: "Use $lifecycle-and-side-effects-correctness to audit this async UI or purchase flow for duplicate, stale, or missing side effects."

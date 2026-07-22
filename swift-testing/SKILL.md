@@ -12,6 +12,7 @@ Review process:
 1. Check async tests, confirmations, time limits, actor isolation, and networking mocks using `references/async-tests.md`.
 1. Ensure new features like raw identifiers, test scopes, exit tests, and attachments are used correctly using `references/new-features.md`.
 1. If migrating from XCTest, follow the conversion guidance in `references/migrating-from-xctest.md`.
+1. Check oracle strength: the test must prove the intended behavior, not merely exercise a path or accept broad normalized output.
 
 If doing partial work, load only the relevant reference files.
 
@@ -22,6 +23,7 @@ If doing partial work, load only the relevant reference files.
 - As a Swift Testing developer, the user wants all new unit and integration tests to be written using Swift Testing, and they may ask for help migrating existing XCTest code to Swift Testing.
 - Swift Testing does *not* support UI tests – XCTest must be used there.
 - Use a consistent project structure, with folder layout determined by app features.
+- Treat weak or vacuous assertions as correctness issues, even when the test uses the right Swift Testing APIs.
 
 Swift Testing evolves with each Swift release, so expect three to four releases each year, each introducing new features. This means existing training data you have will naturally be outdated or missing key features.
 
@@ -82,6 +84,20 @@ let first = try #require(users.first)
 3. **Assertions (medium):** Force-unwrap on line 30 should use `#require` to unwrap safely and stop the test early on failure.
 
 End of example.
+
+## Oracle strength checklist
+
+Apply this before considering a new or changed test meaningful:
+
+- The test has at least one assertion that would fail for the known or plausible regression.
+- Boundary pairs cover both sides of the rule, not only the accepted case.
+- Negative proofs reject forbidden values, duplicate records, stale identifiers, cancelled work, or invalid transitions.
+- Collections assert ordering when order matters, and multiset/set equality when order must not matter.
+- Snapshots are exact where output is contractual; normalization is explicit and does not erase the bug class.
+- Identity handling covers stale IDs, regenerated IDs, canonical IDs, and crosswalk behavior when applicable.
+- Paired edits assert both sides of a relationship, such as source and projection, model and persisted envelope, or request and emitted event.
+- Path-to-suite or path-to-verifier mapping proves the changed source is actually covered by the test command.
+- Helper verification methods preserve caller source location so failures point to the test that owns the oracle.
 
 
 ## References

@@ -39,6 +39,18 @@ Use this as a starting structure. Keep sections that apply, and mark non-applica
 - Error contract and retry behavior.
 - Versioning and backward compatibility.
 
+### Machine-checkable contract block
+
+Use this subsection for external, generated, AI-facing, or verifier-owned contracts.
+
+- Canonical tokens/enums/identifiers/versions.
+- Predicate or mapping tables.
+- App-owned envelope versus model/user/service/generated output.
+- Validator order, fail-closed behavior, retry/idempotency, and forbidden silent discard.
+- Redaction and observability rules for logs, traces, QA artifacts, and analytics.
+- Publication gates and rollout state.
+- Exact boundary-proof cases.
+
 ## 5. Data and state
 
 - Data entities and relationships.
@@ -69,6 +81,7 @@ Use this as a starting structure. Keep sections that apply, and mark non-applica
 
 - Verification playbook (commands and manual checks).
 - Requirement-to-test mapping table.
+- Requirement-to-verifier binding table with stable IDs.
 - Completion criteria with pass/fail outcomes.
 
 ## 10. Risks and open questions

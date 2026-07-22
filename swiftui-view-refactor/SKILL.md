@@ -104,6 +104,7 @@ private var header: some View {
 - Do not bury business logic inside `.task`, `.onAppear`, `.onChange`, or `.refreshable`.
 - Prefer calling small private methods from the view, and move real business logic into services/models.
 - The body should read like UI, not like a view controller.
+- For analytics, purchase, retry, cancellation, or other lifecycle side effects, use `lifecycle-and-side-effects-correctness`; this refactor skill only keeps the view structure legible.
 
 ```swift
 Button("Save", action: save)
@@ -195,6 +196,7 @@ init(dependency: Dependency) {
 - Prefer small, explicit view types over large conditional blocks and large computed `some View` properties.
 - Keep computed view builders below `body` and non-view computed vars above `init`.
 - A good SwiftUI refactor should make the view read top-to-bottom as data flow plus layout, not as mixed layout and imperative logic.
+- Stable view trees reduce accidental lifecycle churn, but they do not by themselves prove side-effect correctness.
 - For MV-first guidance and rationale, see `references/mv-patterns.md`.
 
 ## Large-view handling
