@@ -11,71 +11,24 @@ permissions:
 jobs:
   package-whisper:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
-      - name: Download whisper.cpp Linux binary
+      - name: Download multilingual Whisper small q5 model
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p payload/bin payload/models payload/model-parts /tmp/whisper-extracted
+          mkdir -p payload
           curl -L --fail --retry 5 --retry-delay 3 \
-            -o /tmp/whisper-bin.tar.gz \
-            https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-ubuntu-x64.tar.gz
-          tar -xzf /tmp/whisper-bin.tar.gz -C /tmp/whisper-extracted
-          CLI="$(find /tmp/whisper-extracted -type f -name whisper-cli | head -1)"
-          test -n "$CLI"
-          cp "$CLI" payload/bin/whisper-cli
-          chmod +x payload/bin/whisper-cli
-          find /tmp/whisper-extracted -type f \( -name 'lib*.so*' -o -name '*.so' \) -exec cp {} payload/bin/ \;
+            -o payload/ggml-small-q5_1.bin \
+            'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin?download=true'
+          test -s payload/ggml-small-q5_1.bin
+          sha256sum payload/ggml-small-q5_1.bin > payload/SHA256SUMS.txt
+          ls -lh payload
 
-      - name: Download and split multilingual Whisper model
-        shell: bash
-        run: |
-          set -euo pipefail
-          MODEL='payload/models/ggml-large-v3-turbo-q5_0.bin'
-          curl -L --fail --retry 5 --retry-delay 3 \
-            -o "$MODEL" \
-            'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin?download=true'
-          test -s "$MODEL"
-          sha256sum payload/bin/* "$MODEL" > payload/SHA256SUMS.txt
-          split -b 190m -d -a 2 "$MODEL" payload/model-parts/ggml-large-v3-turbo-q5_0.bin.part-
-          test -s payload/model-parts/ggml-large-v3-turbo-q5_0.bin.part-00
-          test -s payload/model-parts/ggml-large-v3-turbo-q5_0.bin.part-01
-          test -s payload/model-parts/ggml-large-v3-turbo-q5_0.bin.part-02
-          rm "$MODEL"
-          du -sh payload
-          ls -lh payload/bin payload/model-parts
-
-      - name: Upload Whisper engine
+      - name: Upload small multilingual model
         uses: actions/upload-artifact@v4
         with:
-          name: whisper-linux-engine
-          path: |
-            payload/bin
-            payload/SHA256SUMS.txt
-          retention-days: 1
-          compression-level: 0
-
-      - name: Upload model part 00
-        uses: actions/upload-artifact@v4
-        with:
-          name: whisper-model-part-00
-          path: payload/model-parts/ggml-large-v3-turbo-q5_0.bin.part-00
-          retention-days: 1
-          compression-level: 0
-
-      - name: Upload model part 01
-        uses: actions/upload-artifact@v4
-        with:
-          name: whisper-model-part-01
-          path: payload/model-parts/ggml-large-v3-turbo-q5_0.bin.part-01
-          retention-days: 1
-          compression-level: 0
-
-      - name: Upload model part 02
-        uses: actions/upload-artifact@v4
-        with:
-          name: whisper-model-part-02
-          path: payload/model-parts/ggml-large-v3-turbo-q5_0.bin.part-02
+          name: whisper-small-q5-model
+          path: payload
           retention-days: 1
           compression-level: 0
