@@ -17,7 +17,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p payload/bin payload/models
+          mkdir -p payload/bin payload/models /tmp/whisper-extracted
           curl -L --fail --retry 5 --retry-delay 3 \
             -o /tmp/whisper-bin.tar.gz \
             https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-ubuntu-x64.tar.gz
@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           curl -L --fail --retry 5 --retry-delay 3 \
             -o payload/models/ggml-large-v3-turbo-q5_0.bin \
-            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin?download=true
+            'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin?download=true'
           test -s payload/models/ggml-large-v3-turbo-q5_0.bin
           sha256sum payload/bin/* payload/models/* > payload/SHA256SUMS.txt
           du -sh payload
