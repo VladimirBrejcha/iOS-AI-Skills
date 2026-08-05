@@ -1,0 +1,49 @@
+name: Temporary Whisper Package
+
+on:
+  push:
+    branches:
+      - temp/artifact-transfer-test-20260805
+
+permissions:
+  contents: read
+
+jobs:
+  package-whisper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Download whisper.cpp Linux binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p payload/bin payload/models
+          curl -L --fail --retry 5 --retry-delay 3 \
+            -o /tmp/whisper-bin.tar.gz \
+            https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-ubuntu-x64.tar.gz
+          tar -xzf /tmp/whisper-bin.tar.gz -C /tmp/whisper-extracted
+          CLI="$(find /tmp/whisper-extracted -type f -name whisper-cli | head -1)"
+          test -n "$CLI"
+          cp "$CLI" payload/bin/whisper-cli
+          chmod +x payload/bin/whisper-cli
+          find /tmp/whisper-extracted -type f \( -name 'lib*.so*' -o -name '*.so' \) -exec cp {} payload/bin/ \;
+
+      - name: Download multilingual Whisper large-v3-turbo q5 model
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 5 --retry-delay 3 \
+            -o payload/models/ggml-large-v3-turbo-q5_0.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin?download=true
+          test -s payload/models/ggml-large-v3-turbo-q5_0.bin
+          sha256sum payload/bin/* payload/models/* > payload/SHA256SUMS.txt
+          du -sh payload
+          ls -lh payload/bin payload/models
+
+      - name: Upload Whisper package
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-linux-large-v3-turbo-q5
+          path: payload
+          retention-days: 1
+          compression-level: 0
