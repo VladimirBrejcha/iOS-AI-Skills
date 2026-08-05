@@ -1,0 +1,25 @@
+name: Temporary Artifact Transfer Test
+
+on:
+  push:
+    branches:
+      - temp/artifact-transfer-test-20260805
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Create test file
+        run: |
+          mkdir -p payload
+          printf 'artifact-transfer-ok\n' > payload/hello.txt
+      - name: Upload test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-transfer-test
+          path: payload
+          retention-days: 1
