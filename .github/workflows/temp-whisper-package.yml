@@ -13,22 +13,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Download multilingual Whisper small q5 model
+      - name: Download and split multilingual Whisper medium q5 model
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p payload
+          mkdir -p payload/model-parts payload/model
+          MODEL='payload/model/ggml-medium-q5_0.bin'
           curl -L --fail --retry 5 --retry-delay 3 \
-            -o payload/ggml-small-q5_1.bin \
-            'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin?download=true'
-          test -s payload/ggml-small-q5_1.bin
-          sha256sum payload/ggml-small-q5_1.bin > payload/SHA256SUMS.txt
-          ls -lh payload
+            -o "$MODEL" \
+            'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin?download=true'
+          test -s "$MODEL"
+          sha256sum "$MODEL" > payload/SHA256SUMS.txt
+          split -b 190m -d -a 2 "$MODEL" payload/model-parts/ggml-medium-q5_0.bin.part-
+          rm "$MODEL"
+          ls -lh payload/model-parts
 
-      - name: Upload small multilingual model
+      - name: Upload medium model metadata
         uses: actions/upload-artifact@v4
         with:
-          name: whisper-small-q5-model
-          path: payload
+          name: whisper-medium-q5-metadata
+          path: payload/SHA256SUMS.txt
+          retention-days: 1
+
+      - name: Upload medium model part 00
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-medium-q5-part-00
+          path: payload/model-parts/ggml-medium-q5_0.bin.part-00
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload medium model part 01
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-medium-q5-part-01
+          path: payload/model-parts/ggml-medium-q5_0.bin.part-01
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload medium model part 02
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-medium-q5-part-02
+          path: payload/model-parts/ggml-medium-q5_0.bin.part-02
           retention-days: 1
           compression-level: 0
