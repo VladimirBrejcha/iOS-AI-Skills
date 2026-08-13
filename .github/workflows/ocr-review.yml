@@ -1,0 +1,70 @@
+# OpenCodeReview PR auto-review — thin caller around the org reusable
+# workflow (fiveonecode/workflows .github/workflows/ocr-reusable.yml).
+#
+# LLM endpoint/key/model come from org-level Actions secrets/variables
+# (OCR_LLM_URL, OCR_LLM_AUTH_TOKEN, OCR_LLM_MODEL, OCR_LLM_USE_ANTHROPIC);
+# repo-level values of the same names override them.
+#
+# The gate mirrors the reusable workflow's intended triggers: automatic
+# review on PR opened/synchronize/reopened, plus on-demand re-review when a
+# human OWNER/MEMBER/COLLABORATOR comments /open-code-review or
+# @open-code-review. Non-matching comments land in a unique noop group so
+# they skip instantly without cancelling a running review.
+
+name: OpenCodeReview PR Review
+
+concurrency:
+  group: >-
+    ${{
+      (
+        github.event_name == 'pull_request_target'
+        || (
+          github.event_name == 'issue_comment'
+          && github.event.issue.pull_request
+          && github.event.comment.user.type != 'Bot'
+          && (
+            github.event.comment.author_association == 'MEMBER'
+            || github.event.comment.author_association == 'OWNER'
+            || github.event.comment.author_association == 'COLLABORATOR'
+          )
+          && (
+            startsWith(github.event.comment.body, '/open-code-review')
+            || startsWith(github.event.comment.body, '@open-code-review')
+          )
+        )
+      )
+      && format('ocr-{0}', github.event.pull_request.number || github.event.issue.number)
+      || format('noop-{0}', github.run_id)
+    }}
+  cancel-in-progress: true
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  code-review:
+    if: |
+      github.event_name == 'pull_request_target'
+      || (
+        github.event_name == 'issue_comment'
+        && github.event.issue.pull_request
+        && github.event.comment.user.type != 'Bot'
+        && (
+          github.event.comment.author_association == 'MEMBER'
+          || github.event.comment.author_association == 'OWNER'
+          || github.event.comment.author_association == 'COLLABORATOR'
+        )
+        && (
+          startsWith(github.event.comment.body, '/open-code-review')
+          || startsWith(github.event.comment.body, '@open-code-review')
+        )
+      )
+    uses: fiveonecode/workflows/.github/workflows/ocr-reusable.yml@main
+    secrets: inherit
