@@ -1,15 +1,10 @@
-# OpenCodeReview PR auto-review — thin caller around the org reusable
-# workflow (fiveonecode/workflows .github/workflows/ocr-reusable.yml).
-#
-# LLM endpoint/key/model come from org-level Actions secrets/variables
-# (OCR_LLM_URL, OCR_LLM_AUTH_TOKEN, OCR_LLM_MODEL, OCR_LLM_USE_ANTHROPIC);
-# repo-level values of the same names override them.
-#
-# The gate mirrors the reusable workflow's intended triggers: automatic
-# review on PR opened/synchronize/reopened, plus on-demand re-review when a
-# human OWNER/MEMBER/COLLABORATOR comments /open-code-review or
-# @open-code-review. Non-matching comments land in a unique noop group so
-# they skip instantly without cancelling a running review.
+# OpenCodeReview PR auto-review — self-contained workflow for PUBLIC repos.
+# GitHub only lets public caller repos invoke PUBLIC reusable workflows, so
+# simulator-broker / agent-skills cannot call the private
+# fiveonecode/workflows reusable. This file inlines the proven job body from
+# that reusable (mirroring fiveonecode/ChattyFit) so these public repos still
+# get OCR. LLM endpoint/key/model come from this repo's own OCR_LLM_*
+# secrets/variables (repo-level, set on 2026-08-14).
 
 name: OpenCodeReview PR Review
 
@@ -66,5 +61,136 @@ jobs:
           || startsWith(github.event.comment.body, '@open-code-review')
         )
       )
-    uses: fiveonecode/workflows/.github/workflows/ocr-reusable.yml@main
-    secrets: inherit
+    runs-on: self-hosted
+    timeout-minutes: 240
+    steps:
+      - name: Get PR context
+        id: pr-context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let baseRef, headSha, title, prNumber;
+            if (context.eventName === 'issue_comment') {
+              prNumber = context.issue.number;
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              baseRef = pr.base.ref;
+              headSha = pr.head.sha;
+              title = pr.title;
+            } else {
+              prNumber = context.payload.pull_request.number;
+              baseRef = context.payload.pull_request.base.ref;
+              headSha = context.payload.pull_request.head.sha;
+              title = context.payload.pull_request.title;
+            }
+            core.setOutput('pr_number', String(prNumber));
+            core.setOutput('base_ref', baseRef);
+            core.setOutput('head_sha', headSha);
+            core.setOutput('title', title);
+
+      - name: Checkout base (trusted)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch PR head
+        env:
+          PR_NUM: ${{ steps.pr-context.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.pr-context.outputs.head_sha }}
+        run: |
+          git fetch origin "pull/${PR_NUM}/head"
+          echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+
+      - name: Compute merge-base
+        env:
+          HEAD_SHA: ${{ steps.pr-context.outputs.head_sha }}
+        run: |
+          git fetch origin "${{ steps.pr-context.outputs.base_ref }}" 2>/dev/null || true
+          MERGE_BASE=$(git merge-base "origin/${{ steps.pr-context.outputs.base_ref }}" "$HEAD_SHA" 2>/dev/null || echo "$HEAD_SHA")
+          echo "MERGE_BASE=$MERGE_BASE" >> "$GITHUB_ENV"
+          echo "Reviewing $HEAD_SHA from merge-base $MERGE_BASE"
+
+      - name: Checkout OpenCodeReview helpers
+        uses: actions/checkout@v4
+        with:
+          repository: alibaba/open-code-review
+          ref: v1.9.2
+          path: .ocr-upstream
+          sparse-checkout: |
+            scripts/github-actions
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install OpenCodeReview
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ocr" "@alibaba-group/open-code-review@1.9.2"
+          echo "$RUNNER_TEMP/ocr/node_modules/.bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/ocr/node_modules/.bin/ocr" version
+
+      - name: Configure OCR
+        run: |
+          ocr config set llm.extra_body '{"enable_thinking": false}'
+          ocr config set language English
+
+      - name: Run OpenCodeReview
+        env:
+          OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
+          OCR_USE_ANTHROPIC: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          OCR_LLM_TIMEOUT: '1200'
+          OCR_BACKGROUND: ${{ steps.pr-context.outputs.title }}
+        run: |
+          set +e
+          ocr review \
+            --from "${MERGE_BASE}" \
+            --to "${HEAD_SHA}" \
+            --format json \
+            --concurrency 4 \
+            --timeout 45 \
+            --background "${OCR_BACKGROUND}" \
+            > "$RUNNER_TEMP/ocr-result.json" 2>"$RUNNER_TEMP/ocr-stderr.log"
+          OCR_EXIT_CODE=$?
+          set -e
+          echo "OCR_EXIT_CODE=$OCR_EXIT_CODE" >> "$GITHUB_ENV"
+          echo "=== OCR result (first 200 lines) ==="
+          head -n 200 "$RUNNER_TEMP/ocr-result.json" || true
+          echo "=== OCR stderr (last 200 lines) ==="
+          tail -n 200 "$RUNNER_TEMP/ocr-stderr.log" || true
+          if [ "$OCR_EXIT_CODE" != "0" ]; then
+            echo "ocr review exited with code ${OCR_EXIT_CODE}"
+            exit "$OCR_EXIT_CODE"
+          fi
+
+      - name: Post review comments
+        uses: actions/github-script@v7
+        env:
+          OCR_INCREMENTAL_OVERLAP_THRESHOLD: '0.6'
+        with:
+          script: |
+            const path = require('path');
+            const fs = require('fs');
+            const helper = path.resolve('.ocr-upstream/scripts/github-actions/post-review-comments.js');
+            if (!fs.existsSync(helper)) {
+              throw new Error(`Missing helper at ${helper}`);
+            }
+            const { runPostReviewComments } = require(helper);
+            const runnerTemp = process.env.RUNNER_TEMP || '/tmp';
+            await runPostReviewComments({
+              github,
+              context,
+              core,
+              fs,
+              resultPath: path.join(runnerTemp, 'ocr-result.json'),
+              stderrPath: path.join(runnerTemp, 'ocr-stderr.log'),
+              stickySummary: true,
+              incremental: true,
+              incrementalOverlapThreshold: parseFloat(process.env.OCR_INCREMENTAL_OVERLAP_THRESHOLD),
+            });
