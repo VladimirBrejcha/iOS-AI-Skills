@@ -61,10 +61,9 @@ jobs:
           || startsWith(github.event.comment.body, '@open-code-review')
         )
       )
-    # Public repos cannot use the org private-only self-hosted runner group, and
-    # running self-hosted on public repos would let forks execute code on our
-    # runner. Use a GitHub-hosted runner instead.
-    runs-on: ubuntu-latest
+    # Self-hosted; the org runner group is granted access to this public repo and
+    # forking is restricted so untrusted forks cannot schedule workflow runs here.
+    runs-on: self-hosted
     timeout-minutes: 240
     steps:
       - name: Get PR context
