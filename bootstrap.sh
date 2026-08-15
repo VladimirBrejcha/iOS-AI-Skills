@@ -36,6 +36,7 @@ owned_skills=(
   hint-overlay-visual-verification
   ios-xcodegen
   lifecycle-and-side-effects-correctness
+  local-model-serving
   mechanism-audit
   meeting-transcription
   silent-pushes-setup
