@@ -137,5 +137,6 @@ ios-xcodegen/scripts/test_contract.sh
 xcode-cloud/scripts/test_skill_contract.sh
 meeting-transcription/scripts/test_transcribe_meeting_audio.sh
 node gemini-files-api/scripts/test_gemini_mm.mjs
+ruby scripts/test_check_project_skill_ownership.rb
 
 echo "agent-skills verification passed"
