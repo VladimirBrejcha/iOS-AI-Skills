@@ -2,7 +2,6 @@
 # frozen_string_literal: true
 
 require "open3"
-require "pathname"
 require "yaml"
 
 SOURCE_ROOT = File.expand_path("..", __dir__)
@@ -14,6 +13,7 @@ PROJECT_SKILL_ROOTS = %w[
   .codex/skills
   .cursor/skills
   .opencode/skills
+  skills/codex
 ].freeze
 
 def fail_usage(message)
@@ -29,8 +29,8 @@ def parse_bootstrap_array(source, name)
   match[1].lines.map(&:strip).reject { |line| line.empty? || line.start_with?("#") }
 end
 
-def read_skill_name(file)
-  lines = File.readlines(file, chomp: true)
+def read_skill_name(content, label)
+  lines = content.lines(chomp: true)
   raise "missing YAML front matter" unless lines.first == "---"
 
   closing_offset = lines[1..]&.index("---")
@@ -39,7 +39,7 @@ def read_skill_name(file)
   metadata = YAML.safe_load(
     lines[1, closing_offset].join("\n"),
     aliases: false,
-    filename: file
+    filename: label
   )
   raise "front matter must be a mapping" unless metadata.is_a?(Hash)
 
@@ -56,7 +56,7 @@ fail_usage("At least one project repository is required") if ARGV.empty?
 bootstrap = File.read(BOOTSTRAP_PATH)
 managed_names = (
   parse_bootstrap_array(bootstrap, "owned_skills") +
-  ["swift-concurrency"] +
+  parse_bootstrap_array(bootstrap, "standalone_skills") +
   parse_bootstrap_array(bootstrap, "asc_skills")
 ).freeze
 
@@ -70,32 +70,52 @@ ARGV.each do |argument|
   repo = File.expand_path(argument)
   fail_usage("Not a directory: #{argument}") unless File.directory?(repo)
 
-  output, status = Open3.capture2e("git", "-C", repo, "ls-files", "-z")
+  output, status = Open3.capture2e("git", "-C", repo, "ls-files", "--stage", "-z")
   fail_usage("Not a Git worktree: #{argument}") unless status.success?
 
   repo_label = File.basename(repo)
   names_to_paths = Hash.new { |hash, key| hash[key] = [] }
-  tracked_paths = output.split("\0").reject(&:empty?).sort
-  visible_paths = tracked_paths.select do |relative|
-    absolute = File.join(repo, relative)
-    File.exist?(absolute) || File.symlink?(absolute)
+  index_entries = output.split("\0").reject(&:empty?).map do |record|
+    metadata, relative = record.split("\t", 2)
+    mode, object, stage = metadata&.split(" ", 3)
+    unless mode && object && stage && relative
+      raise "unexpected git ls-files --stage output"
+    end
+
+    { mode: mode, object: object, path: relative, stage: stage }
   end
+  conflicted_paths = index_entries.reject { |entry| entry[:stage] == "0" }.map { |entry| entry[:path] }.uniq.sort
+  conflicted_paths.each do |relative|
+    all_errors << "#{repo_label}:#{relative}: unresolved index entry"
+  end
+  index_entries.select! { |entry| entry[:stage] == "0" }
+  tracked_paths = index_entries.map { |entry| entry[:path] }.sort
 
   PROJECT_SKILL_ROOTS.each do |root|
     managed_names.each do |name|
       entrypoint = "#{root}/#{name}"
-      next unless visible_paths.any? { |relative| relative == entrypoint || relative.start_with?("#{entrypoint}/") }
+      next unless tracked_paths.any? { |relative| relative == entrypoint || relative.start_with?("#{entrypoint}/") }
 
       all_errors << "#{repo_label}:#{entrypoint}: managed-global skill #{name.inspect} must not be committed in a project skill root"
     end
   end
 
-  visible_paths.select { |relative| relative.end_with?("SKILL.md") }.each do |relative|
-    file = File.join(repo, relative)
-    next unless File.file?(file)
+  blob_cache = {}
+  index_entries.select { |entry| File.basename(entry[:path]) == "SKILL.md" }.each do |entry|
+    relative = entry[:path]
+    unless %w[100644 100755].include?(entry[:mode])
+      all_errors << "#{repo_label}:#{relative}: skill entrypoint must be a regular file in the Git index"
+      next
+    end
 
     begin
-      name = read_skill_name(file)
+      content = blob_cache.fetch(entry[:object]) do
+        blob, blob_status = Open3.capture2e("git", "-C", repo, "cat-file", "blob", entry[:object])
+        raise "unable to read staged content" unless blob_status.success?
+
+        blob_cache[entry[:object]] = blob
+      end
+      name = read_skill_name(content, relative)
     rescue StandardError => error
       all_errors << "#{repo_label}:#{relative}: #{error.message}"
       next

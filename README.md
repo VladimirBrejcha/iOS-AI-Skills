@@ -75,7 +75,9 @@ renaming project skills:
 
 The check derives managed names from `bootstrap.sh`; it rejects tracked
 managed-name client-root mirrors, duplicate project skill names, and a
-`SKILL.md` name that does not match its directory.
+`SKILL.md` name that does not match its directory. It evaluates paths and
+contents from the Git index so unstaged working-tree edits cannot hide what
+the next commit contains.
 
 Projects that use Impeccable should install its reviewed version locally from
 `pbakaus/impeccable#skill-v3.9.1` in their project bootstrap. For example:

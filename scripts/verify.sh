@@ -40,6 +40,7 @@ if (bootstrap.includes("pbakaus/impeccable") || /agents=\([^\n]*opencode/.test(b
 }
 
 const owned = parseArray("owned_skills");
+const standalone = parseArray("standalone_skills");
 const asc = parseArray("asc_skills");
 const checkedIn = fs.readdirSync(".", { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(entry.name, "SKILL.md")))
@@ -59,11 +60,11 @@ if (JSON.stringify(documentedOwned) !== JSON.stringify([...owned].sort())) {
   fail("README.md owned skill list does not match bootstrap.sh");
 }
 
-if (owned.length !== 15 || asc.length !== 22) {
-  fail(`Expected 15 owned and 22 ASC skills; found ${owned.length} and ${asc.length}`);
+if (owned.length !== 15 || standalone.length !== 1 || asc.length !== 22) {
+  fail(`Expected 15 owned, 1 standalone, and 22 ASC skills; found ${owned.length}, ${standalone.length}, and ${asc.length}`);
 }
 
-const managed = [...owned, "swift-concurrency", ...asc];
+const managed = [...owned, ...standalone, ...asc];
 if (managed.length !== 38 || new Set(managed).size !== managed.length) {
   fail("The 38-skill global baseline contains a missing or duplicate name");
 }
