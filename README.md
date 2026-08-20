@@ -78,7 +78,10 @@ npx --yes skills@1.5.14 add 'pbakaus/impeccable#skill-v3.9.1' \
 `WORKFLOW.md` keeps this repository usable by Autopilot and Symphony after the
 old catalog harness is removed. Its validation command is the small,
 non-mutating `scripts/verify.sh`; neither file is a registry or compatibility
-layer.
+layer. Pull requests, merge-queue entries, and updates to `main` run the same
+command on a standard GitHub-hosted Ubuntu runner. The `verify` job is the
+required status check for `main`; it uses read-only repository permissions and
+does not use repository secrets.
 
 The archived catalog system is preserved at Git tag
 `archive/catalog-system-final`.
