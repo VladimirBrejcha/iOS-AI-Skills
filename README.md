@@ -22,7 +22,8 @@ The global baseline supports Codex and Claude Code and contains these 38 skills:
   skills from `rorkai/app-store-connect-cli-skills`
 
 Install the global baseline from this repository and it becomes available to
-agents on the machine. `local-model-serving` guides engine selection and the
+agents on the machine. `local-model-serving` guides engine selection (MLX
+spec-decode vs llama.cpp; drafters are MLX modes, not a third engine) and the
 one-engine-at-a-time memory rule for local LLM work; see its `SKILL.md`.
 
 Install or reconcile it from a checkout of the desired repository revision:

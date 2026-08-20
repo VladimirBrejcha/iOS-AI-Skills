@@ -26,13 +26,22 @@ Both are OpenAI-compatible (`/v1/chat/completions`), so the same client code
 works against either — only the base URL and the thinking-off parameter
 differ.
 
+Drafters (DSpark, DFlash 2, and similar speculative-decoding heads) are
+**modes of the MLX family**, not a third engine. Do not install NVIDIA-only
+stacks (SGLang, vLLM) or a third MLX GUI to A/B a drafter. A better drafter
+can raise short-context decode; it does not remove the long-context
+crossover, because every verify round still walks the full KV. Use the
+drafter the local serving policy or helper names. llama.cpp may be LM Studio
+or `llama-server`; that is still the same family.
+
 ## First: The Memory Rule (crash prevention)
 
 **Never run both engines with a model resident at the same time.** On a
 128 GB machine, two resident 28 GB models plus the OS drove the system into
 ~20-46 GB of swap and crushed both engines' throughput (a long run was
-aborted, another finished at half speed). Each engine fits alone; both do
-not.
+aborted, another finished at half speed). The same exclusivity rule applies
+on a 64 GB machine that can fit only one ~28 GB model. Each engine fits
+alone; both do not.
 
 - Stop the other engine before starting one:
   `lms unload <identifier>` / `lms unload all`, or
