@@ -37,7 +37,7 @@ idempotent. The script uses `skills@1.5.14`, explicit Git tags or commits, and
 explicit skill names. In this CLI, `#ref` selects a Git branch or tag; `@name`
 selects a skill and must not be used as a version pin. Sources pinned to a raw
 commit are checked out and verified before being passed to the manager as a
-local source. Before reporting success, the script verifies all 37 entrypoints
+local source. Before reporting success, the script verifies all 38 entrypoints
 in the shared and Claude Code manager roots and bootstraps the copied
 `gemini-files-api` dependencies in both roots. The Claude Code root honors
 `CLAUDE_CONFIG_DIR` when it is set. The script also converts the pinned
@@ -65,6 +65,19 @@ Projects own their own committed skill folders and bootstrap. A project must
 not commit a local folder with the same name as a global skill. External
 project-only skills should be installed by that project's bootstrap from an
 explicit `#ref`, which also produces its project `skills-lock.json`.
+
+Check one or more project repositories against the baseline before adding or
+renaming project skills:
+
+```bash
+./scripts/check_project_skill_ownership.rb <project-repo> [<project-repo> ...]
+```
+
+The check derives managed names from `bootstrap.sh`; it rejects tracked
+managed-name client-root mirrors, duplicate project skill names, and a
+`SKILL.md` name that does not match its directory. It evaluates paths and
+contents from the Git index so unstaged working-tree edits cannot hide what
+the next commit contains.
 
 Projects that use Impeccable should install its reviewed version locally from
 `pbakaus/impeccable#skill-v3.9.1` in their project bootstrap. For example:

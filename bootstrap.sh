@@ -50,8 +50,12 @@ owned_skills=(
 run_add . \
   --global --agent "${agents[@]}" --skill "${owned_skills[@]}" --yes --copy
 
+standalone_skills=(
+  swift-concurrency
+)
+
 run_add 'jamesrochabrun/skills#2.1.1' \
-  --global --agent "${agents[@]}" --skill swift-concurrency --yes --copy
+  --global --agent "${agents[@]}" --skill "${standalone_skills[@]}" --yes --copy
 
 asc_skills=(
   asc-app-create-ui
@@ -104,7 +108,7 @@ trap - EXIT
 
 managed_skills=(
   "${owned_skills[@]}"
-  swift-concurrency
+  "${standalone_skills[@]}"
   "${asc_skills[@]}"
 )
 

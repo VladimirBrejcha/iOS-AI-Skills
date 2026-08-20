@@ -34,6 +34,7 @@ Use this checklist as a hard gate before marking a spec as ready.
 | S05 | Risk register with severity and mitigation. | Make tradeoffs explicit and reviewable. |
 | S06 | Ownership mapping (who approves, who implements, who operates). | Improve execution accountability. |
 | S07 | Timeline or phase plan for multi-stage delivery. | Align delivery sequencing across teams. |
+| S08 | Repository-aligned implementation map for work spanning existing code paths. | Prevent agents from guessing edit targets or touching adjacent paths unintentionally. |
 
 ## Readiness decision
 

@@ -37,6 +37,10 @@ Apply this workflow to any project domain (product, backend, API, data, UI, infr
 - Define success paths, edge cases, and failure behavior.
 - Specify interfaces, data contracts, and state transitions when relevant.
 - Specify non-functional requirements: performance, reliability, scalability, observability.
+- When work spans existing code paths, add an implementation map that names the
+  canonical files or directories to edit and adjacent paths that must remain
+  untouched. Keep the map aligned with the repository's real structure so an
+  implementer does not have to infer sibling paths from prose.
 - For external, generated, AI-facing, or verifier-owned contracts, add a machine-checkable contract block before implementation details.
 
 ### 5. Define verification and completion

@@ -74,6 +74,8 @@ Use this subsection for external, generated, AI-facing, or verifier-owned contra
 ## 8. Implementation status and plan
 
 - Implemented / in progress / planned breakdown.
+- Implementation map naming the canonical files or directories to edit and
+  adjacent paths that must remain untouched when work spans existing code.
 - Dependencies and sequencing.
 - Rollout and rollback strategy.
 
