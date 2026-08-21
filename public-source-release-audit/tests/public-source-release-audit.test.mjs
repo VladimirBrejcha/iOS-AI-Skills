@@ -519,6 +519,33 @@ test("block-scalar write-all permissions are release-blocking", () => {
   assertFinding(audit.result, "workflow-write-all", ".github/workflows/block-permissions.yml");
 });
 
+test("block-scalar public triggers remain privileged", () => {
+  const repoRoot = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  write(repoRoot, ".github/workflows/block-trigger.yml", [
+    "name: block trigger",
+    "on: >-",
+    "  issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo \"comment=" + bodyExpression + "\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add block scalar trigger");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/block-trigger.yml",
+  );
+});
+
 test("anchored write-all permissions are release-blocking", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/anchored-permissions.yml", [
@@ -2128,6 +2155,39 @@ test("artifact execution recognizes common command wrappers and paths", () => {
   }
 });
 
+test("artifact execution recognizes interpreter input redirection", () => {
+  const repoRoot = makeRepository();
+  const runIdExpression = ["$", "{{ github.event.workflow_run.id }}"].join("");
+  write(repoRoot, ".github/workflows/workflow-run-artifact-redirect.yml", [
+    "name: workflow run artifact redirect",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - run: bash < payload/run.sh",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add redirected artifact execution");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-artifact-execution",
+    ".github/workflows/workflow-run-artifact-redirect.yml",
+  );
+});
+
 test("issue_comment pull-request checkouts are privileged and untrusted", () => {
   const repoRoot = makeRepository();
   const issueExpression = ["$", "{{ github.event.issue.number }}"].join("");
@@ -2462,6 +2522,34 @@ test("tainted script text cannot be piped into shell interpreters", () => {
   );
 });
 
+test("tainted here-strings cannot feed shell interpreters", () => {
+  const repoRoot = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  write(repoRoot, ".github/workflows/comment-here-shell.yml", [
+    "name: comment here shell",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: bash <<< \"$COMMAND\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add tainted shell here-string");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-here-shell.yml",
+  );
+});
+
 test("privileged workflows reject attacker-selected shell templates", () => {
   const repoRoot = makeRepository();
   const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
@@ -2486,6 +2574,62 @@ test("privileged workflows reject attacker-selected shell templates", () => {
     audit.result,
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-shell-template.yml",
+  );
+});
+
+test("privileged workflows reject tainted executable action inputs", () => {
+  const repoRoot = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  write(repoRoot, ".github/workflows/comment-github-script.yml", [
+    "name: comment github script",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/github-script@" + "a".repeat(40),
+    "        with:",
+    "          script: " + bodyExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add tainted github script input");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-github-script.yml",
+  );
+});
+
+test("privileged workflows reject attacker-controlled failure handling", () => {
+  const repoRoot = makeRepository();
+  const bodyExpression = ["$", "{{ fromJSON(github.event.comment.body) }}"].join("");
+  write(repoRoot, ".github/workflows/comment-continue-error.yml", [
+    "name: comment continue error",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  verify:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - continue-on-error: " + bodyExpression,
+    "        run: exit 1",
+    "      - run: echo deploy",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add attacker-controlled failure handling");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-control-flow",
+    ".github/workflows/comment-continue-error.yml",
   );
 });
 
@@ -2766,6 +2910,33 @@ test("privileged workflows reject attacker-selected runners", () => {
     audit.result,
     "workflow-privileged-untrusted-runner",
     ".github/workflows/dynamic-public-runner.yml",
+  );
+});
+
+test("privileged workflows reject attacker-selected deployment environments", () => {
+  const repoRoot = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  write(repoRoot, ".github/workflows/comment-environment.yml", [
+    "name: comment environment",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  deploy:",
+    "    runs-on: ubuntu-latest",
+    "    environment: " + bodyExpression,
+    "    steps:",
+    "      - run: echo deploy",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add attacker-selected environment");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-environment",
+    ".github/workflows/comment-environment.yml",
   );
 });
 
@@ -3150,6 +3321,54 @@ test("local actions inherit caller environment taint", () => {
     audit.result,
     "workflow-privileged-untrusted-checkout",
     ".github/actions/inherited-environment-checkout/action.yml",
+  );
+});
+
+test("local composite outputs return inherited taint to callers", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const outputExpression = ["$", "{{ steps.source.outputs.ref }}"].join("");
+  const actionOutputExpression = ["$", "{{ steps.export.outputs.ref }}"].join("");
+  write(repoRoot, ".github/workflows/composite-output.yml", [
+    "name: composite output",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          SOURCE_REF: " + headExpression,
+    "        run: echo \"PR_REF=$SOURCE_REF\" >> \"$GITHUB_ENV\"",
+    "      - id: source",
+    "        uses: ./.github/actions/output-ref",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + outputExpression,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/output-ref/action.yml", [
+    "name: output ref",
+    "outputs:",
+    "  ref:",
+    "    value: " + actionOutputExpression,
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - id: export",
+    "      shell: bash",
+    "      run: echo \"ref=$PR_REF\" >> \"$GITHUB_OUTPUT\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add composite output checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/composite-output.yml",
   );
 });
 
