@@ -1434,6 +1434,42 @@ test("matrix include objects propagate untrusted checkout refs", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/matrix-include.yml");
 });
 
+test("expression-defined matrices propagate untrusted checkout coordinates", () => {
+  const repoRoot = makeRepository();
+  const matrixExpression = [
+    "$",
+    "{{ fromJSON(github.event.comment.body) }}",
+  ].join("");
+  const repositoryExpression = ["$", "{{ matrix.repository }}"].join("");
+  const refExpression = ["$", "{{ matrix.ref }}"].join("");
+  write(repoRoot, ".github/workflows/expression-matrix.yml", [
+    "name: expression matrix",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    strategy:",
+    "      matrix: " + matrixExpression,
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          repository: " + repositoryExpression,
+    "          ref: " + refExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add expression matrix checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/expression-matrix.yml",
+  );
+});
+
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/quoted-runner-key.yml", [
@@ -1450,6 +1486,28 @@ test("quoted runs-on keys cannot hide self-hosted labels", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/quoted-runner-key.yml");
+});
+
+test("literal runner expressions preserve blocking self-hosted labels", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/literal-runner-expression.yml", [
+    "name: literal runner expression",
+    "on: push",
+    "jobs:",
+    "  unsafe:",
+    "    runs-on: ${{ 'self-hosted' }}",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add literal runner expression workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-self-hosted-runner",
+    ".github/workflows/literal-runner-expression.yml",
+  );
 });
 
 test("aliased self-hosted runner labels remain release-blocking", () => {
@@ -1755,6 +1813,43 @@ test("issue-comment bodies are untrusted checkout coordinates", () => {
     audit.result,
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/comment-body-checkout.yml",
+  );
+});
+
+test("issue bodies are privileged untrusted checkout coordinates", () => {
+  const repoRoot = makeRepository();
+  const repositoryExpression = [
+    "$",
+    "{{ fromJSON(github.event.issue.body).repository }}",
+  ].join("");
+  const refExpression = [
+    "$",
+    "{{ fromJSON(github.event.issue.body).ref }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/issue-body-checkout.yml", [
+    "name: issue body checkout",
+    "on: issues",
+    "permissions:",
+    "  contents: write",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          repository: " + repositoryExpression,
+    "          ref: " + refExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add issue body checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/issue-body-checkout.yml",
   );
 });
 
@@ -2156,6 +2251,54 @@ test("local Docker action images require immutable digests", () => {
   );
   assert.equal(audit.result.findings.some((finding) => (
     finding.path === ".github/actions/pinned-image/action.yml"
+  )), false);
+});
+
+test("Dockerfile-backed local actions require immutable base images", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/dockerfile-actions.yml", [
+    "name: Dockerfile actions",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/mutable-base",
+    "      - uses: ./.github/actions/pinned-base",
+    "",
+  ].join("\n"));
+  for (const actionName of ["mutable-base", "pinned-base"]) {
+    write(repoRoot, `.github/actions/${actionName}/action.yml`, [
+      "name: " + actionName,
+      "runs:",
+      "  using: docker",
+      "  image: Dockerfile",
+      "",
+    ].join("\n"));
+  }
+  write(
+    repoRoot,
+    ".github/actions/mutable-base/Dockerfile",
+    "FROM alpine:latest\n",
+  );
+  write(
+    repoRoot,
+    ".github/actions/pinned-base/Dockerfile",
+    `FROM alpine@sha256:${"a".repeat(64)}\n`,
+  );
+  commitAll(repoRoot, "add Dockerfile action fixtures");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-mutable-action-ref",
+    ".github/actions/mutable-base/Dockerfile",
+  );
+  assert.equal(audit.result.findings.some((finding) => (
+    finding.path === ".github/actions/pinned-base/Dockerfile"
   )), false);
 });
 

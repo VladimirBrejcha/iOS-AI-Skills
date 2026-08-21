@@ -12,8 +12,10 @@ const GITHUB_ACTIONS_APP_ID = 15368;
 const FULL_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 const IMMUTABLE_DOCKER_ACTION_PATTERN = /^docker:\/\/[^\s@]+(?:[:][^\s@]+)?@(?:sha256:[0-9a-f]{64}|sha512:[0-9a-f]{128})$/iu;
 const ACTION_MANIFEST_PATH_PATTERN = /(?:^|\/)action\.ya?ml$/u;
+const DOCKERFILE_PATH_PATTERN = /(?:^|\/)(?:Dockerfile|[^/]+\.dockerfile)$/iu;
 const PRIVILEGED_WORKFLOW_TRIGGERS = new Set([
   "issue_comment",
+  "issues",
   "pull_request_target",
   "workflow_run",
 ]);
@@ -177,12 +179,13 @@ function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
   const entries = trackedWorkflowEntries(repoRoot, { includeHistory });
   const findings = [];
   const actionSources = [];
+  const dockerfileSources = [];
   const workflowSources = [];
 
   for (const entry of entries) {
     if (entry.mode !== "100644" && entry.mode !== "100755") {
       findings.push(workflowFinding({
-        message: "Workflow and local-action entrypoints must be regular tracked files.",
+        message: "Workflow, local-action, and Dockerfile entrypoints must be regular tracked files.",
         path: entry.path,
         ruleId: "workflow-entrypoint-not-regular",
         severity: "error",
@@ -198,7 +201,7 @@ function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
     const text = blob.toString("utf8");
     if (Buffer.from(text, "utf8").equals(blob) === false) {
       findings.push(workflowFinding({
-        message: "Workflow and local-action YAML must be valid UTF-8 for deterministic review.",
+        message: "Workflow, local-action, and Dockerfile sources must be valid UTF-8 for deterministic review.",
         path: entry.path,
         ruleId: "workflow-non-utf8",
         severity: "error",
@@ -211,13 +214,19 @@ function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
     if (WORKFLOW_PATH_PATTERN.test(entry.path)) {
       workflowSources.push(source);
       findings.push(...auditWorkflowText(entry.path, text, entry.source));
-    } else {
+    } else if (ACTION_MANIFEST_PATH_PATTERN.test(entry.path)) {
       actionSources.push(source);
+    } else {
+      dockerfileSources.push(source);
     }
   }
 
   findings.push(...auditPrivilegedReusableWorkflowCalls(workflowSources));
-  findings.push(...auditLocalCompositeActions(workflowSources, actionSources));
+  findings.push(...auditLocalCompositeActions(
+    workflowSources,
+    actionSources,
+    dockerfileSources,
+  ));
 
   return findings;
 }
@@ -336,8 +345,12 @@ function workflowExecutionStates(workflowSources) {
   return states;
 }
 
-function auditLocalCompositeActions(workflowSources, actionSources) {
+function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSources) {
   const actionBySnapshotPath = new Map(actionSources.map((source) => [
+    `${source.snapshot}\0${source.path}`,
+    source,
+  ]));
+  const dockerfileBySnapshotPath = new Map(dockerfileSources.map((source) => [
     `${source.snapshot}\0${source.path}`,
     source,
   ]));
@@ -375,7 +388,16 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
         .map(({ entry }) => resolveYamlScalarValue(entry.value, syntax.scalarAnchors))
         .filter((image) => image.startsWith("docker://"))),
     ];
+    const dockerfilePaths = dockerRunGroups.flatMap((group) => group.properties
+      .filter(({ entry }) => entry.key.toLowerCase() === "image")
+      .map(({ entry }) => resolveYamlScalarValue(entry.value, syntax.scalarAnchors))
+      .filter((image) => !image.startsWith("docker://"))
+      .flatMap((image) => {
+        const dockerfilePath = localDockerfilePath(source.path, image);
+        return dockerfilePath ? [dockerfilePath] : [];
+      }));
     const analysis = {
+      dockerfilePaths,
       inputDefaultBindings: actionInputDefaultBindings(
         syntax.uncommented,
         syntax.scalarAnchors,
@@ -429,6 +451,21 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
           }));
         }
       }
+      for (const dockerfilePath of analysis.dockerfilePaths) {
+        const dockerfile = dockerfileBySnapshotPath.get(
+          `${workflow.snapshot}\0${dockerfilePath}`,
+        );
+        if (!dockerfile) continue;
+        if (dockerfileBaseImages(dockerfile.text).some(isMutableDockerBaseImage)) {
+          findings.push(workflowFinding({
+            message: "Docker action base images should use reviewed immutable digests.",
+            path: dockerfile.path,
+            ruleId: "workflow-mutable-action-ref",
+            severity: "warning",
+            source: dockerfile.source,
+          }));
+        }
+      }
       pending.push(...compositeLocalActionCalls(
         analysis.stepGroups,
         analysis.syntax.scalarAnchors,
@@ -461,6 +498,33 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
 
 function localActionManifestPath(reference, manifestExists) {
   return localActionManifestCandidates(reference).find(manifestExists);
+}
+
+function localDockerfilePath(actionManifestPath, image) {
+  if (!image || /\$\{\{/u.test(image) || path.posix.isAbsolute(image)) return undefined;
+  const dockerfilePath = path.posix.normalize(path.posix.join(
+    path.posix.dirname(actionManifestPath),
+    image,
+  ));
+  if (dockerfilePath === ".." || dockerfilePath.startsWith("../")) return undefined;
+  return DOCKERFILE_PATH_PATTERN.test(dockerfilePath) ? dockerfilePath : undefined;
+}
+
+function dockerfileBaseImages(text) {
+  const logicalLines = text
+    .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
+    .replace(/\\\n[ \t]*/gu, " ")
+    .split("\n");
+  return logicalLines.flatMap((line) => {
+    if (/^\s*#/u.test(line)) return [];
+    const from = /^\s*FROM\s+(?:(?:--[^\s=]+=[^\s]+)\s+)*(\S+)/iu.exec(line);
+    return from ? [from[1]] : [];
+  });
+}
+
+function isMutableDockerBaseImage(image) {
+  if (image.toLowerCase() === "scratch") return false;
+  return !/@(?:sha256:[0-9a-f]{64}|sha512:[0-9a-f]{128})$/iu.test(image);
 }
 
 function actionInputDefaultBindings(text, scalarAnchors) {
@@ -603,11 +667,22 @@ function workflowJobMatrixBindings(group, scalarAnchors) {
           entry: { ...matrixProperty.entry, key: matrixKey },
         }],
       };
-      for (const matrixEntry of workflowPropertyMappingEntries(
+      const matrixEntries = workflowPropertyMappingEntries(
         matrixGroup,
         matrixGroup.properties[0],
         scalarAnchors,
-      )) {
+      );
+      if (matrixEntries.length === 0) {
+        bindings.push({
+          name: "*",
+          namespace: "matrix",
+          value: resolveYamlScalarValue(
+            matrixProperty.entry.inlineValue ?? matrixProperty.entry.value,
+            scalarAnchors,
+          ),
+        });
+      }
+      for (const matrixEntry of matrixEntries) {
         const name = resolveYamlScalarValue(matrixEntry.entry.key, scalarAnchors).toLowerCase();
         if (name === "include") {
           bindings.push(...workflowMatrixIncludeBindings(
@@ -909,7 +984,9 @@ function trackedWorkflowEntries(repoRoot, { includeHistory = false } = {}) {
 
   const unique = new Map();
   for (const record of records) {
-    if (WORKFLOW_PATH_PATTERN.test(record.path) || ACTION_MANIFEST_PATH_PATTERN.test(record.path)) {
+    if (WORKFLOW_PATH_PATTERN.test(record.path)
+      || ACTION_MANIFEST_PATH_PATTERN.test(record.path)
+      || DOCKERFILE_PATH_PATTERN.test(record.path)) {
       const key = `${record.snapshot}\0${record.path}\0${record.objectId}\0${record.mode}`;
       if (unique.has(key) === false || record.source === "tracked-file") {
         unique.set(key, record);
@@ -1696,6 +1773,14 @@ function isKnownGithubHostedRunnerLabel(value) {
 
 function workflowRunnerLabels(value, scalarAnchors) {
   const resolved = resolveYamlScalarValue(value, scalarAnchors);
+  const literalExpression = /^\$\{\{\s*(?:'((?:''|[^'])*)'|"((?:\\.|[^"\\])*)")\s*\}\}$/u.exec(
+    resolved.trim(),
+  );
+  if (literalExpression) {
+    return [literalExpression[1] !== undefined
+      ? literalExpression[1].replaceAll("''", "'")
+      : decodeYamlDoubleQuotedScalar(literalExpression[2])];
+  }
   const sequenceValues = yamlFlowSequenceValues(resolved);
   return sequenceValues
     ? sequenceValues.flatMap((item) => workflowRunnerLabels(item, scalarAnchors))
@@ -2075,7 +2160,7 @@ function contextTaintedBindings(bindings, inheritedTaintedBindings) {
 function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
   if (!["ref", "repository"].includes(key.toLowerCase())) return false;
   if (valueReferencesTaintedBinding(value, taintedBindings)) return true;
-  if (/github\.event\.comment\.body(?:\.|\b)/iu.test(
+  if (/github\.event\.(?:comment|issue)\.body(?:\.|\b)/iu.test(
     normalizeExpressionPropertyAccess(value),
   )) return true;
   if (key.toLowerCase() === "repository") {
@@ -2086,7 +2171,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|github\.event\.(?:comment\.body|issue\.number)|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.head_sha)/iu
+  return /(?:github\.head_ref|github\.event\.(?:comment\.body|issue\.(?:body|number))|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.head_sha)/iu
     .test(normalizeExpressionPropertyAccess(value));
 }
 
