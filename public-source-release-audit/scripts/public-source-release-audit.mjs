@@ -14,6 +14,8 @@ const IMMUTABLE_DOCKER_ACTION_PATTERN = /^docker:\/\/[^\s@]+(?:[:][^\s@]+)?@(?:s
 const ACTION_MANIFEST_PATH_PATTERN = /(?:^|\/)action\.ya?ml$/u;
 const DOCKERFILE_PATH_PATTERN = /(?:^|\/)(?:Dockerfile|[^/]+\.dockerfile)$/iu;
 const PRIVILEGED_WORKFLOW_TRIGGERS = new Set([
+  "discussion",
+  "discussion_comment",
   "issue_comment",
   "issues",
   "pull_request_target",
@@ -231,7 +233,7 @@ function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
   return findings;
 }
 
-function auditPrivilegedReusableWorkflowCalls(workflowSources) {
+function reusableWorkflowGraph(workflowSources) {
   const sourceBySnapshotPath = new Map(workflowSources.map((source) => [
     `${source.snapshot}\0${source.path}`,
     source,
@@ -241,21 +243,136 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
     if (analysisBySource.has(source)) return analysisBySource.get(source);
     const syntax = workflowSyntax(source.text);
     const analysis = {
-      hasPrivilegedTrigger: hasPrivilegedWorkflowTrigger(syntax.triggerNames),
       isReusable: syntax.triggerNames.some((name) => name.toLowerCase() === "workflow_call"),
       localCalls: localReusableWorkflowCalls(syntax.uncommented, syntax.scalarAnchors),
+      privileged: hasPrivilegedWorkflowTrigger(syntax.triggerNames),
       syntax,
     };
     analysisBySource.set(source, analysis);
     return analysis;
   };
+  const taintedOutputMemo = new Map();
+  const taintedOutputsFor = (
+    source,
+    inheritedTaintedBindings,
+    depth = 0,
+    active = new Set(),
+  ) => {
+    const stateKey = [
+      source.snapshot,
+      source.path,
+      ...[...inheritedTaintedBindings].sort(),
+    ].join("\0");
+    if (depth > 10 || active.has(stateKey)) return new Set();
+    if (taintedOutputMemo.has(stateKey)) return taintedOutputMemo.get(stateKey);
+    const analysis = analysisFor(source);
+    if (!analysis.isReusable) return new Set();
+    const nestedReturnedBindings = new Set();
+    let changed;
+    let iteration = 0;
+    do {
+      changed = false;
+      iteration += 1;
+      const callerTaintedBindings = mergeTaintedBindings(
+        inheritedTaintedBindings,
+        nestedReturnedBindings,
+      );
+      for (const call of analysis.localCalls) {
+        const callee = sourceBySnapshotPath.get(
+          `${source.snapshot}\0${call.workflowPath}`,
+        );
+        if (!callee || !analysisFor(callee).isReusable) continue;
+        const calleeInputs = reusableCallTaintedBindings(call, callerTaintedBindings);
+        const calleeOutputs = taintedOutputsFor(
+          callee,
+          calleeInputs,
+          depth + 1,
+          new Set([...active, stateKey]),
+        );
+        for (const outputName of calleeOutputs) {
+          const binding = `needs.${call.jobGroup.jobName}.outputs.${outputName}`;
+          if (nestedReturnedBindings.has(binding)) continue;
+          nestedReturnedBindings.add(binding);
+          changed = true;
+        }
+      }
+    } while (changed && iteration <= 10);
+    const effectiveTaintedBindings = mergeTaintedBindings(
+      inheritedTaintedBindings,
+      nestedReturnedBindings,
+    );
+    const outputEvaluationBindings = mergeTaintedBindings(
+      effectiveTaintedBindings,
+      workflowJobOutputTaintedBindings(
+        analysis.syntax.uncommented,
+        analysis.syntax.scalarAnchors,
+        effectiveTaintedBindings,
+      ),
+    );
+    const outputs = new Set(reusableWorkflowOutputBindings(
+      analysis.syntax.uncommented,
+      analysis.syntax.scalarAnchors,
+    ).filter((binding) => isUntrustedReusableValue(
+      binding.value,
+      outputEvaluationBindings,
+    )).map((binding) => binding.name));
+    taintedOutputMemo.set(stateKey, outputs);
+    return outputs;
+  };
+  const returnedBindingsFor = (source, inheritedTaintedBindings) => {
+    const analysis = analysisFor(source);
+    const returnedBindings = new Set();
+    let changed;
+    let iteration = 0;
+    do {
+      changed = false;
+      iteration += 1;
+      const callerTaintedBindings = mergeTaintedBindings(
+        inheritedTaintedBindings,
+        returnedBindings,
+      );
+      for (const call of analysis.localCalls) {
+        const callee = sourceBySnapshotPath.get(`${source.snapshot}\0${call.workflowPath}`);
+        if (!callee || !analysisFor(callee).isReusable) continue;
+        const calleeInputs = reusableCallTaintedBindings(call, callerTaintedBindings);
+        for (const outputName of taintedOutputsFor(callee, calleeInputs)) {
+          const binding = `needs.${call.jobGroup.jobName}.outputs.${outputName}`;
+          if (returnedBindings.has(binding)) continue;
+          returnedBindings.add(binding);
+          changed = true;
+        }
+      }
+    } while (changed && iteration <= 10);
+    return returnedBindings;
+  };
+  return { analysisFor, returnedBindingsFor, sourceBySnapshotPath };
+}
+
+function auditPrivilegedReusableWorkflowCalls(workflowSources) {
+  const { analysisFor, returnedBindingsFor, sourceBySnapshotPath } = reusableWorkflowGraph(
+    workflowSources,
+  );
   const findings = [];
   for (const caller of workflowSources) {
     const callerAnalysis = analysisFor(caller);
-    if (!callerAnalysis.hasPrivilegedTrigger) continue;
+    if (!callerAnalysis.privileged) continue;
+    const returnedBindings = returnedBindingsFor(caller, new Set());
+    if (hasUntrustedPullRequestCheckout(
+      callerAnalysis.syntax.uncommented,
+      callerAnalysis.syntax.scalarAnchors,
+      returnedBindings,
+    )) {
+      findings.push(workflowFinding({
+        message: "A privileged workflow must not execute an untrusted checkout returned through a reusable workflow output.",
+        path: caller.path,
+        ruleId: "workflow-privileged-untrusted-checkout",
+        severity: "error",
+        source: caller.source,
+      }));
+    }
     const pending = callerAnalysis.localCalls.map((call) => ({
       depth: 1,
-      taintedBindings: reusableCallTaintedBindings(call, new Set()),
+      taintedBindings: reusableCallTaintedBindings(call, returnedBindings),
       workflowPath: call.workflowPath,
     }));
     const visited = new Set();
@@ -281,6 +398,19 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
           source: callee.source,
         }));
       }
+      if (hasUntrustedWorkflowArtifactExecution(
+        calleeAnalysis.syntax.uncommented,
+        calleeAnalysis.syntax.scalarAnchors,
+        taintedBindings,
+      )) {
+        findings.push(workflowFinding({
+          message: "A reusable workflow called from a privileged trigger must not execute untrusted workflow artifacts.",
+          path: callee.path,
+          ruleId: "workflow-privileged-untrusted-artifact-execution",
+          severity: "error",
+          source: callee.source,
+        }));
+      }
       pending.push(...calleeAnalysis.localCalls.map((nestedCall) => ({
         depth: depth + 1,
         taintedBindings: reusableCallTaintedBindings(nestedCall, taintedBindings),
@@ -292,23 +422,9 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
 }
 
 function workflowExecutionStates(workflowSources) {
-  const sourceBySnapshotPath = new Map(workflowSources.map((source) => [
-    `${source.snapshot}\0${source.path}`,
-    source,
-  ]));
-  const analysisBySource = new Map();
-  const analysisFor = (source) => {
-    if (analysisBySource.has(source)) return analysisBySource.get(source);
-    const syntax = workflowSyntax(source.text);
-    const analysis = {
-      isReusable: syntax.triggerNames.some((name) => name.toLowerCase() === "workflow_call"),
-      localCalls: localReusableWorkflowCalls(syntax.uncommented, syntax.scalarAnchors),
-      privileged: hasPrivilegedWorkflowTrigger(syntax.triggerNames),
-      syntax,
-    };
-    analysisBySource.set(source, analysis);
-    return analysis;
-  };
+  const { analysisFor, returnedBindingsFor, sourceBySnapshotPath } = reusableWorkflowGraph(
+    workflowSources,
+  );
   const pending = workflowSources.map((workflow) => ({
     depth: 0,
     privileged: analysisFor(workflow).privileged,
@@ -319,15 +435,19 @@ function workflowExecutionStates(workflowSources) {
   const visited = new Set();
   while (pending.length > 0) {
     const state = pending.pop();
+    const effectiveTaintedBindings = mergeTaintedBindings(
+      state.taintedBindings,
+      returnedBindingsFor(state.workflow, state.taintedBindings),
+    );
     const stateKey = [
       state.workflow.snapshot,
       state.workflow.path,
       state.privileged ? "privileged" : "unprivileged",
-      ...[...state.taintedBindings].sort(),
+      ...[...effectiveTaintedBindings].sort(),
     ].join("\0");
     if (state.depth > 10 || visited.has(stateKey)) continue;
     visited.add(stateKey);
-    states.push(state);
+    states.push({ ...state, taintedBindings: effectiveTaintedBindings });
     const analysis = analysisFor(state.workflow);
     for (const call of analysis.localCalls) {
       const callee = sourceBySnapshotPath.get(
@@ -337,7 +457,7 @@ function workflowExecutionStates(workflowSources) {
       pending.push({
         depth: state.depth + 1,
         privileged: state.privileged,
-        taintedBindings: reusableCallTaintedBindings(call, state.taintedBindings),
+        taintedBindings: reusableCallTaintedBindings(call, effectiveTaintedBindings),
         workflow: callee,
       });
     }
@@ -498,6 +618,18 @@ function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSo
           source: action.source,
         }));
       }
+      if (privileged && stepContextsHaveUntrustedArtifactExecution(
+        actionStepContexts,
+        analysis.syntax.scalarAnchors,
+      )) {
+        findings.push(workflowFinding({
+          message: "A local composite action called from a privileged workflow must not execute untrusted workflow artifacts.",
+          path: action.path,
+          ruleId: "workflow-privileged-untrusted-artifact-execution",
+          severity: "error",
+          source: action.source,
+        }));
+      }
     }
   }
   return findings;
@@ -634,6 +766,73 @@ function localReusableWorkflowCalls(text, scalarAnchors) {
     }
   }
   return calls;
+}
+
+function reusableWorkflowOutputBindings(text, scalarAnchors) {
+  const bindings = [];
+  for (const onGroup of workflowRootContainerGroups(text, "on", scalarAnchors)) {
+    for (const workflowCallProperty of onGroup.properties) {
+      if (workflowCallProperty.entry.key.toLowerCase() !== "workflow_call") continue;
+      const workflowCallGroup = { ...onGroup, properties: [workflowCallProperty] };
+      for (const outputsProperty of workflowPropertyMappingEntries(
+        workflowCallGroup,
+        workflowCallProperty,
+        scalarAnchors,
+      )) {
+        if (outputsProperty.entry.key.toLowerCase() !== "outputs") continue;
+        const outputsGroup = { ...onGroup, properties: [outputsProperty] };
+        for (const outputProperty of workflowPropertyMappingEntries(
+          outputsGroup,
+          outputsProperty,
+          scalarAnchors,
+        )) {
+          const outputName = resolveYamlScalarValue(
+            outputProperty.entry.key,
+            scalarAnchors,
+          ).toLowerCase();
+          const outputGroup = { ...onGroup, properties: [outputProperty] };
+          for (const valueProperty of workflowPropertyMappingEntries(
+            outputGroup,
+            outputProperty,
+            scalarAnchors,
+          )) {
+            if (valueProperty.entry.key.toLowerCase() !== "value") continue;
+            bindings.push({
+              name: outputName,
+              value: resolveYamlScalarValue(valueProperty.entry.value, scalarAnchors),
+            });
+          }
+        }
+      }
+    }
+  }
+  return bindings;
+}
+
+function workflowJobOutputTaintedBindings(text, scalarAnchors, inheritedTaintedBindings) {
+  const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
+  const contexts = workflowJobTaintContexts(
+    jobGroups,
+    workflowRootMappingBindings(text, "env", "env", scalarAnchors),
+    scalarAnchors,
+    inheritedTaintedBindings,
+  );
+  const taintedBindings = new Set();
+  for (const group of jobGroups) {
+    if (!group.jobName) continue;
+    const jobTaintedBindings = contexts.get(group) ?? inheritedTaintedBindings;
+    for (const binding of workflowMappingBindings(
+      group,
+      "outputs",
+      `needs.${group.jobName}.outputs`,
+      scalarAnchors,
+    )) {
+      if (!isUntrustedReusableValue(binding.value, jobTaintedBindings)) continue;
+      taintedBindings.add(`${binding.namespace}.${binding.name}`);
+      taintedBindings.add(`jobs.${group.jobName}.outputs.${binding.name}`);
+    }
+  }
+  return taintedBindings;
 }
 
 function workflowMappingBindings(group, propertyName, namespace, scalarAnchors) {
@@ -912,6 +1111,9 @@ function workflowStepTaintAnalysis(stepGroups, scalarAnchors, inheritedTaintedBi
     for (const runSource of runSources) {
       for (const binding of githubEnvironmentWriteBindings(runSource, stepTaintedBindings)) {
         derivedTaintedBindings.add(`env.${binding}`);
+      }
+      if (shellRunTaintsFetchHead(runSource, stepTaintedBindings)) {
+        derivedTaintedBindings.add("git.fetch_head");
       }
     }
     if (!stepId) continue;
@@ -1200,6 +1402,17 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
       message: "A privileged workflow must not execute an untrusted checkout.",
       path: workflowPath,
       ruleId: "workflow-privileged-untrusted-checkout",
+      severity: "error",
+      source,
+    }));
+  }
+
+  if (hasPrivilegedTrigger
+    && hasUntrustedWorkflowArtifactExecution(uncommented, scalarAnchors)) {
+    findings.push(workflowFinding({
+      message: "A privileged workflow must not execute artifacts produced by an untrusted triggering run.",
+      path: workflowPath,
+      ruleId: "workflow-privileged-untrusted-artifact-execution",
       severity: "error",
       source,
     }));
@@ -1856,18 +2069,93 @@ function isKnownGithubHostedRunnerLabel(value) {
 
 function workflowRunnerLabels(value, scalarAnchors) {
   const resolved = resolveYamlScalarValue(value, scalarAnchors);
-  const literalExpression = /^\$\{\{\s*(?:'((?:''|[^'])*)'|"((?:\\.|[^"\\])*)")\s*\}\}$/u.exec(
-    resolved.trim(),
-  );
-  if (literalExpression) {
-    return [literalExpression[1] !== undefined
-      ? literalExpression[1].replaceAll("''", "'")
-      : decodeYamlDoubleQuotedScalar(literalExpression[2])];
-  }
+  const constantExpression = githubConstantExpressionValue(resolved);
+  if (typeof constantExpression === "string") return [constantExpression];
   const sequenceValues = yamlFlowSequenceValues(resolved);
   return sequenceValues
     ? sequenceValues.flatMap((item) => workflowRunnerLabels(item, scalarAnchors))
     : [resolved];
+}
+
+function githubConstantExpressionValue(value) {
+  const expression = /^\$\{\{\s*([\s\S]*?)\s*\}\}$/u.exec(value.trim());
+  return expression ? evaluateGithubConstantExpression(expression[1]) : undefined;
+}
+
+function evaluateGithubConstantExpression(expression) {
+  const normalized = expression.trim();
+  const singleQuoted = /^'((?:''|[^'])*)'$/u.exec(normalized);
+  if (singleQuoted) return singleQuoted[1].replaceAll("''", "'");
+  const doubleQuoted = /^"((?:\\.|[^"\\])*)"$/u.exec(normalized);
+  if (doubleQuoted) return decodeYamlDoubleQuotedScalar(doubleQuoted[1]);
+  const call = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(([\s\S]*)\)$/u.exec(normalized);
+  if (!call) return undefined;
+  const argumentSources = splitGithubExpressionArguments(call[2]);
+  if (!argumentSources) return undefined;
+  const arguments_ = argumentSources.map(evaluateGithubConstantExpression);
+  if (arguments_.some((argument) => argument === undefined)) return undefined;
+  if (call[1].toLowerCase() === "fromjson" && arguments_.length === 1
+    && typeof arguments_[0] === "string") {
+    try {
+      return JSON.parse(arguments_[0]);
+    } catch {
+      return undefined;
+    }
+  }
+  if (call[1].toLowerCase() === "join" && arguments_.length >= 1
+    && Array.isArray(arguments_[0])) {
+    const separator = arguments_[1] === undefined ? "," : String(arguments_[1]);
+    return arguments_[0].map(String).join(separator);
+  }
+  if (call[1].toLowerCase() !== "format" || arguments_.length === 0
+    || typeof arguments_[0] !== "string") return undefined;
+  const openBrace = "\u0000OPEN_BRACE\u0000";
+  const closeBrace = "\u0000CLOSE_BRACE\u0000";
+  return arguments_[0]
+    .replaceAll("{{", openBrace)
+    .replaceAll("}}", closeBrace)
+    .replace(/\{(\d+)\}/gu, (placeholder, index) => (
+      arguments_[Number(index) + 1] === undefined
+        ? placeholder
+        : String(arguments_[Number(index) + 1])
+    ))
+    .replaceAll(openBrace, "{")
+    .replaceAll(closeBrace, "}");
+}
+
+function splitGithubExpressionArguments(source) {
+  if (source.trim().length === 0) return [];
+  const arguments_ = [];
+  let argumentStart = 0;
+  let depth = 0;
+  let quote;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (quote === "'" && character === "'" && source[index + 1] === "'") {
+        index += 1;
+      } else if (quote === "\"" && character === "\\") {
+        index += 1;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (character === "'" || character === "\"") {
+      quote = character;
+    } else if (["(", "[", "{"].includes(character)) {
+      depth += 1;
+    } else if ([")", "]", "}"].includes(character)) {
+      depth -= 1;
+      if (depth < 0) return undefined;
+    } else if (character === "," && depth === 0) {
+      arguments_.push(source.slice(argumentStart, index).trim());
+      argumentStart = index + 1;
+    }
+  }
+  if (quote || depth !== 0) return undefined;
+  arguments_.push(source.slice(argumentStart).trim());
+  return arguments_.every((argument) => argument.length > 0) ? arguments_ : undefined;
 }
 
 function workflowJobRunnerLabelSets(text, scalarAnchors) {
@@ -2203,6 +2491,101 @@ function hasUntrustedPullRequestCheckout(text, scalarAnchors, taintedBindings = 
   return false;
 }
 
+function hasUntrustedWorkflowArtifactExecution(
+  text,
+  scalarAnchors,
+  taintedBindings = new Set(),
+) {
+  const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
+  const jobTaintAnalyses = workflowJobTaintAnalyses(
+    jobGroups,
+    workflowRootMappingBindings(text, "env", "env", scalarAnchors),
+    scalarAnchors,
+    taintedBindings,
+  );
+  return jobGroups.some((jobGroup) => stepContextsHaveUntrustedArtifactExecution(
+    jobTaintAnalyses.get(jobGroup)?.stepContexts ?? [],
+    scalarAnchors,
+  ));
+}
+
+function stepContextsHaveUntrustedArtifactExecution(stepContexts, scalarAnchors) {
+  const artifactPaths = [];
+  for (const { stepGroup, taintedBindings } of stepContexts) {
+    if (stepDownloadsUntrustedWorkflowArtifact(
+      stepGroup,
+      scalarAnchors,
+      taintedBindings,
+    )) {
+      artifactPaths.push(downloadedArtifactPath(stepGroup, scalarAnchors));
+      continue;
+    }
+    if (artifactPaths.some((artifactPath) => stepExecutesArtifactPath(
+      stepGroup,
+      scalarAnchors,
+      artifactPath,
+    ))) return true;
+  }
+  return false;
+}
+
+function stepDownloadsUntrustedWorkflowArtifact(
+  stepGroup,
+  scalarAnchors,
+  taintedBindings,
+) {
+  const downloadsArtifact = stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "uses")
+    .some(({ entry }) => /^actions\/download-artifact@/iu.test(
+      resolveYamlScalarValue(entry.value, scalarAnchors),
+    ));
+  if (!downloadsArtifact) return false;
+  return workflowMappingBindings(stepGroup, "with", "with", scalarAnchors)
+    .filter((binding) => binding.name === "run-id")
+    .some((binding) => isUntrustedReusableValue(binding.value, taintedBindings));
+}
+
+function downloadedArtifactPath(stepGroup, scalarAnchors) {
+  const value = workflowMappingBindings(stepGroup, "with", "with", scalarAnchors)
+    .find((binding) => binding.name === "path")?.value;
+  if (!value || /\$|%/u.test(value) || path.posix.isAbsolute(value)) return ".";
+  const normalized = path.posix.normalize(value).replace(/^\.\//u, "");
+  return normalized === ".." || normalized.startsWith("../") ? "." : normalized;
+}
+
+function stepExecutesArtifactPath(stepGroup, scalarAnchors, artifactPath) {
+  const localActionReference = stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "uses")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+    .find((reference) => reference.startsWith("./"));
+  if (localActionReference && artifactSourceMatchesPath(localActionReference, artifactPath)) {
+    return true;
+  }
+  return stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "run")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+    .some((runSource) => shellRunExecutesArtifactPath(runSource, artifactPath));
+}
+
+function shellRunExecutesArtifactPath(runSource, artifactPath) {
+  const executableCommand = /(?:^|[;&|]\s*)(?:sudo\s+|command\s+)?(?:(?:bash|deno|node|perl|php|python\d*|ruby|sh|zsh)\s+(?:-[^\s]+\s+)*|(?:source|\.)\s+|\.\.?\/)([^\s;&|]+)/iu;
+  return runSource
+    .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
+    .replace(/\\\n[ \t]*/gu, " ")
+    .split("\n")
+    .filter((line) => !/^\s*#/u.test(line))
+    .some((line) => {
+      const execution = executableCommand.exec(line);
+      return execution && artifactSourceMatchesPath(execution[1], artifactPath);
+    });
+}
+
+function artifactSourceMatchesPath(source, artifactPath) {
+  const normalized = source.replace(/^["']|["']$/gu, "").replace(/^\.\//u, "");
+  if (artifactPath === ".") return !path.posix.isAbsolute(normalized);
+  return normalized === artifactPath || normalized.startsWith(`${artifactPath}/`);
+}
+
 function stepGroupHasUntrustedCheckout(stepGroup, scalarAnchors, stepTaintedBindings) {
   const hasUntrustedShellCheckout = stepGroup.properties
     .filter(({ entry }) => entry.key.toLowerCase() === "run")
@@ -2224,7 +2607,16 @@ function stepGroupHasUntrustedCheckout(stepGroup, scalarAnchors, stepTaintedBind
 }
 
 function shellRunHasUntrustedCheckout(runSource, taintedBindings) {
+  return shellRunGitTaintAnalysis(runSource, taintedBindings).hasUntrustedCheckout;
+}
+
+function shellRunTaintsFetchHead(runSource, taintedBindings) {
+  return shellRunGitTaintAnalysis(runSource, taintedBindings).taintsFetchHead;
+}
+
+function shellRunGitTaintAnalysis(runSource, taintedBindings) {
   const checkoutCommand = /\b(?:gh\s+repo\s+clone|git(?:\s+--?[^\s]+(?:[=\s][^\s]+)?)*\s+(?:checkout|clone|pull|reset|switch|worktree))\b/iu;
+  const fetchCommand = /\bgit(?:\s+--?[^\s]+(?:[=\s][^\s]+)?)*\s+fetch\b/iu;
   const taintedVariables = new Set([...taintedBindings].flatMap((binding) => (
     binding.startsWith("env.") && binding !== "env.*"
       ? [binding.slice("env.".length).toLowerCase()]
@@ -2237,6 +2629,8 @@ function shellRunHasUntrustedCheckout(runSource, taintedBindings) {
     .replace(/\\\n[ \t]*/gu, " ")
     .split("\n")
     .filter((line) => !/^\s*#/u.test(line));
+  let fetchedHeadTainted = taintedBindings.has("git.fetch_head");
+  let taintsFetchHead = false;
   for (const line of lines) {
     const assignment = /^\s*(?:(?:export|local|readonly)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(line);
     if (assignment && (isUntrustedReusableValue(line, taintedBindings)
@@ -2247,15 +2641,22 @@ function shellRunHasUntrustedCheckout(runSource, taintedBindings) {
       ))) {
       taintedVariables.add((assignment[1] ?? assignment[2]).toLowerCase());
     }
-    if (checkoutCommand.test(line)
-      && (isUntrustedReusableValue(line, taintedBindings)
-        || shellSourceReferencesTaintedVariable(
-          line,
-          taintedVariables,
-          anyEnvironmentVariableTainted,
-        ))) return true;
+    const lineIsTainted = isUntrustedReusableValue(line, taintedBindings)
+      || shellSourceReferencesTaintedVariable(
+        line,
+        taintedVariables,
+        anyEnvironmentVariableTainted,
+      );
+    if (fetchCommand.test(line) && lineIsTainted) {
+      fetchedHeadTainted = true;
+      taintsFetchHead = true;
+    }
+    if (checkoutCommand.test(line) && (lineIsTainted
+      || (fetchedHeadTainted && /\bFETCH_HEAD\b/iu.test(line)))) {
+      return { hasUntrustedCheckout: true, taintsFetchHead };
+    }
   }
-  return false;
+  return { hasUntrustedCheckout: false, taintsFetchHead };
 }
 
 function shellSourceReferencesTaintedVariable(source, taintedVariables, anyTainted) {
@@ -2289,7 +2690,7 @@ function contextTaintedBindings(bindings, inheritedTaintedBindings) {
 function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
   if (!["ref", "repository"].includes(key.toLowerCase())) return false;
   if (valueReferencesTaintedBinding(value, taintedBindings)) return true;
-  if (/github\.event\.(?:comment\.body|issue\.(?:body|title))(?:\.|\b)/iu.test(
+  if (/github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|title))(?:\.|\b)/iu.test(
     normalizeExpressionPropertyAccess(value),
   )) return true;
   if (key.toLowerCase() === "repository") {
@@ -2300,7 +2701,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|github\.event\.(?:comment\.body|issue\.(?:body|number|title))|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.head_sha)/iu
+  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.(?:head_sha|id))/iu
     .test(normalizeExpressionPropertyAccess(value));
 }
 

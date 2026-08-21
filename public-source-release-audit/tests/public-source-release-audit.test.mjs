@@ -1266,6 +1266,81 @@ test("caller matrix taint propagates into reusable workflow inputs", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/matrix-callee.yml");
 });
 
+test("reusable workflow outputs propagate taint back to callers", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const jobOutputExpression = ["$", "{{ jobs.source.outputs.ref }}"].join("");
+  const returnedExpression = ["$", "{{ needs.source.outputs.ref }}"].join("");
+  write(repoRoot, ".github/workflows/output-caller.yml", [
+    "name: output caller",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  source:",
+    "    uses: ./.github/workflows/output-callee.yml",
+    "  inspect:",
+    "    needs: source",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + returnedExpression,
+    "  inspect-action:",
+    "    needs: source",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/returned-output-checkout",
+    "        with:",
+    "          ref: " + returnedExpression,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/output-callee.yml", [
+    "name: output callee",
+    "on:",
+    "  workflow_call:",
+    "    outputs:",
+    "      ref:",
+    "        value: " + jobOutputExpression,
+    "permissions: read-all",
+    "jobs:",
+    "  source:",
+    "    runs-on: ubuntu-latest",
+    "    outputs:",
+    "      ref: " + headExpression,
+    "    steps:",
+    "      - run: echo source",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/returned-output-checkout/action.yml", [
+    "name: returned output checkout",
+    "inputs:",
+    "  ref:",
+    "    required: true",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: actions/checkout@" + "a".repeat(40),
+    "      with:",
+    "        ref: ${{ inputs.ref }}",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add reusable output checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/output-caller.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/actions/returned-output-checkout/action.yml",
+  );
+});
+
 test("untrusted refs propagate through workflow job and step environments", () => {
   const repoRoot = makeRepository();
   const headExpression = ["$", "{{ github.head_ref }}"].join("");
@@ -1572,6 +1647,35 @@ test("literal runner expressions preserve blocking self-hosted labels", () => {
   );
 });
 
+test("constructed constant runner expressions preserve blocking labels", () => {
+  const repoRoot = makeRepository();
+  const runnerExpression = [
+    "$",
+    "{{ format('{0}-{1}', 'self', 'hosted') }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/formatted-runner-expression.yml", [
+    "name: formatted runner expression",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: " + runnerExpression,
+    "    steps:",
+    "      - run: echo inspect",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add formatted runner expression");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-self-hosted-runner",
+    ".github/workflows/formatted-runner-expression.yml",
+  );
+});
+
 test("aliased self-hosted runner labels remain release-blocking", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/aliased-runner.yml", [
@@ -1784,6 +1888,40 @@ test("workflow_run head checkouts are privileged and untrusted", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/workflow-run-checkout.yml");
 });
 
+test("workflow_run artifacts remain untrusted when later executed", () => {
+  const repoRoot = makeRepository();
+  const runIdExpression = ["$", "{{ github.event.workflow_run.id }}"].join("");
+  write(repoRoot, ".github/workflows/workflow-run-artifact.yml", [
+    "name: workflow run artifact",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions:",
+    "  contents: write",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - run: bash payload/run.sh",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add workflow artifact execution");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-artifact-execution",
+    ".github/workflows/workflow-run-artifact.yml",
+  );
+});
+
 test("issue_comment pull-request checkouts are privileged and untrusted", () => {
   const repoRoot = makeRepository();
   const issueExpression = ["$", "{{ github.event.issue.number }}"].join("");
@@ -1952,6 +2090,43 @@ test("issue titles are privileged untrusted checkout coordinates", () => {
   );
 });
 
+test("discussion bodies are privileged untrusted checkout coordinates", () => {
+  const repoRoot = makeRepository();
+  const repositoryExpression = [
+    "$",
+    "{{ fromJSON(github.event.discussion.body).repository }}",
+  ].join("");
+  const refExpression = [
+    "$",
+    "{{ fromJSON(github.event.discussion.body).ref }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/discussion-checkout.yml", [
+    "name: discussion checkout",
+    "on: discussion",
+    "permissions:",
+    "  contents: write",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          repository: " + repositoryExpression,
+    "          ref: " + refExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add discussion checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/discussion-checkout.yml",
+  );
+});
+
 test("privileged workflows reject shell-based untrusted checkouts", () => {
   const repoRoot = makeRepository();
   const repositoryExpression = [
@@ -1983,6 +2158,35 @@ test("privileged workflows reject shell-based untrusted checkouts", () => {
     audit.result,
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/shell-checkout.yml",
+  );
+});
+
+test("tainted fetch state propagates through FETCH_HEAD checkouts", () => {
+  const repoRoot = makeRepository();
+  const refExpression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/fetched-head-checkout.yml", [
+    "name: fetched head checkout",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: git fetch origin \"" + refExpression + "\"",
+    "      - run: |",
+    "          git checkout FETCH_HEAD",
+    "          ./verify.sh",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add fetched head checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/fetched-head-checkout.yml",
   );
 });
 
