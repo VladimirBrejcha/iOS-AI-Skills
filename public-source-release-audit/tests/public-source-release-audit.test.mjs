@@ -126,6 +126,23 @@ test("credential and private-key formats are release-blocking", () => {
   assertFinding(audit.result, "private-key", "private-key.txt");
 });
 
+test("CR-only private-key blocks are detected by buffered and streaming scans", () => {
+  const repoRoot = makeRepository();
+  const crOnlyKey = privateKeyBlock().replaceAll("\n", "\r");
+  write(repoRoot, "cr-private-key.txt", crOnlyKey);
+  write(repoRoot, "large-cr-private-key.txt", Buffer.concat([
+    Buffer.alloc(64 * 1024 * 1024, 0x78),
+    Buffer.from("\r" + crOnlyKey),
+  ]));
+  commitAll(repoRoot, "add CR-only private-key fixtures");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "private-key", "cr-private-key.txt");
+  assertFinding(audit.result, "private-key", "large-cr-private-key.txt");
+});
+
 test("private POSIX, Windows, and root machine paths are release-blocking", () => {
   const repoRoot = makeRepository();
   write(repoRoot, "posix.txt", ["", "Users", "private-person", "project"].join("/"));
@@ -755,6 +772,27 @@ test("block-node aliases used as jobs preserve guarded properties", () => {
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/aliased-job.yml");
 });
 
+test("block-node aliases used as the complete jobs mapping remain guarded", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/aliased-jobs.yml", [
+    "name: aliased jobs",
+    "on: push",
+    "x-jobs: &unsafe-jobs",
+    "  build:",
+    "    permissions: write-all",
+    "    runs-on: self-hosted",
+    "jobs: *unsafe-jobs",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased jobs workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/aliased-jobs.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/aliased-jobs.yml");
+});
+
 test("block-node aliases used as complete steps remain guarded", () => {
   const repoRoot = makeRepository();
   const expression = ["$", "{{ github.head_ref }}"].join("");
@@ -779,6 +817,32 @@ test("block-node aliases used as complete steps remain guarded", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/aliased-step.yml");
+});
+
+test("block-node aliases used as the complete steps sequence remain guarded", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/aliased-steps.yml", [
+    "name: aliased steps",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "x-steps: &unsafe-steps",
+    "  - uses: actions/checkout@" + "a".repeat(40),
+    "    with:",
+    "      ref: " + expression,
+    "  - run: ./execute-reviewed-tree",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps: *unsafe-steps",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased steps workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/aliased-steps.yml");
 });
 
 test("block scalar script bodies are not parsed as workflow mappings", () => {
@@ -1176,6 +1240,38 @@ test("untrusted refs propagate through workflow job and step environments", () =
   }
 });
 
+test("untrusted refs propagate through job outputs", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const outputExpression = ["$", "{{ needs.source.outputs.revision }}"].join("");
+  write(repoRoot, ".github/workflows/job-output-ref.yml", [
+    "name: job output ref",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  source:",
+    "    runs-on: ubuntu-latest",
+    "    outputs:",
+    "      revision: " + headExpression,
+    "    steps:",
+    "      - run: echo source",
+    "  inspect:",
+    "    needs: source",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + outputExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add job output checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/job-output-ref.yml");
+});
+
 test("untrusted refs propagate through job matrix bindings", () => {
   const repoRoot = makeRepository();
   const headExpression = ["$", "{{ github.head_ref }}"].join("");
@@ -1431,6 +1527,31 @@ test("workflow_run head checkouts are privileged and untrusted", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/workflow-run-checkout.yml");
 });
 
+test("issue_comment pull-request checkouts are privileged and untrusted", () => {
+  const repoRoot = makeRepository();
+  const issueExpression = ["$", "{{ github.event.issue.number }}"].join("");
+  write(repoRoot, ".github/workflows/issue-comment-checkout.yml", [
+    "name: issue comment checkout",
+    "on: issue_comment",
+    "permissions:",
+    "  contents: write",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: refs/pull/" + issueExpression + "/head",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add issue comment checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/issue-comment-checkout.yml");
+});
+
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/mutable-docker.yml", [
@@ -1577,6 +1698,144 @@ test("local composite action dependencies are audited recursively", () => {
     "workflow-mutable-action-ref",
     ".github/actions/outer/action.yml",
   );
+});
+
+test("caller taint propagates into local composite action inputs", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const inputExpression = ["$", "{{ inputs.ref }}"].join("");
+  write(repoRoot, ".github/workflows/composite-input.yml", [
+    "name: composite input",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/input-checkout",
+    "        with:",
+    "          ref: " + headExpression,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/input-checkout/action.yml", [
+    "name: input checkout",
+    "inputs:",
+    "  ref:",
+    "    required: true",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: actions/checkout@" + "a".repeat(40),
+    "      with:",
+    "        ref: " + inputExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add composite input checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/actions/input-checkout/action.yml",
+  );
+});
+
+test("action.yml takes precedence while action.yaml remains a fallback", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/action-manifest-precedence.yml", [
+    "name: action manifest precedence",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/preferred",
+    "      - uses: ./.github/actions/yaml-only",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/preferred/action.yml", [
+    "name: preferred",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: example/action@" + "a".repeat(40),
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/preferred/action.yaml", [
+    "name: unused fallback",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: example/action@main",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/yaml-only/action.yaml", [
+    "name: yaml fallback",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: example/action@main",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add action manifest precedence fixtures");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-mutable-action-ref",
+    ".github/actions/yaml-only/action.yaml",
+  );
+  assert.equal(audit.result.findings.some((finding) => (
+    finding.path === ".github/actions/preferred/action.yaml"
+  )), false);
+});
+
+test("local Docker action images require immutable digests", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/local-docker-actions.yml", [
+    "name: local Docker actions",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/mutable-image",
+    "      - uses: ./.github/actions/pinned-image",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/mutable-image/action.yml", [
+    "name: mutable image",
+    "runs:",
+    "  using: docker",
+    "  image: docker://alpine:latest",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/pinned-image/action.yml", [
+    "name: pinned image",
+    "runs:",
+    "  using: docker",
+    `  image: docker://alpine@sha256:${"a".repeat(64)}`,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add local Docker action fixtures");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-mutable-action-ref",
+    ".github/actions/mutable-image/action.yml",
+  );
+  assert.equal(audit.result.findings.some((finding) => (
+    finding.path === ".github/actions/pinned-image/action.yml"
+  )), false);
 });
 
 test("runner-group selectors require proof of hosted isolation", () => {
@@ -1913,6 +2172,33 @@ test("live GitHub evidence consumes every ruleset page", () => {
   assertFinding(audit.result, "github-protection-bypass");
 });
 
+test("live GitHub evidence is pinned to github.com", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshot = githubSnapshot();
+  const fakeGhDirectory = writeFakeGh({
+    branchProtection: snapshot.branchProtection,
+    repository: snapshot.repository,
+    rulesetPages: [[{ id: 1 }]],
+    rulesets: { 1: snapshot.rulesets[0] },
+    runners: snapshot.runners,
+  });
+
+  const audit = runAudit(repoRoot, [
+    "--github", "example/public",
+    "--required-check", "verify",
+  ], {
+    env: {
+      ...process.env,
+      GH_HOST: "enterprise.example.invalid",
+      PATH: `${fakeGhDirectory}:${process.env.PATH}`,
+    },
+  });
+
+  assert.equal(audit.status, 0);
+});
+
 test("wrapper counts source findings omitted by the core scanner", () => {
   const repoRoot = makeRepository();
   for (let index = 0; index < 30; index += 1) {
@@ -2151,6 +2437,8 @@ function writeFakeGh(fixture) {
     "#!/usr/bin/env node",
     `const fixture = ${JSON.stringify(fixture)};`,
     "const args = process.argv.slice(2);",
+    "const hostnameIndex = args.indexOf('--hostname');",
+    "if (hostnameIndex < 0 || args[hostnameIndex + 1] !== 'github.com') process.exit(5);",
     "const endpoint = args.find((argument) => argument.startsWith('repos/'));",
     "let response;",
     "if (endpoint === 'repos/example/public') response = fixture.repository;",

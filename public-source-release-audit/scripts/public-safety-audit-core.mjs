@@ -54,7 +54,7 @@ const OPENPGP_ARMOR_HEADER_LINE_PATTERN = /^[^:\r\n]+: ?[^\r\n]*$/u;
 const OPENPGP_PAYLOAD_LINE_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
 const OPENPGP_PRIVATE_KEY_BEGIN_LINE = "-----BEGIN PGP PRIVATE KEY BLOCK-----";
 const OPENPGP_PRIVATE_KEY_END_LINE = "-----END PGP PRIVATE KEY BLOCK-----";
-const PEM_LINE_BREAK_SCAN_PATTERN = /(?:\\r)?\\n|\r?\n/gu;
+const PEM_LINE_BREAK_SCAN_PATTERN = /(?:\\r)?\\n|\r\n?|\n/gu;
 const PEM_PRIVATE_KEY_BEGIN_LINE_PATTERN = /^[ \t]*-----BEGIN ((?:[A-Z0-9 ]+ )?PRIVATE KEY)-----[ \t]*$/u;
 const JSON_UNICODE_ESCAPE_SEQUENCE_PATTERN = /\\u(?:[0-9a-fA-F]{4}|\{[0-9a-fA-F]{1,6}\})/u;
 const SOURCE_STRING_LITERAL_PATTERN = /(?:"(?:\\(?:\r\n|\r|\n|["\\/bfnrt]|u(?:[0-9a-fA-F]{4}|\{[0-9a-fA-F]{1,6}\})|x[0-9a-fA-F]{2}|[0-7]{1,3})|[^"\\\r\n])*"|'(?:\\(?:\r\n|\r|\n|['"\\/bfnrt]|u(?:[0-9a-fA-F]{4}|\{[0-9a-fA-F]{1,6}\})|x[0-9a-fA-F]{2}|[0-7]{1,3})|[^'\\\r\n])*'|`(?:\\(?:\r\n|\r|\n|[`"'\\/bfnrt]|u(?:[0-9a-fA-F]{4}|\{[0-9a-fA-F]{1,6}\})|x[0-9a-fA-F]{2}|[0-7]{1,3})|[^`\\$]|\$(?!\{))*`)/gu;
