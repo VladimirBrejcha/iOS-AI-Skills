@@ -1,0 +1,467 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, test } from "node:test";
+
+const AUDIT_SCRIPT = path.resolve(
+  import.meta.dirname,
+  "..",
+  "scripts",
+  "public-source-release-audit.mjs",
+);
+const temporaryRoots = new Set();
+
+afterEach(() => {
+  for (const root of temporaryRoots) {
+    rmSync(root, { force: true, recursive: true });
+  }
+  temporaryRoots.clear();
+});
+
+test("a safe committed repository passes", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, "docs/example.txt", [
+    "Generic examples are allowed:",
+    ["", "Users", "test", "project"].join("/"),
+    ["", "home", "runner", "work"].join("/"),
+    "https://example.invalid/users/me",
+    "",
+  ].join("\n"));
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe examples");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.passed, true);
+  assert.deepEqual(audit.result.findings, []);
+});
+
+test("the staged candidate cannot be hidden by a clean working-tree replacement", () => {
+  const repoRoot = makeRepository();
+  const credential = classicToken("a");
+  write(repoRoot, "candidate.txt", credential);
+  git(repoRoot, ["add", "candidate.txt"]);
+  write(repoRoot, "candidate.txt", "clean replacement\n");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "access-token", "candidate.txt");
+  assert.doesNotMatch(audit.stdout, new RegExp(credential, "u"));
+});
+
+test("an unsafe HEAD cannot be hidden by a staged clean replacement", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, "published.txt", classicToken("b"));
+  commitAll(repoRoot, "publish fixture");
+  write(repoRoot, "published.txt", "clean replacement\n");
+  git(repoRoot, ["add", "published.txt"]);
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "access-token", "published.txt");
+});
+
+test("credential and private-key formats are release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, "classic.txt", classicToken("c"));
+  write(repoRoot, "fine-grained.txt", fineGrainedToken("d"));
+  write(repoRoot, "app-jwt.txt", githubAppJwt());
+  write(repoRoot, "private-key.txt", privateKeyBlock());
+  commitAll(repoRoot, "add credential fixtures");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "access-token", "classic.txt");
+  assertFinding(audit.result, "access-token", "fine-grained.txt");
+  assertFinding(audit.result, "access-token", "app-jwt.txt");
+  assertFinding(audit.result, "private-key", "private-key.txt");
+});
+
+test("private POSIX, Windows, and root machine paths are release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, "posix.txt", ["", "Users", "private-person", "project"].join("/"));
+  write(repoRoot, "windows.txt", ["C:", "Users", "private-person", "project"].join("\\"));
+  write(repoRoot, "root.txt", ["", "root", "private-project"].join("/"));
+  commitAll(repoRoot, "add private path fixtures");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "machine-home-path", "posix.txt");
+  assertFinding(audit.result, "machine-home-path", "windows.txt");
+  assertFinding(audit.result, "machine-home-path", "root.txt");
+});
+
+test("tracked filenames and symlink targets are scanned and redacted", () => {
+  const repoRoot = makeRepository();
+  const credential = classicToken("e");
+  write(repoRoot, `backup-${credential}.txt`, "clean\n");
+  write(repoRoot, `.github/workflows/${credential}.yml`, [
+    "name: unsafe path",
+    "on: push",
+    "jobs:",
+    "  test:",
+    "    runs-on: self-hosted",
+    "",
+  ].join("\n"));
+  const linkPath = path.join(repoRoot, "private-link");
+  symlinkSync(["", "home", "private-person", "artifact"].join("/"), linkPath);
+  commitAll(repoRoot, "add path fixtures");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "access-token", "backup-[REDACTED].txt");
+  assertFinding(audit.result, "machine-home-path", "private-link");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/[REDACTED].yml");
+  assert.doesNotMatch(audit.stdout, new RegExp(credential, "u"));
+  assert.doesNotMatch(audit.stdout, /private-person/u);
+});
+
+test("UTF-16 and UTF-32 encoded credentials are scanned", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, "utf16.bin", Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from(classicToken("f"), "utf16le"),
+  ]));
+  write(repoRoot, "utf32.bin", encodeUtf32WithBom(fineGrainedToken("g")));
+  commitAll(repoRoot, "add encoded fixtures");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "access-token", "utf16.bin");
+  assertFinding(audit.result, "access-token", "utf32.bin");
+});
+
+test("an unavailable Git LFS object fails closed", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, "large.fixture", [
+    "version https://git-lfs.github.com/spec/v1",
+    `oid sha256:${"a".repeat(64)}`,
+    "size 128",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add unavailable LFS fixture");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "git-lfs-pointer", "large.fixture");
+});
+
+test("history mode catches removed content and sensitive commit messages", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, "removed.txt", classicToken("h"));
+  commitAll(repoRoot, "add removed fixture");
+  rmSync(path.join(repoRoot, "removed.txt"));
+  commitAll(repoRoot, "remove fixture");
+  git(repoRoot, ["commit", "--allow-empty", "-m", `record ${githubAppJwt()}`]);
+
+  const currentAudit = runAudit(repoRoot);
+  const historyAudit = runAudit(repoRoot, ["--history"]);
+
+  assert.equal(currentAudit.status, 0);
+  assert.equal(historyAudit.status, 1);
+  assertFinding(historyAudit.result, "access-token");
+  assert.equal(historyAudit.result.historyScanned, true);
+  assert.ok(historyAudit.result.scannedHistoryCommitCount >= 4);
+});
+
+test("history mode rejects shallow evidence", () => {
+  const repoRoot = makeRepository();
+  const head = git(repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
+  write(repoRoot, ".git/shallow", `${head}\n`);
+
+  const audit = runAudit(repoRoot, ["--history"]);
+
+  assert.equal(audit.status, 2);
+  assert.equal(audit.result.passed, false);
+  assert.equal(audit.result.error.code, "audit-error");
+  assert.match(audit.result.error.message, /shallow/u);
+});
+
+test("workflow advisories can be promoted to failures", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/advisory.yml", [
+    "name: advisory",
+    "on: [pull_request_target]",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: example/action@v1",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add advisory workflow");
+
+  const defaultAudit = runAudit(repoRoot);
+  const strictAudit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(defaultAudit.status, 0);
+  assert.equal(defaultAudit.result.warningCount, 2);
+  assertFinding(defaultAudit.result, "workflow-pull-request-target", ".github/workflows/advisory.yml");
+  assertFinding(defaultAudit.result, "workflow-mutable-action-ref", ".github/workflows/advisory.yml");
+  assert.equal(strictAudit.status, 1);
+  assert.equal(strictAudit.result.passed, false);
+});
+
+test("unsafe public workflow execution is release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/unsafe.yml", [
+    "name: unsafe",
+    "on:",
+    "  pull_request_target:",
+    "permissions: write-all",
+    "jobs:",
+    "  execute:",
+    "    runs-on: [self-hosted, macOS]",
+    "    steps:",
+    `      - uses: "actions/checkout@${"a".repeat(40)}"`,
+    "        with:",
+    "          ref: ${{ github.event.pull_request.head.sha }}",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add unsafe workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/unsafe.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/unsafe.yml");
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/unsafe.yml");
+});
+
+test("a protected public GitHub snapshot passes", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshotPath = writeSnapshot(githubSnapshot());
+
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", snapshotPath,
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.githubChecked, true);
+  assert.equal(audit.result.passed, true);
+
+  const unboundSnapshot = githubSnapshot();
+  unboundSnapshot.rulesets[0].rules[2].parameters.required_status_checks[0].integration_id = 999;
+  const unboundAudit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(unboundSnapshot),
+    "--required-check", "verify",
+  ]);
+  assert.equal(unboundAudit.status, 1);
+  assertFinding(unboundAudit.result, "github-required-check-not-github-actions");
+});
+
+test("missing GitHub protections and runner isolation fail together", () => {
+  const repoRoot = makeRepository();
+  const snapshot = githubSnapshot();
+  snapshot.repository.private = true;
+  snapshot.repository.visibility = "private";
+  snapshot.repository.security_and_analysis.secret_scanning.status = "disabled";
+  snapshot.repository.security_and_analysis.secret_scanning_push_protection.status = "disabled";
+  snapshot.rulesets[0].bypass_actors = [{ actor_id: 1, actor_type: "OrganizationAdmin" }];
+  snapshot.rulesets[0].rules = [{
+    type: "required_status_checks",
+    parameters: {
+      required_status_checks: [{ context: "other" }],
+      strict_required_status_checks_policy: false,
+    },
+  }];
+  snapshot.runners = { runners: [{ id: 1, name: "persistent-runner" }], total_count: 1 };
+  const snapshotPath = writeSnapshot(snapshot);
+
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", snapshotPath,
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(audit.status, 1);
+  for (const ruleId of [
+    "github-repository-not-public",
+    "github-secret-scanning-disabled",
+    "github-push-protection-disabled",
+    "github-required-check-missing",
+    "github-required-check-not-github-actions",
+    "github-required-check-not-strict",
+    "github-force-push-unprotected",
+    "github-deletion-unprotected",
+    "github-protection-bypass",
+    "github-self-hosted-runner-access",
+  ]) {
+    assertFinding(audit.result, ruleId);
+  }
+});
+
+test("incomplete GitHub evidence fails closed", () => {
+  const repoRoot = makeRepository();
+  const snapshotPath = writeSnapshot({ repository: {}, rulesets: [] });
+
+  const audit = runAudit(repoRoot, ["--github-snapshot", snapshotPath]);
+
+  assert.equal(audit.status, 2);
+  assert.equal(audit.result.passed, false);
+  assert.equal(audit.result.error.code, "audit-error");
+});
+
+test("invalid arguments return a distinct usage failure", () => {
+  const repoRoot = makeRepository();
+
+  const audit = runAudit(repoRoot, ["--unsupported"]);
+
+  assert.equal(audit.status, 2);
+  assert.equal(audit.result.passed, false);
+  assert.equal(audit.result.error.code, "usage-error");
+});
+
+function makeRepository() {
+  const repoRoot = mkdtempSync(path.join(os.tmpdir(), "public-source-audit-"));
+  temporaryRoots.add(repoRoot);
+  git(repoRoot, ["init", "--quiet"]);
+  git(repoRoot, ["config", "user.name", "Audit Fixture"]);
+  git(repoRoot, ["config", "user.email", "fixture@example.invalid"]);
+  write(repoRoot, "README.md", "fixture repository\n");
+  commitAll(repoRoot, "initial fixture");
+  return repoRoot;
+}
+
+function write(repoRoot, relativePath, content) {
+  const destination = path.join(repoRoot, relativePath);
+  mkdirSync(path.dirname(destination), { recursive: true });
+  writeFileSync(destination, content);
+}
+
+function commitAll(repoRoot, message) {
+  git(repoRoot, ["add", "--all"]);
+  git(repoRoot, ["commit", "--quiet", "-m", message]);
+}
+
+function git(repoRoot, args) {
+  const result = spawnSync("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: process.env,
+  });
+  assert.equal(result.status, 0, `git ${args[0]} failed: ${result.stderr}`);
+  return result;
+}
+
+function runAudit(repoRoot, args = [], { appendJsonFormat = true } = {}) {
+  const commandArguments = [AUDIT_SCRIPT, "--repo", repoRoot, ...args];
+  if (appendJsonFormat) commandArguments.push("--format", "json");
+  else if (!args.includes("--format")) commandArguments.push("--format", "json");
+  const result = spawnSync(process.execPath, commandArguments, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: process.env,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.notEqual(result.status, null, `audit did not exit: ${result.error?.message ?? "unknown error"}`);
+  assert.doesNotMatch(result.stderr, /credential|private-person/iu);
+  let parsed;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch (error) {
+    assert.fail(`audit returned invalid JSON: ${error.message}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  }
+  return { result: parsed, status: result.status, stderr: result.stderr, stdout: result.stdout };
+}
+
+function assertFinding(result, ruleId, findingPath) {
+  assert.ok(result.findings.some((finding) => finding.ruleId === ruleId
+    && (findingPath === undefined || finding.path === findingPath)),
+  `missing ${ruleId}${findingPath ? ` at ${findingPath}` : ""}: ${JSON.stringify(result.findings)}`);
+}
+
+function classicToken(character) {
+  return ["ghp_", character.repeat(36)].join("");
+}
+
+function fineGrainedToken(character) {
+  return ["github_", "pat_", character.repeat(32)].join("");
+}
+
+function githubAppJwt() {
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ exp: 1_700_000_300, iat: 1_700_000_000, iss: "123456" })).toString("base64url");
+  const signature = Buffer.from("fixture-signature-material").toString("base64url");
+  return [header, payload, signature].join(".");
+}
+
+function privateKeyBlock() {
+  const boundary = (verb) => [["-----", verb].join(""), "PRIVATE KEY-----"].join(" ");
+  return [boundary("BEGIN"), "A".repeat(64), boundary("END"), ""].join("\n");
+}
+
+function encodeUtf32WithBom(source) {
+  const body = Buffer.alloc([...source].length * 4);
+  [...source].forEach((character, index) => {
+    body.writeUInt32LE(character.codePointAt(0), index * 4);
+  });
+  return Buffer.concat([Buffer.from([0xff, 0xfe, 0, 0]), body]);
+}
+
+function writeSafeWorkflow(repoRoot) {
+  write(repoRoot, ".github/workflows/verify.yml", [
+    "name: verify",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  verify:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    `      - uses: actions/checkout@${"a".repeat(40)}`,
+    "",
+  ].join("\n"));
+}
+
+function githubSnapshot() {
+  return {
+    branchProtection: null,
+    repository: {
+      default_branch: "main",
+      private: false,
+      security_and_analysis: {
+        secret_scanning: { status: "enabled" },
+        secret_scanning_push_protection: { status: "enabled" },
+      },
+      visibility: "public",
+    },
+    rulesets: [{
+      bypass_actors: [],
+      conditions: { ref_name: { exclude: [], include: ["~DEFAULT_BRANCH"] } },
+      enforcement: "active",
+      rules: [
+        { type: "deletion" },
+        { type: "non_fast_forward" },
+        {
+          parameters: {
+            required_status_checks: [{ context: "verify", integration_id: 15368 }],
+            strict_required_status_checks_policy: true,
+          },
+          type: "required_status_checks",
+        },
+      ],
+      target: "branch",
+    }],
+    runners: { runners: [], total_count: 0 },
+  };
+}
+
+function writeSnapshot(snapshot) {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "public-source-github-"));
+  temporaryRoots.add(directory);
+  const snapshotPath = path.join(directory, "snapshot.json");
+  writeFileSync(snapshotPath, `${JSON.stringify(snapshot)}\n`);
+  return snapshotPath;
+}

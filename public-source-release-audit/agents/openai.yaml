@@ -1,0 +1,4 @@
+interface:
+  display_name: "Public Source Release Audit"
+  short_description: "Audit repositories before public release"
+  default_prompt: "Use $public-source-release-audit to verify this repository's committed source, history, workflow trust, and live GitHub protections before publication."

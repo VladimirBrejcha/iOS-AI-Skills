@@ -25,6 +25,17 @@ registry-local forks below also retain their reviewed upstream MIT notices.
 - Upstream notice: `Copyright (c) 2026 Thomas Ricouard`
 - Local state: modified maintained fork
 
+## public-source-release-audit scanner
+
+- Source: [Codex Autopilot public safety audit](https://github.com/fiveonecode/autopilot/blob/9dd7ecb8a1aecb3d757b935a970991fd3461f5f4/agent-harness/src/lib/public-safety-audit.ts)
+- Reviewed upstream commit: `9dd7ecb8a1aecb3d757b935a970991fd3461f5f4`
+- Upstream notice: `Copyright (c) 2026 Codex Autopilot contributors`
+- Local state: dependency-free JavaScript port with a repository-release wrapper
+
+The scanner is distributed under the MIT License reproduced in this
+repository's [LICENSE](LICENSE). Keep local behavior changes fixture-backed and
+reconcile future upstream changes deliberately.
+
 The global bootstrap also installs `swift-concurrency` directly from its pinned
 upstream repository. It is not vendored here; its upstream license and notices
 remain authoritative. Impeccable remains an optional project-local install
