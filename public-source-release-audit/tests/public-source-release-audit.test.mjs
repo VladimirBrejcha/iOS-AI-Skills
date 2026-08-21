@@ -85,6 +85,7 @@ test("credential and private-key formats are release-blocking", () => {
   write(repoRoot, "fine-grained.txt", fineGrainedToken("d"));
   write(repoRoot, "app-jwt.txt", githubAppJwt());
   write(repoRoot, "bearer.txt", ["Authorization:", "Bearer", "b".repeat(32)].join(" "));
+  write(repoRoot, "bearer-symbols.txt", ["Authorization: Bearer AAAA+", "BBBB/CCCC=DDDD\n"].join(""));
   write(repoRoot, "refresh.txt", ["ghr_", "r".repeat(76)].join(""));
   write(repoRoot, "private-key.txt", privateKeyBlock());
   commitAll(repoRoot, "add credential fixtures");
@@ -96,6 +97,7 @@ test("credential and private-key formats are release-blocking", () => {
   assertFinding(audit.result, "access-token", "fine-grained.txt");
   assertFinding(audit.result, "access-token", "app-jwt.txt");
   assertFinding(audit.result, "access-token", "bearer.txt");
+  assertFinding(audit.result, "access-token", "bearer-symbols.txt");
   assertFinding(audit.result, "access-token", "refresh.txt");
   assertFinding(audit.result, "private-key", "private-key.txt");
 });
@@ -393,6 +395,28 @@ test("only workflow and job permissions grant token access", () => {
   assert.equal(audit.result.findings.some((finding) => finding.path === ".github/workflows/action-inputs.yml"), false);
 });
 
+test("explicit YAML mapping keys preserve guarded workflow settings", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/explicit-keys.yml", [
+    "name: explicit keys",
+    "on: push",
+    "? permissions",
+    ": write-all",
+    "jobs:",
+    "  build:",
+    "    ? runs-on",
+    "    : self-hosted",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add explicit key workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/explicit-keys.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/explicit-keys.yml");
+});
+
 test("block-scalar write-all permissions are release-blocking", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/block-permissions.yml", [
@@ -491,6 +515,24 @@ test("flow-style workflow mappings preserve guarded key checks", () => {
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-write-all", ".github/workflows/flow-document.yml");
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/flow-document.yml");
+});
+
+test("indented flow job mappings preserve guarded key checks", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/indented-flow-jobs.yml", [
+    "name: indented flow jobs",
+    "on: push",
+    "jobs:",
+    "  {build: {permissions: write-all, runs-on: self-hosted}}",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add indented flow jobs workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/indented-flow-jobs.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/indented-flow-jobs.yml");
 });
 
 test("flow-style step sequences preserve privileged checkout checks", () => {
@@ -855,6 +897,47 @@ test("privileged context propagates through local reusable workflows", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/reusable.yml");
 });
 
+test("untrusted inputs propagate through local reusable workflows", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const inputExpression = ["$", "{{ inputs.ref }}"].join("");
+  write(repoRoot, ".github/workflows/input-caller.yml", [
+    "name: input caller",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  call:",
+    "    uses: ./.github/workflows/input-callee.yml",
+    "    with:",
+    "      ref: " + headExpression,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/input-callee.yml", [
+    "name: input callee",
+    "on:",
+    "  workflow_call:",
+    "    inputs:",
+    "      ref:",
+    "        required: true",
+    "        type: string",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + inputExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add untrusted reusable input chain");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/input-callee.yml");
+});
+
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/quoted-runner-key.yml", [
@@ -889,6 +972,24 @@ test("aliased self-hosted runner labels remain release-blocking", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/aliased-runner.yml");
+});
+
+test("aliases inside runner label sequences remain release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/aliased-runner-sequence.yml", [
+    "name: &runner self-hosted",
+    "on: push",
+    "jobs:",
+    "  unsafe:",
+    "    runs-on: [*runner, linux]",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased runner sequence workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/aliased-runner-sequence.yml");
 });
 
 test("block-list privileged triggers detect reordered checkout inputs", () => {
@@ -1032,6 +1133,28 @@ test("quoted immutable flow-style action references remain trusted", () => {
     "",
   ].join("\n"));
   commitAll(repoRoot, "add quoted flow action workflow");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.warningCount, 0);
+});
+
+test("action inputs named uses are not dependency references", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/uses-input.yml", [
+    "name: uses input",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: example/action@" + "a".repeat(40),
+    "        with: { uses: arbitrary-input-value }",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add uses action input workflow");
 
   const audit = runAudit(repoRoot, ["--fail-on-warning"]);
 
