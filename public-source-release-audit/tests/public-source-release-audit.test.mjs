@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
@@ -174,6 +174,31 @@ test("history mode catches removed content and sensitive commit messages", () =>
   assert.ok(historyAudit.result.scannedHistoryCommitCount >= 4);
 });
 
+test("history mode scans workflows on every reachable branch", () => {
+  const repoRoot = makeRepository();
+  const defaultBranch = git(repoRoot, ["branch", "--show-current"]).stdout.trim();
+  git(repoRoot, ["checkout", "--quiet", "-b", "public-alternate"]);
+  write(repoRoot, ".github/workflows/alternate.yml", [
+    "name: alternate",
+    "on: push",
+    "permissions: write-all",
+    "jobs:",
+    "  unsafe:",
+    "    runs-on: self-hosted",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add alternate workflow");
+  git(repoRoot, ["checkout", "--quiet", defaultBranch]);
+
+  const currentAudit = runAudit(repoRoot);
+  const historyAudit = runAudit(repoRoot, ["--history"]);
+
+  assert.equal(currentAudit.status, 0);
+  assert.equal(historyAudit.status, 1);
+  assertFinding(historyAudit.result, "workflow-write-all", ".github/workflows/alternate.yml");
+  assertFinding(historyAudit.result, "workflow-self-hosted-runner", ".github/workflows/alternate.yml");
+});
+
 test("history mode rejects shallow evidence", () => {
   const repoRoot = makeRepository();
   const head = git(repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
@@ -210,6 +235,65 @@ test("workflow advisories can be promoted to failures", () => {
   assertFinding(defaultAudit.result, "workflow-mutable-action-ref", ".github/workflows/advisory.yml");
   assert.equal(strictAudit.status, 1);
   assert.equal(strictAudit.result.passed, false);
+});
+
+test("quoted self-hosted runner labels are release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/quoted-scalar.yml", [
+    "name: quoted scalar",
+    "on: push",
+    "jobs:",
+    "  unsafe:",
+    "    runs-on: \"self-hosted\"",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/quoted-array.yml", [
+    "name: quoted array",
+    "on: push",
+    "jobs:",
+    "  unsafe:",
+    "    runs-on: ['self-hosted', macOS]",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add quoted runner workflows");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/quoted-scalar.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/quoted-array.yml");
+});
+
+test("mutable Docker actions warn while digest-pinned actions pass", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/mutable-docker.yml", [
+    "name: mutable docker",
+    "on: push",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: docker://alpine:latest",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/pinned-docker.yml", [
+    "name: pinned docker",
+    "on: push",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    `      - uses: docker://alpine@sha256:${"a".repeat(64)}`,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add Docker action workflows");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.warningCount, 1);
+  assertFinding(audit.result, "workflow-mutable-action-ref", ".github/workflows/mutable-docker.yml");
+  assert.equal(audit.result.findings.some((finding) => finding.path === ".github/workflows/pinned-docker.yml"), false);
 });
 
 test("unsafe public workflow execution is release-blocking", () => {
@@ -261,6 +345,54 @@ test("a protected public GitHub snapshot passes", () => {
   ]);
   assert.equal(unboundAudit.status, 1);
   assertFinding(unboundAudit.result, "github-required-check-not-github-actions");
+});
+
+test("live GitHub evidence consumes every ruleset page", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshot = githubSnapshot();
+  const laterRuleset = {
+    bypass_actors: [{ actor_id: 1, actor_type: "OrganizationAdmin" }],
+    conditions: { ref_name: { exclude: [], include: ["~DEFAULT_BRANCH"] } },
+    enforcement: "active",
+    rules: [],
+    target: "branch",
+  };
+  const fakeGhDirectory = writeFakeGh({
+    branchProtection: null,
+    repository: snapshot.repository,
+    rulesetPages: [[{ id: 1 }], [{ id: 2 }]],
+    rulesets: { 1: snapshot.rulesets[0], 2: laterRuleset },
+    runners: snapshot.runners,
+  });
+
+  const audit = runAudit(repoRoot, [
+    "--github", "example/public",
+    "--required-check", "verify",
+  ], {
+    env: { ...process.env, PATH: `${fakeGhDirectory}:${process.env.PATH}` },
+  });
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "github-protection-bypass");
+});
+
+test("wrapper counts source findings omitted by the core scanner", () => {
+  const repoRoot = makeRepository();
+  for (let index = 0; index < 30; index += 1) {
+    write(repoRoot, `credential-${index}.txt`, classicToken(String.fromCharCode(97 + (index % 26))));
+  }
+  commitAll(repoRoot, "add many credential fixtures");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assert.equal(audit.result.findingCount, 31);
+  assert.equal(audit.result.errorCount, 31);
+  assert.equal(audit.result.warningCount, 0);
+  assert.equal(audit.result.omittedFindingCount, 5);
+  assertFinding(audit.result, "source-findings-omitted");
 });
 
 test("missing GitHub protections and runner isolation fail together", () => {
@@ -356,14 +488,14 @@ function git(repoRoot, args) {
   return result;
 }
 
-function runAudit(repoRoot, args = [], { appendJsonFormat = true } = {}) {
+function runAudit(repoRoot, args = [], { appendJsonFormat = true, env = process.env } = {}) {
   const commandArguments = [AUDIT_SCRIPT, "--repo", repoRoot, ...args];
   if (appendJsonFormat) commandArguments.push("--format", "json");
   else if (!args.includes("--format")) commandArguments.push("--format", "json");
   const result = spawnSync(process.execPath, commandArguments, {
     cwd: repoRoot,
     encoding: "utf8",
-    env: process.env,
+    env,
     maxBuffer: 16 * 1024 * 1024,
   });
   assert.notEqual(result.status, null, `audit did not exit: ${result.error?.message ?? "unknown error"}`);
@@ -464,4 +596,33 @@ function writeSnapshot(snapshot) {
   const snapshotPath = path.join(directory, "snapshot.json");
   writeFileSync(snapshotPath, `${JSON.stringify(snapshot)}\n`);
   return snapshotPath;
+}
+
+function writeFakeGh(fixture) {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "public-source-fake-gh-"));
+  temporaryRoots.add(directory);
+  const executablePath = path.join(directory, "gh");
+  const script = [
+    "#!/usr/bin/env node",
+    `const fixture = ${JSON.stringify(fixture)};`,
+    "const args = process.argv.slice(2);",
+    "const endpoint = args.find((argument) => argument.startsWith('repos/'));",
+    "let response;",
+    "if (endpoint === 'repos/example/public') response = fixture.repository;",
+    "else if (endpoint === 'repos/example/public/rulesets?includes_parents=true&per_page=100') {",
+    "  if (!args.includes('--paginate') || !args.includes('--slurp')) process.exit(3);",
+    "  response = fixture.rulesetPages;",
+    "}",
+    "else if (endpoint?.startsWith('repos/example/public/rulesets/')) {",
+    "  response = fixture.rulesets[endpoint.split('/').at(-1)];",
+    "}",
+    "else if (endpoint === 'repos/example/public/actions/runners') response = fixture.runners;",
+    "else if (endpoint === 'repos/example/public/branches/main/protection') response = fixture.branchProtection;",
+    "else process.exit(4);",
+    "process.stdout.write(JSON.stringify(response) + '\\n');",
+    "",
+  ].join("\n");
+  writeFileSync(executablePath, script);
+  chmodSync(executablePath, 0o755);
+  return directory;
 }

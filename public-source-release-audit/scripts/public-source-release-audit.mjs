@@ -10,6 +10,7 @@ const SCHEMA_VERSION = 1;
 const MAX_OUTPUT_FINDINGS = 100;
 const GITHUB_ACTIONS_APP_ID = 15368;
 const FULL_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
+const IMMUTABLE_DOCKER_ACTION_PATTERN = /^docker:\/\/[^\s@]+(?:[:][^\s@]+)?@(?:sha256:[0-9a-f]{64}|sha512:[0-9a-f]{128})$/iu;
 const WORKFLOW_PATH_PATTERN = /^\.github\/workflows\/[^/]+\.ya?ml$/iu;
 
 main();
@@ -35,7 +36,9 @@ function main() {
       includeHistory: options.history,
       repoRoot,
     });
-    const workflowFindings = auditWorkflowSources(repoRoot);
+    const workflowFindings = auditWorkflowSources(repoRoot, {
+      includeHistory: options.history,
+    });
     const githubFindings = options.github || options.githubSnapshot
       ? auditGithubControls(loadGithubEvidence({
           repoRoot,
@@ -58,14 +61,17 @@ function main() {
       });
     }
 
-    const errorCount = findings.filter((finding) => finding.severity === "error").length;
+    const errorCount = findings.filter((finding) => finding.severity === "error").length
+      + sourceResult.omittedFindingCount;
     const warningCount = findings.filter((finding) => finding.severity === "warning").length;
-    const omittedFindingCount = Math.max(findings.length - MAX_OUTPUT_FINDINGS, 0);
+    const findingCount = findings.length + sourceResult.omittedFindingCount;
+    const omittedFindingCount = sourceResult.omittedFindingCount
+      + Math.max(findings.length - MAX_OUTPUT_FINDINGS, 0);
     const reportedFindings = findings.slice(0, MAX_OUTPUT_FINDINGS);
     const passed = errorCount === 0 && (options.failOnWarning === false || warningCount === 0);
     const result = {
       errorCount,
-      findingCount: findings.length,
+      findingCount,
       findings: reportedFindings,
       githubChecked: Boolean(options.github || options.githubSnapshot),
       historyScanned: sourceResult.historyScanned,
@@ -158,8 +164,8 @@ function resolveRepositoryRoot(inputPath) {
   return result.stdout.trim();
 }
 
-function auditWorkflowSources(repoRoot) {
-  const entries = trackedWorkflowEntries(repoRoot);
+function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
+  const entries = trackedWorkflowEntries(repoRoot, { includeHistory });
   const findings = [];
 
   for (const entry of entries) {
@@ -169,6 +175,7 @@ function auditWorkflowSources(repoRoot) {
         path: entry.path,
         ruleId: "workflow-entrypoint-not-regular",
         severity: "error",
+        source: entry.source,
       }));
       continue;
     }
@@ -184,36 +191,67 @@ function auditWorkflowSources(repoRoot) {
         path: entry.path,
         ruleId: "workflow-non-utf8",
         severity: "error",
+        source: entry.source,
       }));
       continue;
     }
 
-    findings.push(...auditWorkflowText(entry.path, text));
+    findings.push(...auditWorkflowText(entry.path, text, entry.source));
   }
 
   return findings;
 }
 
-function trackedWorkflowEntries(repoRoot) {
+function trackedWorkflowEntries(repoRoot, { includeHistory = false } = {}) {
   const records = [];
   if (hasHead(repoRoot)) {
+    if (includeHistory) {
+      const refs = runCommand("git", ["for-each-ref", "--format=%(refname)"], {
+        cwd: repoRoot,
+      }).stdout.split(/\r?\n/u).filter(Boolean);
+      const scannedTrees = new Set();
+      for (const ref of refs) {
+        const tree = resolveTreeObjectId(repoRoot, ref);
+        if (!tree || scannedTrees.has(tree)) continue;
+        scannedTrees.add(tree);
+        records.push(...parseTreeRecords(runCommand(
+          "git",
+          ["ls-tree", "-r", "-z", "--full-tree", tree, "--", ".github/workflows"],
+          { cwd: repoRoot, encoding: null },
+        ).stdout).map((record) => ({ ...record, source: "history" })));
+      }
+    }
     records.push(...parseTreeRecords(runCommand("git", ["ls-tree", "-r", "-z", "--full-tree", "HEAD"], {
       cwd: repoRoot,
       encoding: null,
-    }).stdout));
+    }).stdout).map((record) => ({ ...record, source: "tracked-file" })));
   }
   records.push(...parseIndexRecords(runCommand("git", ["ls-files", "--stage", "-z"], {
     cwd: repoRoot,
     encoding: null,
-  }).stdout));
+  }).stdout).map((record) => ({ ...record, source: "tracked-file" })));
 
   const unique = new Map();
   for (const record of records) {
     if (WORKFLOW_PATH_PATTERN.test(record.path)) {
-      unique.set(`${record.path}\0${record.objectId}`, record);
+      const key = `${record.path}\0${record.objectId}\0${record.mode}`;
+      if (unique.has(key) === false || record.source === "tracked-file") {
+        unique.set(key, record);
+      }
     }
   }
   return [...unique.values()].sort((left, right) => left.path.localeCompare(right.path) || left.objectId.localeCompare(right.objectId));
+}
+
+function resolveTreeObjectId(repoRoot, ref) {
+  const result = spawnSync("git", ["rev-parse", "--verify", ref + "^{tree}"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (result.status !== 0) return undefined;
+  const objectId = result.stdout.trim();
+  return FULL_OBJECT_ID_PATTERN.test(objectId) ? objectId : undefined;
 }
 
 function parseTreeRecords(buffer) {
@@ -249,7 +287,7 @@ function hasHead(repoRoot) {
   }).status === 0;
 }
 
-function auditWorkflowText(workflowPath, text) {
+function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   const findings = [];
   const uncommented = text.split(/\r?\n/u).map(stripYamlComment).join("\n");
   const hasPullRequestTarget = /^\s*(?:["']?pull_request_target["']?\s*:|on\s*:\s*[\[{][^\n]*\bpull_request_target\b)/imu.test(uncommented);
@@ -261,16 +299,18 @@ function auditWorkflowText(workflowPath, text) {
       path: workflowPath,
       ruleId: "workflow-write-all",
       severity: "error",
+      source,
     }));
   }
 
   for (const runner of yamlKeyValues(uncommented, "runs-on")) {
-    if (/(?:^|[\s,[{])self-hosted(?:$|[\s,\]}])/iu.test(runner)) {
+    if (/(?:^|[\s,[{'"])self-hosted(?:$|[\s,\]}'"])/iu.test(runner)) {
       findings.push(workflowFinding({
         message: "Public workflows must not select a persistent self-hosted runner.",
         path: workflowPath,
         ruleId: "workflow-self-hosted-runner",
         severity: "error",
+        source,
       }));
     } else if (/\$\{\{|^\s*\*/u.test(runner)) {
       findings.push(workflowFinding({
@@ -278,6 +318,7 @@ function auditWorkflowText(workflowPath, text) {
         path: workflowPath,
         ruleId: "workflow-dynamic-runner",
         severity: "warning",
+        source,
       }));
     }
   }
@@ -288,6 +329,7 @@ function auditWorkflowText(workflowPath, text) {
       path: workflowPath,
       ruleId: "workflow-pull-request-target",
       severity: "warning",
+      source,
     }));
 
     if (/uses\s*:\s*["']?actions\/checkout@[^\n]+[\s\S]{0,1000}?ref\s*:\s*[^\n]*(?:pull_request\.head|head\.sha)/iu.test(uncommented)) {
@@ -296,20 +338,22 @@ function auditWorkflowText(workflowPath, text) {
         path: workflowPath,
         ruleId: "workflow-privileged-untrusted-checkout",
         severity: "error",
+        source,
       }));
     }
   }
 
   for (const actionRef of actionReferences(uncommented)) {
-    if (actionRef.startsWith("./") || actionRef.startsWith("docker://")) continue;
+    if (actionRef.startsWith("./") || IMMUTABLE_DOCKER_ACTION_PATTERN.test(actionRef)) continue;
     const separator = actionRef.lastIndexOf("@");
     const revision = separator < 0 ? "" : actionRef.slice(separator + 1);
-    if (!FULL_OBJECT_ID_PATTERN.test(revision)) {
+    if (actionRef.startsWith("docker://") || !FULL_OBJECT_ID_PATTERN.test(revision)) {
       findings.push(workflowFinding({
         message: "Remote workflow dependencies should use reviewed immutable object IDs.",
         path: workflowPath,
         ruleId: "workflow-mutable-action-ref",
         severity: "warning",
+        source,
       }));
     }
   }
@@ -361,14 +405,14 @@ function actionReferences(text) {
   });
 }
 
-function workflowFinding({ message, path: workflowPath, ruleId, severity }) {
+function workflowFinding({ message, path: workflowPath, ruleId, severity, source = "tracked-file" }) {
   return {
     message,
     path: redactSensitivePath(workflowPath),
     ruleId,
     scope: "workflow",
     severity,
-    source: "tracked-file",
+    source,
   };
 }
 
@@ -379,7 +423,7 @@ function loadGithubEvidence({ repoRoot, repository, snapshotPath }) {
   }
 
   const repositoryData = ghApiJson(repoRoot, `repos/${repository}`);
-  const rulesetSummaries = ghApiJson(repoRoot, `repos/${repository}/rulesets?includes_parents=true&per_page=100`);
+  const rulesetSummaries = ghApiPaginatedArray(repoRoot, `repos/${repository}/rulesets?includes_parents=true&per_page=100`);
   const rulesets = rulesetSummaries.map((ruleset) => ghApiJson(repoRoot, `repos/${repository}/rulesets/${ruleset.id}`));
   const runners = ghApiJson(repoRoot, `repos/${repository}/actions/runners`);
   const defaultBranch = repositoryData.default_branch;
@@ -395,6 +439,27 @@ function loadGithubEvidence({ repoRoot, repository, snapshotPath }) {
     rulesets,
     runners,
   });
+}
+
+function ghApiPaginatedArray(repoRoot, endpoint) {
+  const result = spawnSync("gh", ["api", "--paginate", "--slurp", endpoint], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: process.env,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    throw new Error(`GitHub evidence is unavailable for ${safeEndpointLabel(endpoint)}.`);
+  }
+  try {
+    const pages = JSON.parse(result.stdout);
+    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+      throw new Error("GitHub returned non-array paginated evidence.");
+    }
+    return pages.flat();
+  } catch {
+    throw new Error(`GitHub returned invalid evidence for ${safeEndpointLabel(endpoint)}.`);
+  }
 }
 
 function ghApiJson(repoRoot, endpoint, { allowNotFound = false } = {}) {
