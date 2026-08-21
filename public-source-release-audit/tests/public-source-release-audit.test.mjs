@@ -355,6 +355,44 @@ test("quoted permissions keys and write-all values are release-blocking", () => 
   assertFinding(audit.result, "workflow-write-all", ".github/workflows/quoted-permissions-key.yml");
 });
 
+test("only workflow and job permissions grant token access", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/action-inputs.yml", [
+    "name: action inputs",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - { uses: 'example/action@" + "a".repeat(40) + "', with: { permissions: write-all, runs-on: self-hosted } }",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/job-permissions.yml", [
+    "name: job permissions",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    permissions: write-all",
+    "    runs-on: ubuntu-latest",
+    "",
+  ].join("\n"));
+  write(
+    repoRoot,
+    ".github/workflows/flow-job-permissions.yml",
+    "{name: flow job permissions, on: push, permissions: read-all, jobs: {inspect: {permissions: write-all, runs-on: ubuntu-latest}}}\n",
+  );
+  commitAll(repoRoot, "add scoped permission workflows");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/job-permissions.yml");
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/flow-job-permissions.yml");
+  assert.equal(audit.result.findings.some((finding) => finding.path === ".github/workflows/action-inputs.yml"), false);
+});
+
 test("block-scalar write-all permissions are release-blocking", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/block-permissions.yml", [
@@ -496,6 +534,32 @@ test("aliased checkout actions remain guarded", () => {
   assert.equal(audit.result.findings.some((finding) => finding.ruleId === "workflow-mutable-action-ref"), false);
 });
 
+test("aliased checkout refs remain guarded", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/aliased-checkout-ref.yml", [
+    "name: aliased checkout ref",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "env:",
+    "  PR_HEAD: &pr-head " + expression,
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: *pr-head",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased checkout ref workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/aliased-checkout-ref.yml");
+});
+
 test("block scalar script bodies are not parsed as workflow mappings", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/generated-yaml.yml", [
@@ -518,6 +582,107 @@ test("block scalar script bodies are not parsed as workflow mappings", () => {
 
   assert.equal(audit.status, 0);
   assert.equal(audit.result.findingCount, 0);
+});
+
+test("nested trigger filters are not treated as enabled events", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/push-filter.yml", [
+    "name: push filter",
+    "on:",
+    "  push:",
+    "    branches: [pull_request_target]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add nested trigger filter workflow");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.findingCount, 0);
+});
+
+test("mapping properties do not hide privileged trigger keys", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/anchored-trigger-map.yml", [
+    "name: anchored trigger map",
+    "on: &events",
+    "  pull_request_target:",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add anchored trigger mapping workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/anchored-trigger-map.yml");
+});
+
+test("YAML double-quoted escapes cannot hide guarded values", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github\\u002ehead_ref }}"].join("");
+  write(repoRoot, ".github/workflows/escaped-values.yml", [
+    "name: escaped values",
+    "\"o\\u006e\": \"pull\\u005frequest_target\"",
+    "\"permiss\\u0069ons\": \"write\\u002dall\"",
+    "jobs:",
+    "  inspect:",
+    "    \"runs\\u002don\": \"self\\u002dhosted\"",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          \"r\\u0065f\": \"" + expression + "\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add escaped guarded values workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/escaped-values.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/escaped-values.yml");
+  assertFinding(audit.result, "workflow-pull-request-target", ".github/workflows/escaped-values.yml");
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/escaped-values.yml");
+});
+
+test("workflow entrypoint paths are case-sensitive", () => {
+  const directoryRepo = makeRepository();
+  write(directoryRepo, ".GITHUB/workflows/lookalike.yml", [
+    "on: push",
+    "permissions: write-all",
+    "jobs: { unsafe: { runs-on: self-hosted } }",
+    "",
+  ].join("\n"));
+  commitAll(directoryRepo, "add lookalike workflow directory");
+
+  const extensionRepo = makeRepository();
+  write(extensionRepo, ".github/workflows/lookalike.YML", [
+    "on: push",
+    "permissions: write-all",
+    "jobs: { unsafe: { runs-on: self-hosted } }",
+    "",
+  ].join("\n"));
+  commitAll(extensionRepo, "add lookalike workflow extension");
+
+  assert.equal(runAudit(directoryRepo, ["--fail-on-warning"]).status, 0);
+  assert.equal(runAudit(extensionRepo, ["--fail-on-warning"]).status, 0);
 });
 
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
@@ -916,6 +1081,30 @@ test("ruleset character classes match default branch segments", () => {
 
   assert.equal(audit.status, 0);
   assert.equal(audit.result.passed, true);
+});
+
+test("ruleset negated character classes exclude default branches", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const excludedSnapshot = githubSnapshot();
+  excludedSnapshot.repository.default_branch = "release/0";
+  excludedSnapshot.rulesets[0].conditions.ref_name.include = ["refs/heads/release/[!0]*"];
+  const includedSnapshot = structuredClone(excludedSnapshot);
+  includedSnapshot.repository.default_branch = "release/1";
+
+  const excludedAudit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(excludedSnapshot),
+    "--required-check", "verify",
+  ]);
+  const includedAudit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(includedSnapshot),
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(excludedAudit.status, 1);
+  assertFinding(excludedAudit.result, "github-required-check-missing");
+  assert.equal(includedAudit.status, 0);
 });
 
 test("live GitHub evidence consumes every ruleset page", () => {

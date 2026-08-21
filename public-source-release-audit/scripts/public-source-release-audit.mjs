@@ -11,7 +11,7 @@ const MAX_OUTPUT_FINDINGS = 100;
 const GITHUB_ACTIONS_APP_ID = 15368;
 const FULL_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 const IMMUTABLE_DOCKER_ACTION_PATTERN = /^docker:\/\/[^\s@]+(?:[:][^\s@]+)?@(?:sha256:[0-9a-f]{64}|sha512:[0-9a-f]{128})$/iu;
-const WORKFLOW_PATH_PATTERN = /^\.github\/workflows\/[^/]+\.ya?ml$/iu;
+const WORKFLOW_PATH_PATTERN = /^\.github\/workflows\/[^/]+\.ya?ml$/u;
 
 main();
 
@@ -295,12 +295,12 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   const findings = [];
   const uncommented = text.split(/\r?\n/u).map(stripYamlComment).join("\n");
   const scalarAnchors = yamlScalarAnchors(uncommented);
-  const hasPullRequestTarget = yamlKeyValues(uncommented, "on", { indentation: 0 })
-    .some((value) => yamlValueContainsToken(
-      resolveYamlScalarValue(value, scalarAnchors),
-      "pull_request_target",
-    ));
-  const hasWriteAll = yamlKeyValues(uncommented, "permissions")
+  const hasPullRequestTarget = workflowTriggerNames(uncommented, scalarAnchors)
+    .some((eventName) => eventName.toLowerCase() === "pull_request_target");
+  const hasWriteAll = [
+    ...workflowRootValues(uncommented, "permissions"),
+    ...workflowJobValues(uncommented, "permissions", scalarAnchors),
+  ]
     .some((value) => resolveYamlScalarValue(value, scalarAnchors).toLowerCase() === "write-all");
 
   if (hasWriteAll) {
@@ -313,7 +313,7 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
     }));
   }
 
-  for (const runner of yamlKeyValues(uncommented, "runs-on")) {
+  for (const runner of workflowJobValues(uncommented, "runs-on", scalarAnchors)) {
     const resolvedRunner = resolveYamlScalarValue(runner, scalarAnchors);
     if (/(?:^|[\s,[{'"])self-hosted(?:$|[\s,\]}'"])/iu.test(resolvedRunner)) {
       findings.push(workflowFinding({
@@ -389,24 +389,118 @@ function stripYamlComment(line) {
 }
 
 function parseYamlKeyLine(line) {
-  const match = /^(\s*)(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([A-Za-z0-9_-]+))\s*:\s*(.*)$/u.exec(line);
+  const match = /^(\s*)(?:"((?:\\[^\r\n]|[^"\\\r\n])*)"|'((?:''|[^'\r\n])*)'|([A-Za-z0-9_-]+))\s*:\s*(.*)$/u.exec(line);
   if (!match) return undefined;
   return {
     indentation: match[1].length,
-    key: match[2] ?? match[3] ?? match[4],
+    key: match[2] !== undefined
+      ? decodeYamlDoubleQuotedScalar(match[2])
+      : (match[3]?.replaceAll("''", "'") ?? match[4]),
     value: match[5],
   };
 }
 
-function yamlKeyValues(text, key, { indentation: requiredIndentation } = {}) {
-  const values = yamlBlockMappingEntries(text)
-    .filter((entry) => entry.key.toLowerCase() === key.toLowerCase()
-      && (requiredIndentation === undefined || entry.indentation === requiredIndentation))
-    .map((entry) => entry.value);
-  const flowValues = requiredIndentation === 0
-    ? yamlRootFlowMappingValues(text, key)
-    : yamlFlowMappingValues(text, key);
-  return [...values, ...flowValues];
+function workflowRootValues(text, key) {
+  return [
+    ...yamlBlockMappingEntries(text)
+      .filter((entry) => entry.indentation === 0 && entry.key.toLowerCase() === key.toLowerCase())
+      .map((entry) => entry.value),
+    ...yamlRootFlowMappingValues(text, key),
+  ];
+}
+
+function workflowJobValues(text, key, scalarAnchors) {
+  const entries = yamlBlockMappingEntries(text);
+  const values = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const jobsEntry = entries[index];
+    if (jobsEntry.indentation !== 0 || jobsEntry.key.toLowerCase() !== "jobs") continue;
+    for (const job of directBlockMappingChildren(entries, index)) {
+      values.push(...directBlockMappingChildren(entries, job.index)
+        .filter(({ entry }) => entry.key.toLowerCase() === key.toLowerCase())
+        .map(({ entry }) => entry.value));
+      values.push(...yamlDirectFlowMappingValues(
+        resolveYamlScalarValue(job.entry.inlineValue, scalarAnchors),
+        key,
+      ));
+    }
+    values.push(...workflowJobValuesFromFlowJobs(jobsEntry.inlineValue, key, scalarAnchors));
+  }
+  for (const jobsValue of yamlRootFlowMappingValues(text, "jobs")) {
+    values.push(...workflowJobValuesFromFlowJobs(jobsValue, key, scalarAnchors));
+  }
+  return values;
+}
+
+function directBlockMappingChildren(entries, parentIndex) {
+  const parent = entries[parentIndex];
+  const descendants = [];
+  for (let index = parentIndex + 1; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry.indentation <= parent.indentation) break;
+    descendants.push({ entry, index });
+  }
+  if (descendants.length === 0) return [];
+  const childIndentation = Math.min(...descendants.map(({ entry }) => entry.indentation));
+  return descendants.filter(({ entry }) => entry.indentation === childIndentation);
+}
+
+function workflowJobValuesFromFlowJobs(value, key, scalarAnchors) {
+  const jobsValue = resolveYamlScalarValue(value, scalarAnchors);
+  return yamlDirectFlowMappingEntries(jobsValue).flatMap((jobEntry) => {
+    const jobValue = resolveYamlScalarValue(jobEntry.value, scalarAnchors);
+    return yamlDirectFlowMappingValues(jobValue, key);
+  });
+}
+
+function workflowTriggerNames(text, scalarAnchors) {
+  const lines = maskYamlBlockScalarBodies(text).split("\n");
+  const names = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const entry = parseYamlKeyLine(lines[index]);
+    if (!entry || entry.indentation !== 0 || entry.key.toLowerCase() !== "on") continue;
+    if (entry.value.trim().length > 0 && !yamlValueHasOnlyProperties(entry.value)) {
+      names.push(...workflowTriggerNamesFromValue(entry.value, scalarAnchors));
+      continue;
+    }
+    let childIndentation;
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const line = lines[cursor];
+      if (line.trim().length === 0) continue;
+      const indentation = /^\s*/u.exec(line)[0].length;
+      if (indentation <= entry.indentation) break;
+      if (childIndentation === undefined) childIndentation = indentation;
+      if (indentation !== childIndentation) continue;
+      const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(line);
+      if (sequenceItem) {
+        names.push(...workflowTriggerNamesFromValue(sequenceItem[2], scalarAnchors));
+        continue;
+      }
+      const eventEntry = parseYamlKeyLine(line);
+      if (eventEntry) names.push(eventEntry.key);
+    }
+  }
+  for (const onValue of yamlRootFlowMappingValues(text, "on")) {
+    names.push(...workflowTriggerNamesFromValue(onValue, scalarAnchors));
+  }
+  return names;
+}
+
+function yamlValueHasOnlyProperties(value) {
+  return /^(?:(?:&[^\s]+|![^\s]+)\s*)+$/u.test(value.trim());
+}
+
+function workflowTriggerNamesFromValue(value, scalarAnchors) {
+  const resolved = resolveYamlScalarValue(value, scalarAnchors);
+  const mappingEntries = yamlDirectFlowMappingEntries(resolved);
+  if (resolved.trimStart().startsWith("{")) {
+    return mappingEntries.map((entry) => entry.key);
+  }
+  const sequenceValues = yamlFlowSequenceValues(resolved);
+  if (sequenceValues) {
+    return sequenceValues.flatMap((item) => workflowTriggerNamesFromValue(item, scalarAnchors));
+  }
+  return [resolved];
 }
 
 function yamlBlockMappingEntries(text) {
@@ -425,7 +519,11 @@ function yamlBlockMappingEntries(text) {
       if (nextIndentation <= entry.indentation) break;
       value += " " + line.trim();
     }
-    entries.push({ ...entry, value: value.trim() });
+    entries.push({
+      ...entry,
+      inlineValue: entry.value.trim(),
+      value: value.trim(),
+    });
   }
   return entries;
 }
@@ -485,9 +583,62 @@ function yamlScalarValue(value) {
   const blockScalar = /^[>|](?:[1-9]?[+-]?|[+-]?[1-9]?)?(?:\s+|$)([\s\S]*)$/u.exec(normalized);
   if (blockScalar) return blockScalar[1].trim();
   const quote = normalized[0];
-  return (quote === "\"" || quote === "'") && normalized.at(-1) === quote
-    ? normalized.slice(1, -1)
-    : normalized;
+  if (quote === "\"" && normalized.at(-1) === quote) {
+    return decodeYamlDoubleQuotedScalar(normalized.slice(1, -1));
+  }
+  if (quote === "'" && normalized.at(-1) === quote) {
+    return normalized.slice(1, -1).replaceAll("''", "'");
+  }
+  return normalized;
+}
+
+function decodeYamlDoubleQuotedScalar(value) {
+  const simpleEscapes = new Map([
+    ["0", "\0"],
+    ["a", "\x07"],
+    ["b", "\b"],
+    ["t", "\t"],
+    ["n", "\n"],
+    ["v", "\v"],
+    ["f", "\f"],
+    ["r", "\r"],
+    ["e", "\x1b"],
+    [" ", " "],
+    ["\"", "\""],
+    ["/", "/"],
+    ["\\", "\\"],
+    ["N", "\u0085"],
+    ["_", "\u00a0"],
+    ["L", "\u2028"],
+    ["P", "\u2029"],
+  ]);
+  let decoded = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character !== "\\" || index + 1 >= value.length) {
+      decoded += character;
+      continue;
+    }
+    const escape = value[index + 1];
+    if (simpleEscapes.has(escape)) {
+      decoded += simpleEscapes.get(escape);
+      index += 1;
+      continue;
+    }
+    const width = escape === "x" ? 2 : escape === "u" ? 4 : escape === "U" ? 8 : 0;
+    const digits = value.slice(index + 2, index + 2 + width);
+    if (width > 0 && digits.length === width && /^[0-9a-f]+$/iu.test(digits)) {
+      const codePoint = Number.parseInt(digits, 16);
+      if (codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+        decoded += String.fromCodePoint(codePoint);
+        index += width + 1;
+        continue;
+      }
+    }
+    decoded += `\\${escape}`;
+    index += 1;
+  }
+  return decoded;
 }
 
 function yamlScalarAnchors(text) {
@@ -540,6 +691,62 @@ function yamlFlowMappingValues(text, key) {
     .map((entry) => entry.value);
 }
 
+function yamlDirectFlowMappingEntries(value) {
+  const openingBraceIndex = value.search(/\S/u);
+  if (openingBraceIndex < 0 || value[openingBraceIndex] !== "{") return [];
+  return yamlFlowMappingEntriesAt(value, openingBraceIndex);
+}
+
+function yamlDirectFlowMappingValues(value, key) {
+  return yamlDirectFlowMappingEntries(value)
+    .filter((entry) => entry.key.toLowerCase() === key.toLowerCase())
+    .map((entry) => entry.value);
+}
+
+function yamlFlowSequenceValues(value) {
+  const normalized = value.trim();
+  if (!normalized.startsWith("[")) return undefined;
+  const values = [];
+  let braces = 0;
+  let brackets = 0;
+  let itemStart = 1;
+  let quote;
+  for (let cursor = 1; cursor < normalized.length; cursor += 1) {
+    const character = normalized[cursor];
+    if (quote) {
+      if (quote === "'" && character === "'" && normalized[cursor + 1] === "'") {
+        cursor += 1;
+      } else if (quote === "\"" && character === "\\") {
+        cursor += 1;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (character === "'" || character === "\"") {
+      quote = character;
+    } else if (character === "{") {
+      braces += 1;
+    } else if (character === "}") {
+      braces -= 1;
+    } else if (character === "[") {
+      brackets += 1;
+    } else if (character === "]") {
+      if (braces === 0 && brackets === 0) {
+        const item = normalized.slice(itemStart, cursor).trim();
+        if (item.length > 0) values.push(item);
+        return normalized.slice(cursor + 1).trim().length === 0 ? values : undefined;
+      }
+      brackets -= 1;
+    } else if (character === "," && braces === 0 && brackets === 0) {
+      const item = normalized.slice(itemStart, cursor).trim();
+      if (item.length > 0) values.push(item);
+      itemStart = cursor + 1;
+    }
+  }
+  return undefined;
+}
+
 function yamlFlowMappings(text) {
   text = maskYamlBlockScalarBodies(text);
   const mappings = [];
@@ -576,10 +783,6 @@ function yamlRootFlowMappingValues(text, key) {
   return yamlFlowMappingEntriesAt(text, openingBraceIndex)
     .filter((entry) => entry.key.toLowerCase() === key.toLowerCase())
     .map((entry) => entry.value);
-}
-
-function yamlFlowMappingHasKey(value, key) {
-  return yamlFlowMappingValues(value, key).length > 0;
 }
 
 function isYamlFlowMappingStart(text, index) {
@@ -665,7 +868,9 @@ function readYamlFlowKey(text, startIndex) {
       }
       if (text[cursor] === quote) {
         return {
-          key: text.slice(startIndex + 1, cursor),
+          key: quote === "\""
+            ? decodeYamlDoubleQuotedScalar(text.slice(startIndex + 1, cursor))
+            : text.slice(startIndex + 1, cursor).replaceAll("''", "'"),
           nextIndex: cursor + 1,
         };
       }
@@ -689,7 +894,7 @@ function hasUntrustedPullRequestCheckout(text, scalarAnchors) {
       continue;
     }
     const refs = yamlFlowMappingValues(withEntry.value, "ref");
-    if (refs.some((ref) => isUntrustedPullRequestRef(yamlScalarValue(ref)))) {
+    if (refs.some((ref) => isUntrustedPullRequestRef(resolveYamlScalarValue(ref, scalarAnchors)))) {
       return true;
     }
   }
@@ -699,9 +904,11 @@ function hasUntrustedPullRequestCheckout(text, scalarAnchors) {
     if (!sequenceItem) continue;
     const itemIndentation = sequenceItem[1].length;
     const flowUses = yamlFlowMappingValue(sequenceItem[2], "uses");
+    const flowRefs = yamlFlowMappingValues(sequenceItem[2], "ref");
     if (flowUses && /^actions\/checkout@/iu.test(resolveYamlScalarValue(flowUses, scalarAnchors))
-      && yamlFlowMappingHasKey(sequenceItem[2], "ref")
-      && isUntrustedPullRequestRef(sequenceItem[2])) {
+      && flowRefs.some((ref) => isUntrustedPullRequestRef(
+        resolveYamlScalarValue(ref, scalarAnchors),
+      ))) {
       return true;
     }
     const entries = [];
@@ -727,13 +934,17 @@ function hasUntrustedPullRequestCheckout(text, scalarAnchors) {
       && entry.key.toLowerCase() === "with");
     if (withIndex < 0) continue;
     const withEntry = entries[withIndex];
-    if (yamlValueContainsToken(withEntry.value, "ref") && isUntrustedPullRequestRef(withEntry.value)) {
+    if (yamlFlowMappingValues(withEntry.value, "ref").some((ref) => isUntrustedPullRequestRef(
+      resolveYamlScalarValue(ref, scalarAnchors),
+    ))) {
       return true;
     }
     for (let entryIndex = withIndex + 1; entryIndex < entries.length; entryIndex += 1) {
       const entry = entries[entryIndex];
       if (entry.indentation <= mappingIndentation) break;
-      if (entry.key.toLowerCase() === "ref" && isUntrustedPullRequestRef(entry.value)) {
+      if (entry.key.toLowerCase() === "ref" && isUntrustedPullRequestRef(
+        resolveYamlScalarValue(entry.value, scalarAnchors),
+      )) {
         return true;
       }
     }
@@ -1014,8 +1225,10 @@ function refGlobCharacterClass(pattern, openingIndex) {
   if (pattern[closingIndex] === "]") closingIndex += 1;
   while (closingIndex < pattern.length && pattern[closingIndex] !== "]") closingIndex += 1;
   if (closingIndex >= pattern.length) return undefined;
-  const content = pattern.slice(openingIndex + 1, closingIndex);
-  if (content.length === 0) return undefined;
+  const rawContent = pattern.slice(openingIndex + 1, closingIndex);
+  if (rawContent.length === 0) return undefined;
+  const negated = rawContent.startsWith("!") && rawContent.length > 1;
+  const content = negated ? rawContent.slice(1) : rawContent;
   let expression = "";
   for (let index = 0; index < content.length; index += 1) {
     const character = content[index];
@@ -1030,7 +1243,7 @@ function refGlobCharacterClass(pattern, openingIndex) {
   }
   return {
     closingIndex,
-    expression: `(?=[^/])[${expression}]`,
+    expression: `(?=[^/])[${negated ? "^" : ""}${expression}]`,
   };
 }
 
