@@ -410,7 +410,10 @@ function yamlKeyValues(text, key, { indentation: requiredIndentation } = {}) {
     }
     values.push(value.trim());
   }
-  return values;
+  const flowValues = requiredIndentation === 0
+    ? yamlRootFlowMappingValues(text, key)
+    : yamlFlowMappingValues(text, key);
+  return [...values, ...flowValues];
 }
 
 function yamlScalarValue(value) {
@@ -437,20 +440,146 @@ function yamlValueContainsToken(value, expectedToken) {
     .some((token) => token.toLowerCase() === expectedToken.toLowerCase());
 }
 
+function yamlFlowMappingValues(text, key) {
+  const values = [];
+  let quote;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (quote) {
+      if (quote === "'" && character === "'" && text[index + 1] === "'") {
+        index += 1;
+      } else if (quote === "\"" && character === "\\") {
+        index += 1;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (character === "'" || character === "\"") {
+      quote = character;
+      continue;
+    }
+    if (character !== "{" || !isYamlFlowMappingStart(text, index)) continue;
+    for (const entry of yamlFlowMappingEntriesAt(text, index)) {
+      if (entry.key.toLowerCase() === key.toLowerCase()) {
+        values.push(entry.value);
+      }
+    }
+  }
+  return values;
+}
+
 function yamlFlowMappingValue(value, key) {
-  const escapedKey = escapeRegExp(key);
-  const keyPattern = "(?:\"" + escapedKey + "\"|'" + escapedKey + "'|" + escapedKey + ")";
-  const match = new RegExp(
-    "(?:^|[{,])\\s*" + keyPattern + "\\s*:\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s,}]+))",
-    "iu",
-  ).exec(value.trim());
-  return match ? match[1] ?? match[2] ?? match[3] : undefined;
+  return yamlFlowMappingValues(value, key)[0];
+}
+
+function yamlRootFlowMappingValues(text, key) {
+  const openingBraceIndex = text.search(/\S/u);
+  if (openingBraceIndex < 0 || text[openingBraceIndex] !== "{") return [];
+  return yamlFlowMappingEntriesAt(text, openingBraceIndex)
+    .filter((entry) => entry.key.toLowerCase() === key.toLowerCase())
+    .map((entry) => entry.value);
 }
 
 function yamlFlowMappingHasKey(value, key) {
-  const escapedKey = escapeRegExp(key);
-  const keyPattern = "(?:\"" + escapedKey + "\"|'" + escapedKey + "'|" + escapedKey + ")";
-  return new RegExp("(?:^|[{,])\\s*" + keyPattern + "\\s*:", "iu").test(value.trim());
+  return yamlFlowMappingValues(value, key).length > 0;
+}
+
+function isYamlFlowMappingStart(text, index) {
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    if (/\s/u.test(text[cursor])) continue;
+    return [":", ",", "[", "{", "-"].includes(text[cursor]);
+  }
+  return true;
+}
+
+function yamlFlowMappingEntriesAt(text, openingBraceIndex) {
+  const entries = [];
+  let cursor = openingBraceIndex + 1;
+  while (cursor < text.length) {
+    while (cursor < text.length && /\s/u.test(text[cursor])) cursor += 1;
+    if (text[cursor] === "}") break;
+    const keyResult = readYamlFlowKey(text, cursor);
+    if (!keyResult) break;
+    cursor = keyResult.nextIndex;
+    while (cursor < text.length && /\s/u.test(text[cursor])) cursor += 1;
+    if (text[cursor] !== ":") break;
+    cursor += 1;
+    const valueStart = cursor;
+    let braces = 0;
+    let brackets = 0;
+    let quote;
+    while (cursor < text.length) {
+      const character = text[cursor];
+      if (quote) {
+        if (quote === "'" && character === "'" && text[cursor + 1] === "'") {
+          cursor += 2;
+          continue;
+        }
+        if (quote === "\"" && character === "\\") {
+          cursor += 2;
+          continue;
+        }
+        if (character === quote) quote = undefined;
+        cursor += 1;
+        continue;
+      }
+      if (character === "'" || character === "\"") {
+        quote = character;
+      } else if (character === "{") {
+        braces += 1;
+      } else if (character === "}") {
+        if (braces === 0 && brackets === 0) break;
+        braces -= 1;
+      } else if (character === "[") {
+        brackets += 1;
+      } else if (character === "]") {
+        brackets -= 1;
+      } else if (character === "," && braces === 0 && brackets === 0) {
+        break;
+      }
+      cursor += 1;
+    }
+    entries.push({
+      key: keyResult.key,
+      value: text.slice(valueStart, cursor).trim(),
+    });
+    if (text[cursor] === ",") {
+      cursor += 1;
+      continue;
+    }
+    break;
+  }
+  return entries;
+}
+
+function readYamlFlowKey(text, startIndex) {
+  const quote = text[startIndex];
+  if (quote === "'" || quote === "\"") {
+    let cursor = startIndex + 1;
+    while (cursor < text.length) {
+      if (quote === "'" && text[cursor] === "'" && text[cursor + 1] === "'") {
+        cursor += 2;
+        continue;
+      }
+      if (quote === "\"" && text[cursor] === "\\") {
+        cursor += 2;
+        continue;
+      }
+      if (text[cursor] === quote) {
+        return {
+          key: text.slice(startIndex + 1, cursor),
+          nextIndex: cursor + 1,
+        };
+      }
+      cursor += 1;
+    }
+    return undefined;
+  }
+  let cursor = startIndex;
+  while (cursor < text.length && !/[:,{}]/u.test(text[cursor])) cursor += 1;
+  const key = text.slice(startIndex, cursor).trim();
+  return key.length > 0 ? { key, nextIndex: cursor } : undefined;
 }
 
 function hasUntrustedPullRequestCheckout(text) {

@@ -379,6 +379,22 @@ test("anchored write-all permissions are release-blocking", () => {
   assertFinding(audit.result, "workflow-write-all", ".github/workflows/anchored-permissions.yml");
 });
 
+test("flow-style workflow mappings preserve guarded key checks", () => {
+  const repoRoot = makeRepository();
+  write(
+    repoRoot,
+    ".github/workflows/flow-document.yml",
+    "{name: unsafe, on: push, \"permissions\": write-all, jobs: {build: {'runs-on': self-hosted}}}\n",
+  );
+  commitAll(repoRoot, "add flow workflow document");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/flow-document.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/flow-document.yml");
+});
+
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/quoted-runner-key.yml", [
