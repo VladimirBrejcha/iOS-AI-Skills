@@ -1552,6 +1552,38 @@ test("issue_comment pull-request checkouts are privileged and untrusted", () => 
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/issue-comment-checkout.yml");
 });
 
+test("constructed issue_comment pull-request refs remain untrusted", () => {
+  const repoRoot = makeRepository();
+  const expression = [
+    "$",
+    "{{ format('refs/{0}/{1}/head', 'pull', github.event.issue.number) }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/constructed-issue-comment-checkout.yml", [
+    "name: constructed issue comment checkout",
+    "on: issue_comment",
+    "permissions:",
+    "  contents: write",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add constructed issue comment checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/constructed-issue-comment-checkout.yml",
+  );
+});
+
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/mutable-docker.yml", [
@@ -1700,6 +1732,41 @@ test("local composite action dependencies are audited recursively", () => {
   );
 });
 
+test("flow-style composite runs expand block sequence aliases", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/flow-composite-alias.yml", [
+    "name: flow composite alias",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/flow-composite-alias",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/flow-composite-alias/action.yml", [
+    "name: flow composite alias",
+    "x-steps: &unsafe-steps",
+    "  - uses: actions/checkout@" + "a".repeat(40),
+    "    with:",
+    "      ref: " + expression,
+    "runs: { using: composite, steps: *unsafe-steps }",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add flow composite sequence alias");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/actions/flow-composite-alias/action.yml",
+  );
+});
+
 test("caller taint propagates into local composite action inputs", () => {
   const repoRoot = makeRepository();
   const headExpression = ["$", "{{ github.head_ref }}"].join("");
@@ -1740,6 +1807,52 @@ test("caller taint propagates into local composite action inputs", () => {
     "workflow-privileged-untrusted-checkout",
     ".github/actions/input-checkout/action.yml",
   );
+});
+
+test("composite input defaults are tainted unless callers override them", () => {
+  const unsafeRepo = makeRepository();
+  const safeRepo = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const inputExpression = ["$", "{{ inputs.ref }}"].join("");
+  for (const [repoRoot, override] of [[unsafeRepo, false], [safeRepo, true]]) {
+    write(repoRoot, ".github/workflows/composite-default.yml", [
+      "name: composite default",
+      "on: pull_request_target",
+      "permissions: read-all",
+      "jobs:",
+      "  inspect:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - uses: ./.github/actions/default-checkout",
+      ...(override ? ["        with:", "          ref: main"] : []),
+      "",
+    ].join("\n"));
+    write(repoRoot, ".github/actions/default-checkout/action.yml", [
+      "name: default checkout",
+      "inputs:",
+      "  ref:",
+      "    default: " + headExpression,
+      "runs:",
+      "  using: composite",
+      "  steps:",
+      "    - uses: actions/checkout@" + "a".repeat(40),
+      "      with:",
+      "        ref: " + inputExpression,
+      "",
+    ].join("\n"));
+    commitAll(repoRoot, "add composite default checkout");
+  }
+
+  const unsafeAudit = runAudit(unsafeRepo);
+  const safeAudit = runAudit(safeRepo);
+
+  assert.equal(unsafeAudit.status, 1);
+  assertFinding(
+    unsafeAudit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/actions/default-checkout/action.yml",
+  );
+  assert.equal(safeAudit.status, 0);
 });
 
 test("action.yml takes precedence while action.yaml remains a fallback", () => {
@@ -1994,6 +2107,39 @@ test("required-check strictness is associated with the supplying rule", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "github-required-check-not-strict");
+  assert.equal(
+    audit.result.findings.some((finding) => finding.ruleId === "github-required-check-not-strict"
+      && finding.check === "verify"),
+    true,
+  );
+});
+
+test("required-check strictness and app identity come from the same record", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshot = githubSnapshot();
+  snapshot.rulesets[0].rules[2].parameters.strict_required_status_checks_policy = false;
+  snapshot.rulesets.push({
+    bypass_actors: [],
+    conditions: { ref_name: { exclude: [], include: ["~DEFAULT_BRANCH"] } },
+    enforcement: "active",
+    rules: [{
+      parameters: {
+        required_status_checks: [{ context: "verify", integration_id: 999 }],
+        strict_required_status_checks_policy: true,
+      },
+      type: "required_status_checks",
+    }],
+    target: "branch",
+  });
+
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(snapshot),
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(audit.status, 1);
   assert.equal(
     audit.result.findings.some((finding) => finding.ruleId === "github-required-check-not-strict"
       && finding.check === "verify"),

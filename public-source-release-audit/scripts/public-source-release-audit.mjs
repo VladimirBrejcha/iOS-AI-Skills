@@ -322,6 +322,10 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
         .filter((image) => image.startsWith("docker://"))),
     ];
     const analysis = {
+      inputDefaultBindings: actionInputDefaultBindings(
+        syntax.uncommented,
+        syntax.scalarAnchors,
+      ),
       references,
       stepGroups,
       syntax,
@@ -347,13 +351,19 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
     });
     const visited = new Set();
     while (pending.length > 0) {
-      const { depth, manifestPath, taintedBindings } = pending.pop();
-      const stateKey = `${manifestPath}\0${[...taintedBindings].sort().join("\0")}`;
-      if (depth > 10 || visited.has(stateKey)) continue;
-      visited.add(stateKey);
+      const { depth, manifestPath, providedBindings, taintedBindings } = pending.pop();
+      if (depth > 10) continue;
       const action = actionBySnapshotPath.get(`${workflow.snapshot}\0${manifestPath}`);
       if (!action) continue;
       const analysis = analysisFor(action);
+      const effectiveTaintedBindings = actionInputTaintedBindings(
+        analysis.inputDefaultBindings,
+        taintedBindings,
+        providedBindings,
+      );
+      const stateKey = `${manifestPath}\0${[...effectiveTaintedBindings].sort().join("\0")}`;
+      if (visited.has(stateKey)) continue;
+      visited.add(stateKey);
       for (const reference of analysis.references) {
         if (isMutableRemoteActionReference(reference)) {
           findings.push(workflowFinding({
@@ -368,7 +378,7 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
       pending.push(...compositeLocalActionCalls(
         analysis.stepGroups,
         analysis.syntax.scalarAnchors,
-        taintedBindings,
+        effectiveTaintedBindings,
       ).flatMap((call) => {
         const nestedPath = resolveManifestPath(call.reference);
         return nestedPath ? [{
@@ -380,7 +390,7 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
       if (privileged && analysis.stepGroups.some((stepGroup) => stepGroupHasUntrustedCheckout(
         stepGroup,
         analysis.syntax.scalarAnchors,
-        taintedBindings,
+        effectiveTaintedBindings,
       ))) {
         findings.push(workflowFinding({
           message: "A local composite action called from a privileged workflow must not execute an untrusted checkout.",
@@ -397,6 +407,39 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
 
 function localActionManifestPath(reference, manifestExists) {
   return localActionManifestCandidates(reference).find(manifestExists);
+}
+
+function actionInputDefaultBindings(text, scalarAnchors) {
+  return workflowRootContainerGroups(text, "inputs", scalarAnchors)
+    .flatMap((group) => group.properties.flatMap((inputProperty) => (
+      workflowPropertyMappingEntries(group, inputProperty, scalarAnchors)
+        .filter(({ entry }) => entry.key.toLowerCase() === "default")
+        .map(({ entry }) => ({
+          name: resolveYamlScalarValue(inputProperty.entry.key, scalarAnchors).toLowerCase(),
+          namespace: "inputs",
+          value: resolveYamlScalarValue(entry.value, scalarAnchors),
+        }))
+    )));
+}
+
+function actionInputTaintedBindings(defaultBindings, callerTaintedBindings, providedBindings) {
+  const taintedBindings = new Set(callerTaintedBindings);
+  const defaults = defaultBindings.filter((binding) => (
+    !providedBindings.has(`${binding.namespace}.${binding.name}`)
+  ));
+  let changed;
+  do {
+    changed = false;
+    for (const binding of defaults) {
+      const name = `${binding.namespace}.${binding.name}`;
+      if (!taintedBindings.has(name)
+        && isUntrustedReusableValue(binding.value, taintedBindings)) {
+        taintedBindings.add(name);
+        changed = true;
+      }
+    }
+  } while (changed);
+  return taintedBindings;
 }
 
 function localActionManifestCandidates(reference) {
@@ -698,8 +741,12 @@ function localActionCallsFromStepGroup(stepGroup, scalarAnchors, inheritedTainte
     workflowMappingBindings(stepGroup, "env", "env", scalarAnchors),
     inheritedTaintedBindings,
   );
+  const inputBindings = workflowMappingBindings(stepGroup, "with", "inputs", scalarAnchors);
+  const providedBindings = new Set(inputBindings.map((binding) => (
+    `${binding.namespace}.${binding.name}`
+  )));
   const taintedBindings = new Set();
-  for (const binding of workflowMappingBindings(stepGroup, "with", "inputs", scalarAnchors)) {
+  for (const binding of inputBindings) {
     if (isUntrustedReusableValue(binding.value, stepTaintedBindings)) {
       taintedBindings.add(`${binding.namespace}.${binding.name}`);
     }
@@ -708,7 +755,7 @@ function localActionCallsFromStepGroup(stepGroup, scalarAnchors, inheritedTainte
     .filter(({ entry }) => entry.key.toLowerCase() === "uses")
     .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
     .filter((reference) => localActionManifestCandidates(reference).length > 0)
-    .map((reference) => ({ reference, taintedBindings }));
+    .map((reference) => ({ providedBindings, reference, taintedBindings }));
 }
 
 function isUntrustedReusableValue(value, taintedBindings) {
@@ -1868,7 +1915,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.head_sha)/iu
+  return /(?:github\.head_ref|github\.event\.issue\.number|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.head_sha)/iu
     .test(normalizeExpressionPropertyAccess(value));
 }
 
@@ -1933,18 +1980,20 @@ function mappingContainerStepPropertyGroups(containerGroup, scalarAnchors) {
         property.entry,
         scalarAnchors,
       ));
-      const aliasParent = yamlBlockSequenceAliasParentEntry(
-        inlineValue,
-        containerGroup.entries,
+    }
+    const entries = containerGroup.entries
+      ?? yamlBlockMappingEntries(containerGroup.text, scalarAnchors);
+    const aliasParent = yamlBlockSequenceAliasParentEntry(
+      inlineValue,
+      entries,
+      scalarAnchors,
+    );
+    if (aliasParent) {
+      stepGroups.push(...workflowBlockStepPropertyGroups(
+        { ...containerGroup, entries },
+        aliasParent,
         scalarAnchors,
-      );
-      if (aliasParent) {
-        stepGroups.push(...workflowBlockStepPropertyGroups(
-          containerGroup,
-          aliasParent,
-          scalarAnchors,
-        ));
-      }
+      ));
     }
   }
   return stepGroups;
@@ -2203,8 +2252,10 @@ function auditGithubControls(evidence, requiredChecks) {
     ...classicChecks
       .filter((check) => check.app_id === GITHUB_ACTIONS_APP_ID),
   ].map((check) => check.context).filter((context) => typeof context === "string"));
-  const strictRequiredContexts = new Set([...rulesetChecks, ...classicChecks]
-    .filter((check) => check.strict)
+  const strictGithubActionsContexts = new Set([...rulesetChecks, ...classicChecks]
+    .filter((check) => check.strict
+      && (check.integration_id === GITHUB_ACTIONS_APP_ID
+        || check.app_id === GITHUB_ACTIONS_APP_ID))
     .map((check) => check.context)
     .filter((context) => typeof context === "string"));
   const forcePushProtected = rules.some((rule) => rule.type === "non_fast_forward")
@@ -2229,20 +2280,15 @@ function auditGithubControls(evidence, requiredChecks) {
   if (classic?.enforce_admins?.enabled === true) {
     unbypassableStatusChecks.push(...classicChecks);
   }
-  const unbypassableStrictContexts = new Set(unbypassableStatusChecks
-    .filter((check) => check.strict)
-    .map((check) => check.context)
-    .filter((context) => typeof context === "string"));
-  const unbypassableGithubActionsContexts = new Set(unbypassableStatusChecks
-    .filter((check) => check.integration_id === GITHUB_ACTIONS_APP_ID
-      || check.app_id === GITHUB_ACTIONS_APP_ID)
+  const unbypassableStrictGithubActionsContexts = new Set(unbypassableStatusChecks
+    .filter((check) => check.strict
+      && (check.integration_id === GITHUB_ACTIONS_APP_ID
+        || check.app_id === GITHUB_ACTIONS_APP_ID))
     .map((check) => check.context)
     .filter((context) => typeof context === "string"));
   const statusChecksAreUnbypassable = requiredChecks.length > 0
-    ? requiredChecks.every((context) => unbypassableStrictContexts.has(context)
-      && unbypassableGithubActionsContexts.has(context))
-    : [...unbypassableStrictContexts]
-      .some((context) => unbypassableGithubActionsContexts.has(context));
+    ? requiredChecks.every((context) => unbypassableStrictGithubActionsContexts.has(context))
+    : unbypassableStrictGithubActionsContexts.size > 0;
   const forcePushProtectionIsUnbypassable = unbypassableRules
     .some((rule) => rule.type === "non_fast_forward")
     || (classic?.enforce_admins?.enabled === true
@@ -2273,21 +2319,18 @@ function auditGithubControls(evidence, requiredChecks) {
         `Required status check ${requiredCheck} is not bound to GitHub Actions.`,
         requiredCheck,
       ));
+    } else if (!strictGithubActionsContexts.has(requiredCheck)) {
+      findings.push(githubFinding(
+        "github-required-check-not-strict",
+        `Required status check ${requiredCheck} does not enforce an up-to-date default branch as a GitHub Actions check.`,
+        requiredCheck,
+      ));
     }
   }
-  const strictnessContexts = requiredChecks.length > 0
-    ? requiredChecks.filter((context) => requiredContexts.has(context))
-    : [...requiredContexts];
-  const nonStrictContexts = strictnessContexts
-    .filter((context) => !strictRequiredContexts.has(context));
-  for (const context of nonStrictContexts) {
-    findings.push(githubFinding(
-      "github-required-check-not-strict",
-      `Required status check ${context} does not enforce an up-to-date default branch.`,
-      context,
-    ));
-  }
-  if (nonStrictContexts.length === 0 && strictRequiredContexts.size === 0) {
+  if (strictGithubActionsContexts.size === 0
+    && (requiredChecks.length === 0
+      || !requiredChecks.some((context) => requiredContexts.has(context)
+        && githubActionsContexts.has(context)))) {
     findings.push(githubFinding("github-required-check-not-strict", "Required checks must enforce an up-to-date default branch."));
   }
   if (forcePushProtected === false) {
