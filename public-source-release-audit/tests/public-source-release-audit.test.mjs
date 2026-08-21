@@ -1341,6 +1341,65 @@ test("reusable workflow outputs propagate taint back to callers", () => {
   );
 });
 
+test("nested reusable outputs taint sinks in intermediate workflows", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const jobOutputExpression = ["$", "{{ jobs.source.outputs.ref }}"].join("");
+  const nestedOutputExpression = ["$", "{{ needs.nested.outputs.ref }}"].join("");
+  write(repoRoot, ".github/workflows/nested-output-root.yml", [
+    "name: nested output root",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  call:",
+    "    uses: ./.github/workflows/nested-output-middle.yml",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/nested-output-middle.yml", [
+    "name: nested output middle",
+    "on: workflow_call",
+    "permissions: read-all",
+    "jobs:",
+    "  nested:",
+    "    uses: ./.github/workflows/nested-output-leaf.yml",
+    "  inspect:",
+    "    needs: nested",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + nestedOutputExpression,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/nested-output-leaf.yml", [
+    "name: nested output leaf",
+    "on:",
+    "  workflow_call:",
+    "    outputs:",
+    "      ref:",
+    "        value: " + jobOutputExpression,
+    "permissions: read-all",
+    "jobs:",
+    "  source:",
+    "    runs-on: ubuntu-latest",
+    "    outputs:",
+    "      ref: " + headExpression,
+    "    steps:",
+    "      - run: echo source",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add nested reusable output checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/nested-output-middle.yml",
+  );
+});
+
 test("untrusted refs propagate through workflow job and step environments", () => {
   const repoRoot = makeRepository();
   const headExpression = ["$", "{{ github.head_ref }}"].join("");
@@ -2028,6 +2087,47 @@ test("artifact execution tracks inline shell directory changes", () => {
   );
 });
 
+test("artifact execution recognizes common command wrappers and paths", () => {
+  const repoRoot = makeRepository();
+  const runIdExpression = ["$", "{{ github.event.workflow_run.id }}"].join("");
+  for (const [name, command] of [
+    ["exec", "cd payload && exec bash run.sh"],
+    ["absolute-interpreter", "cd payload && /bin/bash run.sh"],
+    ["direct-path", "payload/run.sh"],
+  ]) {
+    write(repoRoot, `.github/workflows/workflow-run-artifact-${name}.yml`, [
+      `name: workflow run artifact ${name}`,
+      "on:",
+      "  workflow_run:",
+      "    workflows: [verify]",
+      "    types: [completed]",
+      "permissions: read-all",
+      "jobs:",
+      "  inspect:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - uses: actions/download-artifact@" + "a".repeat(40),
+      "        with:",
+      "          run-id: " + runIdExpression,
+      "          path: payload",
+      "      - run: " + command,
+      "",
+    ].join("\n"));
+  }
+  commitAll(repoRoot, "add common artifact execution commands");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  for (const name of ["exec", "absolute-interpreter", "direct-path"]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-artifact-execution",
+      `.github/workflows/workflow-run-artifact-${name}.yml`,
+    );
+  }
+});
+
 test("issue_comment pull-request checkouts are privileged and untrusted", () => {
   const repoRoot = makeRepository();
   const issueExpression = ["$", "{{ github.event.issue.number }}"].join("");
@@ -2334,6 +2434,61 @@ test("tainted environment values cannot reach shell evaluators", () => {
   );
 });
 
+test("tainted script text cannot be piped into shell interpreters", () => {
+  const repoRoot = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  write(repoRoot, ".github/workflows/comment-pipe-shell.yml", [
+    "name: comment pipe shell",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: printf '%s' \"$COMMAND\" | bash",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add tainted shell pipeline");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-pipe-shell.yml",
+  );
+});
+
+test("privileged workflows reject attacker-selected shell templates", () => {
+  const repoRoot = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  write(repoRoot, ".github/workflows/comment-shell-template.yml", [
+    "name: comment shell template",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - shell: " + bodyExpression,
+    "        run: echo trusted",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add attacker-selected shell template");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-shell-template.yml",
+  );
+});
+
 test("public event author identities are untrusted checkout coordinates", () => {
   const repoRoot = makeRepository();
   const issueAuthorExpression = [
@@ -2372,6 +2527,36 @@ test("public event author identities are untrusted checkout coordinates", () => 
       `.github/workflows/${name}-checkout.yml`,
     );
   }
+});
+
+test("fork events are privileged and expose untrusted repositories", () => {
+  const repoRoot = makeRepository();
+  const repositoryExpression = ["$", "{{ github.event.forkee.full_name }}"].join("");
+  write(repoRoot, ".github/workflows/fork-checkout.yml", [
+    "name: fork checkout",
+    "on: fork",
+    "permissions:",
+    "  contents: write",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          repository: " + repositoryExpression,
+    "          ref: main",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add fork checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/fork-checkout.yml",
+  );
 });
 
 test("privileged workflows reject shell-based untrusted checkouts", () => {
@@ -2555,6 +2740,35 @@ test("privileged workflows reject attacker-selected container images", () => {
   }
 });
 
+test("privileged workflows reject attacker-selected runners", () => {
+  const repoRoot = makeRepository();
+  const matrixExpression = ["$", "{{ fromJSON(github.event.comment.body) }}"].join("");
+  const runnerExpression = ["$", "{{ matrix.runner }}"].join("");
+  write(repoRoot, ".github/workflows/dynamic-public-runner.yml", [
+    "name: dynamic public runner",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    strategy:",
+    "      matrix: " + matrixExpression,
+    "    runs-on: " + runnerExpression,
+    "    steps:",
+    "      - run: echo inspect",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add attacker-selected runner");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-runner",
+    ".github/workflows/dynamic-public-runner.yml",
+  );
+});
+
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/mutable-docker.yml", [
@@ -2700,6 +2914,43 @@ test("local composite action dependencies are audited recursively", () => {
     audit.result,
     "workflow-mutable-action-ref",
     ".github/actions/outer/action.yml",
+  );
+});
+
+test("local action references cannot traverse tracked symlinks", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/symlink-action.yml", [
+    "name: symlink action",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/link",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/target/action.yml", [
+    "name: symlink target",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: actions/checkout@" + "a".repeat(40),
+    "      with:",
+    "        ref: " + headExpression,
+    "",
+  ].join("\n"));
+  symlinkSync("target", path.join(repoRoot, ".github/actions/link"));
+  commitAll(repoRoot, "add symlinked local action");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-local-action-symlink",
+    ".github/workflows/symlink-action.yml",
   );
 });
 

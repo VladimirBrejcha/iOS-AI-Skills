@@ -16,6 +16,7 @@ const DOCKERFILE_PATH_PATTERN = /(?:^|\/)(?:Dockerfile|[^/]+\.dockerfile)$/iu;
 const PRIVILEGED_WORKFLOW_TRIGGERS = new Set([
   "discussion",
   "discussion_comment",
+  "fork",
   "issue_comment",
   "issues",
   "pull_request_target",
@@ -183,9 +184,25 @@ function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
   const findings = [];
   const actionSources = [];
   const dockerfileSources = [];
+  const symlinkSources = [];
   const workflowSources = [];
 
   for (const entry of entries) {
+    if (entry.mode === "120000") {
+      symlinkSources.push(entry);
+      if (WORKFLOW_PATH_PATTERN.test(entry.path)
+        || ACTION_MANIFEST_PATH_PATTERN.test(entry.path)
+        || DOCKERFILE_PATH_PATTERN.test(entry.path)) {
+        findings.push(workflowFinding({
+          message: "Workflow, local-action, and Dockerfile entrypoints must be regular tracked files.",
+          path: entry.path,
+          ruleId: "workflow-entrypoint-not-regular",
+          severity: "error",
+          source: entry.source,
+        }));
+      }
+      continue;
+    }
     if (entry.mode !== "100644" && entry.mode !== "100755") {
       findings.push(workflowFinding({
         message: "Workflow, local-action, and Dockerfile entrypoints must be regular tracked files.",
@@ -229,6 +246,7 @@ function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
     workflowSources,
     actionSources,
     dockerfileSources,
+    symlinkSources,
   ));
 
   return findings;
@@ -384,6 +402,19 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
         source: caller.source,
       }));
     }
+    if (hasUntrustedWorkflowRunnerSelection(
+      callerAnalysis.syntax.uncommented,
+      callerAnalysis.syntax.scalarAnchors,
+      returnedBindings,
+    )) {
+      findings.push(workflowFinding({
+        message: "A privileged workflow must not select runner labels or groups from untrusted reusable-workflow output.",
+        path: caller.path,
+        ruleId: "workflow-privileged-untrusted-runner",
+        severity: "error",
+        source: caller.source,
+      }));
+    }
     const pending = callerAnalysis.localCalls.map((call) => ({
       depth: 1,
       taintedBindings: reusableCallTaintedBindings(call, returnedBindings),
@@ -392,17 +423,22 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
     const visited = new Set();
     while (pending.length > 0) {
       const { depth, taintedBindings, workflowPath } = pending.pop();
-      const stateKey = `${workflowPath}\0${[...taintedBindings].sort().join("\0")}`;
-      if (depth > 10 || visited.has(stateKey)) continue;
-      visited.add(stateKey);
+      if (depth > 10) continue;
       const callee = sourceBySnapshotPath.get(`${caller.snapshot}\0${workflowPath}`);
       if (!callee) continue;
       const calleeAnalysis = analysisFor(callee);
       if (!calleeAnalysis.isReusable) continue;
+      const effectiveTaintedBindings = mergeTaintedBindings(
+        taintedBindings,
+        returnedBindingsFor(callee, taintedBindings),
+      );
+      const stateKey = `${workflowPath}\0${[...effectiveTaintedBindings].sort().join("\0")}`;
+      if (visited.has(stateKey)) continue;
+      visited.add(stateKey);
       if (hasUntrustedPullRequestCheckout(
         calleeAnalysis.syntax.uncommented,
         calleeAnalysis.syntax.scalarAnchors,
-        taintedBindings,
+        effectiveTaintedBindings,
       )) {
         findings.push(workflowFinding({
           message: "A reusable workflow called from a privileged trigger must not execute an untrusted checkout.",
@@ -415,7 +451,7 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
       if (hasUntrustedWorkflowArtifactExecution(
         calleeAnalysis.syntax.uncommented,
         calleeAnalysis.syntax.scalarAnchors,
-        taintedBindings,
+        effectiveTaintedBindings,
       )) {
         findings.push(workflowFinding({
           message: "A reusable workflow called from a privileged trigger must not execute untrusted workflow artifacts.",
@@ -428,10 +464,10 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
       if (hasUntrustedScriptInterpolation(
         calleeAnalysis.syntax.uncommented,
         calleeAnalysis.syntax.scalarAnchors,
-        taintedBindings,
+        effectiveTaintedBindings,
       )) {
         findings.push(workflowFinding({
-          message: "A reusable workflow called from a privileged trigger must not interpolate untrusted values directly into scripts.",
+          message: "A reusable workflow called from a privileged trigger must not use untrusted script text, shell templates, or evaluated values.",
           path: callee.path,
           ruleId: "workflow-privileged-untrusted-script-interpolation",
           severity: "error",
@@ -441,7 +477,7 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
       if (hasUntrustedWorkflowContainerImage(
         calleeAnalysis.syntax.uncommented,
         calleeAnalysis.syntax.scalarAnchors,
-        taintedBindings,
+        effectiveTaintedBindings,
       )) {
         findings.push(workflowFinding({
           message: "A reusable workflow called from a privileged trigger must not select a job or service container image from untrusted input.",
@@ -451,9 +487,25 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
           source: callee.source,
         }));
       }
+      if (hasUntrustedWorkflowRunnerSelection(
+        calleeAnalysis.syntax.uncommented,
+        calleeAnalysis.syntax.scalarAnchors,
+        effectiveTaintedBindings,
+      )) {
+        findings.push(workflowFinding({
+          message: "A reusable workflow called from a privileged trigger must not select runner labels or groups from untrusted input.",
+          path: callee.path,
+          ruleId: "workflow-privileged-untrusted-runner",
+          severity: "error",
+          source: callee.source,
+        }));
+      }
       pending.push(...calleeAnalysis.localCalls.map((nestedCall) => ({
         depth: depth + 1,
-        taintedBindings: reusableCallTaintedBindings(nestedCall, taintedBindings),
+        taintedBindings: reusableCallTaintedBindings(
+          nestedCall,
+          effectiveTaintedBindings,
+        ),
         workflowPath: nestedCall.workflowPath,
       })));
     }
@@ -505,7 +557,12 @@ function workflowExecutionStates(workflowSources) {
   return states;
 }
 
-function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSources) {
+function auditLocalCompositeActions(
+  workflowSources,
+  actionSources,
+  dockerfileSources,
+  symlinkSources,
+) {
   const actionBySnapshotPath = new Map(actionSources.map((source) => [
     `${source.snapshot}\0${source.path}`,
     source,
@@ -514,6 +571,13 @@ function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSo
     `${source.snapshot}\0${source.path}`,
     source,
   ]));
+  const symlinkPathsBySnapshot = new Map();
+  for (const source of symlinkSources) {
+    if (!symlinkPathsBySnapshot.has(source.snapshot)) {
+      symlinkPathsBySnapshot.set(source.snapshot, new Set());
+    }
+    symlinkPathsBySnapshot.get(source.snapshot).add(source.path);
+  }
   const analysisBySource = new Map();
   const analysisFor = (source) => {
     if (analysisBySource.has(source)) return analysisBySource.get(source);
@@ -577,14 +641,26 @@ function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSo
       reference,
       (manifestPath) => actionBySnapshotPath.has(`${workflow.snapshot}\0${manifestPath}`),
     );
-    const pending = workflowLocalActionCalls(
+    const symlinkPaths = symlinkPathsBySnapshot.get(workflow.snapshot) ?? new Set();
+    const pending = [];
+    for (const call of workflowLocalActionCalls(
       syntax.uncommented,
       syntax.scalarAnchors,
       workflowTaintedBindings,
-    ).flatMap((call) => {
+    )) {
+      if (localActionReferenceUsesSymlink(call.reference, symlinkPaths)) {
+        findings.push(workflowFinding({
+          message: "Local action references must not traverse tracked symbolic links.",
+          path: workflow.path,
+          ruleId: "workflow-local-action-symlink",
+          severity: "error",
+          source: workflow.source,
+        }));
+        continue;
+      }
       const manifestPath = resolveManifestPath(call.reference);
-      return manifestPath ? [{ ...call, depth: 1, manifestPath }] : [];
-    });
+      if (manifestPath) pending.push({ ...call, depth: 1, manifestPath });
+    }
     const visited = new Set();
     while (pending.length > 0) {
       const { depth, manifestPath, providedBindings, taintedBindings } = pending.pop();
@@ -626,18 +702,28 @@ function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSo
           }));
         }
       }
-      pending.push(...compositeLocalActionCalls(
+      for (const call of compositeLocalActionCalls(
         analysis.stepGroups,
         analysis.syntax.scalarAnchors,
         effectiveTaintedBindings,
-      ).flatMap((call) => {
+      )) {
+        if (localActionReferenceUsesSymlink(call.reference, symlinkPaths)) {
+          findings.push(workflowFinding({
+            message: "Local action references must not traverse tracked symbolic links.",
+            path: action.path,
+            ruleId: "workflow-local-action-symlink",
+            severity: "error",
+            source: action.source,
+          }));
+          continue;
+        }
         const nestedPath = resolveManifestPath(call.reference);
-        return nestedPath ? [{
+        if (nestedPath) pending.push({
           ...call,
           depth: depth + 1,
           manifestPath: nestedPath,
-        }] : [];
-      }));
+        });
+      }
       const actionStepContexts = workflowStepTaintAnalysis(
         analysis.stepGroups,
         analysis.syntax.scalarAnchors,
@@ -675,7 +761,7 @@ function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSo
         analysis.syntax.scalarAnchors,
       )) {
         findings.push(workflowFinding({
-          message: "A local composite action called from a privileged workflow must not interpolate untrusted values directly into scripts.",
+          message: "A local composite action called from a privileged workflow must not use untrusted script text, shell templates, or evaluated values.",
           path: action.path,
           ruleId: "workflow-privileged-untrusted-script-interpolation",
           severity: "error",
@@ -689,6 +775,18 @@ function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSo
 
 function localActionManifestPath(reference, manifestExists) {
   return localActionManifestCandidates(reference).find(manifestExists);
+}
+
+function localActionReferenceUsesSymlink(reference, symlinkPaths) {
+  return localActionManifestCandidates(reference).some((candidate) => {
+    const components = candidate.split("/");
+    let current = "";
+    for (const component of components) {
+      current = current.length > 0 ? `${current}/${component}` : component;
+      if (symlinkPaths.has(current)) return true;
+    }
+    return false;
+  });
 }
 
 function localDockerfilePath(actionManifestPath, image) {
@@ -1264,7 +1362,7 @@ function localActionCallsFromStepGroup(stepGroup, scalarAnchors, stepTaintedBind
 function isUntrustedReusableValue(value, taintedBindings) {
   return isUntrustedPullRequestRef(value)
     || isUntrustedPublicEventIdentity(value)
-    || /(?:pull_request\.head\.repo|workflow_run\.(?:head_repository|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head\s*\.\s*repo))(?:\.|\b)/iu
+    || /(?:github\.event\.forkee|pull_request\.head\.repo|workflow_run\.(?:head_repository|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head\s*\.\s*repo))(?:\.|\b)/iu
       .test(normalizeExpressionPropertyAccess(value))
     || valueReferencesTaintedBinding(value, taintedBindings);
 }
@@ -1325,7 +1423,8 @@ function trackedWorkflowEntries(repoRoot, { includeHistory = false } = {}) {
 
   const unique = new Map();
   for (const record of records) {
-    if (WORKFLOW_PATH_PATTERN.test(record.path)
+    if (record.mode === "120000"
+      || WORKFLOW_PATH_PATTERN.test(record.path)
       || ACTION_MANIFEST_PATH_PATTERN.test(record.path)
       || DOCKERFILE_PATH_PATTERN.test(record.path)) {
       const key = `${record.snapshot}\0${record.path}\0${record.objectId}\0${record.mode}`;
@@ -1441,6 +1540,17 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
     }
   }
 
+  if (hasPrivilegedTrigger
+    && hasUntrustedWorkflowRunnerSelection(uncommented, scalarAnchors)) {
+    findings.push(workflowFinding({
+      message: "A privileged workflow must not select runner labels or groups from untrusted event data.",
+      path: workflowPath,
+      ruleId: "workflow-privileged-untrusted-runner",
+      severity: "error",
+      source,
+    }));
+  }
+
   if (hasPullRequestTarget) {
     findings.push(workflowFinding({
       message: "pull_request_target requires an explicit trusted-base and untrusted-head threat-model review.",
@@ -1477,7 +1587,7 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   if (hasPrivilegedTrigger
     && hasUntrustedScriptInterpolation(uncommented, scalarAnchors)) {
     findings.push(workflowFinding({
-      message: "A privileged workflow must not directly interpolate untrusted values into scripts or evaluate tainted environment values as code.",
+      message: "A privileged workflow must not use untrusted script text, shell templates, or evaluated values.",
       path: workflowPath,
       ruleId: "workflow-privileged-untrusted-script-interpolation",
       severity: "error",
@@ -2251,56 +2361,60 @@ function splitGithubExpressionArguments(source) {
 }
 
 function workflowJobRunnerLabelSets(text, scalarAnchors) {
+  return workflowJobPropertyGroups(text, scalarAnchors).flatMap((group) => (
+    workflowJobRunnerLabelSetsForGroup(group, scalarAnchors)
+  ));
+}
+
+function workflowJobRunnerLabelSetsForGroup(group, scalarAnchors) {
   const runnerLabelSets = [];
-  for (const group of workflowJobPropertyGroups(text, scalarAnchors)) {
-    for (const property of group.properties) {
-      if (property.entry.key.toLowerCase() !== "runs-on") continue;
-      const inlineValue = property.entry.inlineValue ?? property.entry.value;
-      const mappingEntries = workflowPropertyMappingEntries(
-        group,
-        property,
-        scalarAnchors,
-      );
-      if (mappingEntries.length > 0) {
-        const mappingRunnerValues = mappingEntries.flatMap((mappingEntry) => {
-          const key = resolveYamlScalarValue(
-            mappingEntry.entry.key,
+  for (const property of group.properties) {
+    if (property.entry.key.toLowerCase() !== "runs-on") continue;
+    const inlineValue = property.entry.inlineValue ?? property.entry.value;
+    const mappingEntries = workflowPropertyMappingEntries(
+      group,
+      property,
+      scalarAnchors,
+    );
+    if (mappingEntries.length > 0) {
+      const mappingRunnerValues = mappingEntries.flatMap((mappingEntry) => {
+        const key = resolveYamlScalarValue(
+          mappingEntry.entry.key,
+          scalarAnchors,
+        ).toLowerCase();
+        if (key === "group") {
+          return [`group: ${resolveYamlScalarValue(
+            mappingEntry.entry.value,
             scalarAnchors,
-          ).toLowerCase();
-          if (key === "group") {
-            return [`group: ${resolveYamlScalarValue(
-              mappingEntry.entry.value,
-              scalarAnchors,
-            )}`];
-          }
-          if (key !== "labels") return [];
-          const labelInlineValue = mappingEntry.entry.inlineValue
-            ?? mappingEntry.entry.value;
-          const blockLabels = group.entries
-            && mappingEntry.index !== undefined
-            && (labelInlineValue.length === 0 || yamlValueHasOnlyProperties(labelInlineValue))
-            ? yamlBlockSequenceValues(group.text, mappingEntry.entry)
-            : undefined;
-          return (blockLabels ?? [mappingEntry.entry.value]).flatMap((value) => (
-            workflowRunnerLabels(value, scalarAnchors)
-          ));
-        });
-        if (mappingRunnerValues.length > 0) {
-          runnerLabelSets.push(mappingRunnerValues);
-          continue;
+          )}`];
         }
+        if (key !== "labels") return [];
+        const labelInlineValue = mappingEntry.entry.inlineValue
+          ?? mappingEntry.entry.value;
+        const blockLabels = group.entries
+          && mappingEntry.index !== undefined
+          && (labelInlineValue.length === 0 || yamlValueHasOnlyProperties(labelInlineValue))
+          ? yamlBlockSequenceValues(group.text, mappingEntry.entry)
+          : undefined;
+        return (blockLabels ?? [mappingEntry.entry.value]).flatMap((value) => (
+          workflowRunnerLabels(value, scalarAnchors)
+        ));
+      });
+      if (mappingRunnerValues.length > 0) {
+        runnerLabelSets.push(mappingRunnerValues);
+        continue;
       }
-      const blockValues = group.entries
-        && property.index !== undefined
-        && (inlineValue.length === 0 || yamlValueHasOnlyProperties(inlineValue))
-        ? yamlBlockSequenceValues(group.text, property.entry)
-        : undefined;
-      const runnerValues = blockValues ?? [property.entry.value];
-      runnerLabelSets.push(runnerValues.flatMap((value) => workflowRunnerLabels(
-        value,
-        scalarAnchors,
-      )));
     }
+    const blockValues = group.entries
+      && property.index !== undefined
+      && (inlineValue.length === 0 || yamlValueHasOnlyProperties(inlineValue))
+      ? yamlBlockSequenceValues(group.text, property.entry)
+      : undefined;
+    const runnerValues = blockValues ?? [property.entry.value];
+    runnerLabelSets.push(runnerValues.flatMap((value) => workflowRunnerLabels(
+      value,
+      scalarAnchors,
+    )));
   }
   return runnerLabelSets;
 }
@@ -2636,13 +2750,41 @@ function hasUntrustedWorkflowContainerImage(
   )));
 }
 
+function hasUntrustedWorkflowRunnerSelection(
+  text,
+  scalarAnchors,
+  taintedBindings = new Set(),
+) {
+  const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
+  const jobTaintAnalyses = workflowJobTaintAnalyses(
+    jobGroups,
+    workflowRootMappingBindings(text, "env", "env", scalarAnchors),
+    scalarAnchors,
+    taintedBindings,
+  );
+  return jobGroups.some((jobGroup) => workflowJobRunnerLabelSetsForGroup(
+    jobGroup,
+    scalarAnchors,
+  ).flat().some((label) => isUntrustedReusableValue(
+    label,
+    jobTaintAnalyses.get(jobGroup)?.configurationTaintedBindings ?? taintedBindings,
+  )));
+}
+
 function stepContextsHaveUntrustedScriptInterpolation(stepContexts, scalarAnchors) {
-  return stepContexts.some(({ stepGroup, taintedBindings }) => stepGroup.properties
-    .filter(({ entry }) => entry.key.toLowerCase() === "run")
-    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
-    .some((runSource) => (/\$\{\{/u.test(runSource)
-      && isUntrustedReusableValue(runSource, taintedBindings))
-      || shellRunEvaluatesTaintedVariable(runSource, taintedBindings)));
+  return stepContexts.some(({ stepGroup, taintedBindings }) => {
+    const hasUntrustedShellTemplate = stepGroup.properties
+      .filter(({ entry }) => entry.key.toLowerCase() === "shell")
+      .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+      .some((shell) => isUntrustedReusableValue(shell, taintedBindings));
+    if (hasUntrustedShellTemplate) return true;
+    return stepGroup.properties
+      .filter(({ entry }) => entry.key.toLowerCase() === "run")
+      .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+      .some((runSource) => (/\$\{\{/u.test(runSource)
+        && isUntrustedReusableValue(runSource, taintedBindings))
+        || shellRunEvaluatesTaintedVariable(runSource, taintedBindings));
+  });
 }
 
 function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
@@ -2652,7 +2794,8 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
       : []
   )));
   const anyEnvironmentVariableTainted = taintedBindings.has("env.*");
-  const evaluatorCommand = /^\s*(?:(?:builtin|command)\s+)?(?:eval\b|(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s|$)|(?:iex|invoke-expression)\b|(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:c|command)(?:\s|$))/iu;
+  const evaluatorCommand = /^\s*(?:(?:builtin|command|exec)\s+)?(?:eval\b|(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s|$)|(?:iex|invoke-expression)\b|(?:(?:\/[^/\s]+)*\/)?(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:c|command)(?:\s|$))/iu;
+  const stdinInterpreterCommand = /^\s*(?:(?:command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:-[^\s]+\s+)*)?(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|powershell|pwsh|sh|zsh)(?:\.exe)?(?:\s|$)/iu;
   for (const segment of shellCommandSegments(runSource)) {
     if (/^\s*#/u.test(segment)) continue;
     const assignment = /^\s*(?:(?:export|local|readonly)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(segment);
@@ -2665,9 +2808,53 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
     if (assignment && segmentReferencesTaint) {
       taintedVariables.add((assignment[1] ?? assignment[2]).toLowerCase());
     }
-    if (evaluatorCommand.test(segment) && segmentReferencesTaint) return true;
+    let pipelineInputTainted = false;
+    for (const stage of shellPipelineStages(segment)) {
+      const stageReferencesTaint = isUntrustedReusableValue(stage, taintedBindings)
+        || shellSourceReferencesTaintedVariable(
+          stage,
+          taintedVariables,
+          anyEnvironmentVariableTainted,
+        );
+      if (evaluatorCommand.test(stage) && (stageReferencesTaint || pipelineInputTainted)) {
+        return true;
+      }
+      if (stdinInterpreterCommand.test(stage) && pipelineInputTainted) return true;
+      pipelineInputTainted ||= stageReferencesTaint;
+    }
   }
   return false;
+}
+
+function shellPipelineStages(segment) {
+  const stages = [];
+  let current = "";
+  let quote;
+  for (let index = 0; index < segment.length; index += 1) {
+    const character = segment[index];
+    if (character === "\\" && quote !== "'") {
+      current += character;
+      if (index + 1 < segment.length) {
+        current += segment[index + 1];
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      if (quote === character) quote = undefined;
+      else if (!quote) quote = character;
+      current += character;
+      continue;
+    }
+    if (!quote && character === "|" && segment[index + 1] !== "|") {
+      if (current.trim().length > 0) stages.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  if (current.trim().length > 0) stages.push(current.trim());
+  return stages;
 }
 
 function stepContextsHaveUntrustedArtifactExecution(stepContexts, scalarAnchors) {
@@ -2737,7 +2924,6 @@ function stepExecutesArtifactPath(stepGroup, scalarAnchors, artifactPath) {
 }
 
 function shellRunExecutesArtifactPath(runSource, artifactPath, workingDirectory) {
-  const executableCommand = /(?:^|[;&|]\s*)(?:sudo\s+|command\s+)?(?:(?:bash|deno|node|perl|php|python\d*|ruby|sh|zsh)\s+(?:-[^\s]+\s+)*|(?:source|\.)\s+|\.\.?\/)([^\s;&|]+)/iu;
   let effectiveWorkingDirectory = workingDirectory;
   for (const segment of shellCommandSegments(runSource)) {
     if (/^\s*#/u.test(segment)) continue;
@@ -2749,14 +2935,104 @@ function shellRunExecutesArtifactPath(runSource, artifactPath, workingDirectory)
       );
       continue;
     }
-    const execution = executableCommand.exec(segment);
-    if (execution && artifactSourceMatchesPath(
-      execution[1],
+    const executionSource = shellArtifactExecutionSource(segment);
+    if (executionSource && artifactSourceMatchesPath(
+      executionSource,
       artifactPath,
       effectiveWorkingDirectory,
     )) return true;
   }
   return false;
+}
+
+function shellArtifactExecutionSource(segment) {
+  const words = shellCommandWords(segment);
+  let cursor = 0;
+  while (cursor < words.length) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor])) {
+      cursor += 1;
+      continue;
+    }
+    const command = path.posix.basename(words[cursor]).toLowerCase();
+    if (["builtin", "command", "exec", "nohup", "time"].includes(command)) {
+      cursor += 1;
+      while (words[cursor]?.startsWith("-")) cursor += 1;
+      continue;
+    }
+    if (command === "sudo") {
+      cursor += 1;
+      while (words[cursor]?.startsWith("-")) {
+        const option = words[cursor];
+        cursor += 1;
+        if (["-c", "-g", "-h", "-p", "-r", "-t", "-u"].includes(option.toLowerCase())) {
+          cursor += 1;
+        }
+      }
+      continue;
+    }
+    if (command === "env") {
+      cursor += 1;
+      while (words[cursor]?.startsWith("-")
+        || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
+      continue;
+    }
+    break;
+  }
+  const command = words[cursor];
+  if (!command) return undefined;
+  cursor += 1;
+  const commandName = path.posix.basename(command).toLowerCase();
+  if ([".", "source"].includes(commandName)) return words[cursor];
+  const interpreters = new Set([
+    "bash", "dash", "deno", "fish", "ksh", "node", "perl", "php",
+    "powershell", "powershell.exe", "pwsh", "pwsh.exe", "python", "python2",
+    "python3", "ruby", "sh", "zsh",
+  ]);
+  if (interpreters.has(commandName)) {
+    if (commandName === "deno" && words[cursor]?.toLowerCase() === "run") cursor += 1;
+    while (cursor < words.length) {
+      const argument = words[cursor];
+      cursor += 1;
+      if (argument === "--") return words[cursor];
+      if (["-c", "--command", "-e", "--eval"].includes(argument.toLowerCase())) {
+        return undefined;
+      }
+      if (argument.startsWith("-")) continue;
+      return argument;
+    }
+    return undefined;
+  }
+  return command.includes("/") ? command : undefined;
+}
+
+function shellCommandWords(source) {
+  const words = [];
+  let current = "";
+  let quote;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === "\\" && quote !== "'") {
+      if (index + 1 < source.length) {
+        current += source[index + 1];
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      if (quote === character) quote = undefined;
+      else if (!quote) quote = character;
+      else current += character;
+      continue;
+    }
+    if (!quote && /\s/u.test(character)) {
+      if (current.length > 0) words.push(current);
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  if (current.length > 0) words.push(current);
+  return words;
 }
 
 function shellCommandSegments(runSource) {
@@ -2805,7 +3081,11 @@ function resolveShellWorkingDirectory(workingDirectory, target) {
 
 function artifactSourceMatchesPath(source, artifactPath, workingDirectory = ".") {
   const normalized = source.replace(/^["']|["']$/gu, "").replace(/^\.\//u, "");
-  if (path.posix.isAbsolute(normalized)) return artifactPath === ".";
+  if (path.posix.isAbsolute(normalized)) {
+    if (artifactPath === ".") return true;
+    return normalized.endsWith(`/${artifactPath}`)
+      || normalized.includes(`/${artifactPath}/`);
+  }
   if (/\$|%/u.test(workingDirectory)) return true;
   const effectivePath = path.posix.normalize(path.posix.join(
     workingDirectory.replace(/^\.\//u, ""),
@@ -2924,7 +3204,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
     normalizeExpressionPropertyAccess(value),
   )) return true;
   if (key.toLowerCase() === "repository") {
-    return /(?:pull_request\.head\.repo|workflow_run\.(?:head_repository|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head\s*\.\s*repo))(?:\.|\b)/iu
+    return /(?:github\.event\.forkee|pull_request\.head\.repo|workflow_run\.(?:head_repository|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head\s*\.\s*repo))(?:\.|\b)/iu
       .test(normalizeExpressionPropertyAccess(value));
   }
   return isUntrustedPullRequestRef(value);
