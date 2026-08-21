@@ -371,6 +371,19 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
         source: caller.source,
       }));
     }
+    if (hasUntrustedWorkflowContainerImage(
+      callerAnalysis.syntax.uncommented,
+      callerAnalysis.syntax.scalarAnchors,
+      returnedBindings,
+    )) {
+      findings.push(workflowFinding({
+        message: "A privileged workflow must not select a job or service container image from untrusted reusable-workflow output.",
+        path: caller.path,
+        ruleId: "workflow-privileged-untrusted-container-image",
+        severity: "error",
+        source: caller.source,
+      }));
+    }
     const pending = callerAnalysis.localCalls.map((call) => ({
       depth: 1,
       taintedBindings: reusableCallTaintedBindings(call, returnedBindings),
@@ -421,6 +434,19 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
           message: "A reusable workflow called from a privileged trigger must not interpolate untrusted values directly into scripts.",
           path: callee.path,
           ruleId: "workflow-privileged-untrusted-script-interpolation",
+          severity: "error",
+          source: callee.source,
+        }));
+      }
+      if (hasUntrustedWorkflowContainerImage(
+        calleeAnalysis.syntax.uncommented,
+        calleeAnalysis.syntax.scalarAnchors,
+        taintedBindings,
+      )) {
+        findings.push(workflowFinding({
+          message: "A reusable workflow called from a privileged trigger must not select a job or service container image from untrusted input.",
+          path: callee.path,
+          ruleId: "workflow-privileged-untrusted-container-image",
           severity: "error",
           source: callee.source,
         }));
@@ -1106,6 +1132,7 @@ function workflowJobTaintAnalysis(group, scalarAnchors, inheritedTaintedBindings
     matrixTaintedBindings,
   );
   return {
+    configurationTaintedBindings: matrixTaintedBindings,
     stepContexts: stepAnalysis.stepContexts,
     taintedBindings: mergeTaintedBindings(
       matrixTaintedBindings,
@@ -1219,7 +1246,9 @@ function localActionCallsFromStepGroup(stepGroup, scalarAnchors, stepTaintedBind
   const providedBindings = new Set(inputBindings.map((binding) => (
     `${binding.namespace}.${binding.name}`
   )));
-  const taintedBindings = new Set();
+  const taintedBindings = new Set([...stepTaintedBindings].filter((binding) => (
+    binding.startsWith("env.") || binding.startsWith("git.")
+  )));
   for (const binding of inputBindings) {
     if (isUntrustedReusableValue(binding.value, stepTaintedBindings)) {
       taintedBindings.add(`${binding.namespace}.${binding.name}`);
@@ -1448,9 +1477,20 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   if (hasPrivilegedTrigger
     && hasUntrustedScriptInterpolation(uncommented, scalarAnchors)) {
     findings.push(workflowFinding({
-      message: "A privileged workflow must not interpolate untrusted values directly into scripts; pass them through the step environment.",
+      message: "A privileged workflow must not directly interpolate untrusted values into scripts or evaluate tainted environment values as code.",
       path: workflowPath,
       ruleId: "workflow-privileged-untrusted-script-interpolation",
+      severity: "error",
+      source,
+    }));
+  }
+
+  if (hasPrivilegedTrigger
+    && hasUntrustedWorkflowContainerImage(uncommented, scalarAnchors)) {
+    findings.push(workflowFinding({
+      message: "A privileged workflow must not select a job or service container image from untrusted event data.",
+      path: workflowPath,
+      ruleId: "workflow-privileged-untrusted-container-image",
       severity: "error",
       source,
     }));
@@ -2575,12 +2615,59 @@ function hasUntrustedScriptInterpolation(text, scalarAnchors, taintedBindings = 
   ));
 }
 
+function hasUntrustedWorkflowContainerImage(
+  text,
+  scalarAnchors,
+  taintedBindings = new Set(),
+) {
+  const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
+  const jobTaintAnalyses = workflowJobTaintAnalyses(
+    jobGroups,
+    workflowRootMappingBindings(text, "env", "env", scalarAnchors),
+    scalarAnchors,
+    taintedBindings,
+  );
+  return jobGroups.some((jobGroup) => workflowJobContainerImageReferences(
+    jobGroup,
+    scalarAnchors,
+  ).some((image) => isUntrustedReusableValue(
+    image,
+    jobTaintAnalyses.get(jobGroup)?.configurationTaintedBindings ?? taintedBindings,
+  )));
+}
+
 function stepContextsHaveUntrustedScriptInterpolation(stepContexts, scalarAnchors) {
   return stepContexts.some(({ stepGroup, taintedBindings }) => stepGroup.properties
     .filter(({ entry }) => entry.key.toLowerCase() === "run")
     .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
-    .some((runSource) => /\$\{\{/u.test(runSource)
-      && isUntrustedReusableValue(runSource, taintedBindings)));
+    .some((runSource) => (/\$\{\{/u.test(runSource)
+      && isUntrustedReusableValue(runSource, taintedBindings))
+      || shellRunEvaluatesTaintedVariable(runSource, taintedBindings)));
+}
+
+function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
+  const taintedVariables = new Set([...taintedBindings].flatMap((binding) => (
+    binding.startsWith("env.") && binding !== "env.*"
+      ? [binding.slice("env.".length).toLowerCase()]
+      : []
+  )));
+  const anyEnvironmentVariableTainted = taintedBindings.has("env.*");
+  const evaluatorCommand = /^\s*(?:(?:builtin|command)\s+)?(?:eval\b|(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s|$)|(?:iex|invoke-expression)\b|(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:c|command)(?:\s|$))/iu;
+  for (const segment of shellCommandSegments(runSource)) {
+    if (/^\s*#/u.test(segment)) continue;
+    const assignment = /^\s*(?:(?:export|local|readonly)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(segment);
+    const segmentReferencesTaint = isUntrustedReusableValue(segment, taintedBindings)
+      || shellSourceReferencesTaintedVariable(
+        segment,
+        taintedVariables,
+        anyEnvironmentVariableTainted,
+      );
+    if (assignment && segmentReferencesTaint) {
+      taintedVariables.add((assignment[1] ?? assignment[2]).toLowerCase());
+    }
+    if (evaluatorCommand.test(segment) && segmentReferencesTaint) return true;
+  }
+  return false;
 }
 
 function stepContextsHaveUntrustedArtifactExecution(stepContexts, scalarAnchors) {
@@ -2651,19 +2738,69 @@ function stepExecutesArtifactPath(stepGroup, scalarAnchors, artifactPath) {
 
 function shellRunExecutesArtifactPath(runSource, artifactPath, workingDirectory) {
   const executableCommand = /(?:^|[;&|]\s*)(?:sudo\s+|command\s+)?(?:(?:bash|deno|node|perl|php|python\d*|ruby|sh|zsh)\s+(?:-[^\s]+\s+)*|(?:source|\.)\s+|\.\.?\/)([^\s;&|]+)/iu;
-  return runSource
-    .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
-    .replace(/\\\n[ \t]*/gu, " ")
-    .split("\n")
-    .filter((line) => !/^\s*#/u.test(line))
-    .some((line) => {
-      const execution = executableCommand.exec(line);
-      return execution && artifactSourceMatchesPath(
-        execution[1],
-        artifactPath,
-        workingDirectory,
+  let effectiveWorkingDirectory = workingDirectory;
+  for (const segment of shellCommandSegments(runSource)) {
+    if (/^\s*#/u.test(segment)) continue;
+    const directoryChange = /^\s*(?:(?:builtin|command)\s+)?(?:cd|pushd)\s+(?:--\s+)?("[^"]*"|'[^']*'|[^\s;&|]+)/iu.exec(segment);
+    if (directoryChange) {
+      effectiveWorkingDirectory = resolveShellWorkingDirectory(
+        effectiveWorkingDirectory,
+        directoryChange[1],
       );
-    });
+      continue;
+    }
+    const execution = executableCommand.exec(segment);
+    if (execution && artifactSourceMatchesPath(
+      execution[1],
+      artifactPath,
+      effectiveWorkingDirectory,
+    )) return true;
+  }
+  return false;
+}
+
+function shellCommandSegments(runSource) {
+  const source = runSource
+    .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
+    .replace(/\\\n[ \t]*/gu, " ");
+  const segments = [];
+  let current = "";
+  let quote;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === "\\" && quote !== "'") {
+      current += character;
+      if (index + 1 < source.length) {
+        current += source[index + 1];
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      if (quote === character) quote = undefined;
+      else if (!quote) quote = character;
+      current += character;
+      continue;
+    }
+    const doubleSeparator = (character === "&" && source[index + 1] === "&")
+      || (character === "|" && source[index + 1] === "|");
+    if (!quote && (character === "\n" || character === ";" || doubleSeparator)) {
+      if (current.trim().length > 0) segments.push(current.trim());
+      current = "";
+      if (doubleSeparator) index += 1;
+      continue;
+    }
+    current += character;
+  }
+  if (current.trim().length > 0) segments.push(current.trim());
+  return segments;
+}
+
+function resolveShellWorkingDirectory(workingDirectory, target) {
+  const normalizedTarget = target.replace(/^(["'])(.*)\1$/u, "$2");
+  if (/[$%`]|^~|^-$/u.test(normalizedTarget)) return "${dynamic-working-directory}";
+  if (path.posix.isAbsolute(normalizedTarget)) return path.posix.normalize(normalizedTarget);
+  return path.posix.normalize(path.posix.join(workingDirectory, normalizedTarget));
 }
 
 function artifactSourceMatchesPath(source, artifactPath, workingDirectory = ".") {
@@ -2794,7 +2931,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:head|merge_commit_sha)|refs\/pull\/|workflow_run\.(?:head_sha|id|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head))/iu
+  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:body|head|merge_commit_sha|title)|refs\/pull\/|workflow_run\.(?:head_sha|id|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head))/iu
     .test(normalizeExpressionPropertyAccess(value));
 }
 
@@ -2817,46 +2954,50 @@ function normalizeExpressionPropertyAccess(value) {
 }
 
 function workflowContainerImageReferences(text, scalarAnchors) {
+  return workflowJobPropertyGroups(text, scalarAnchors).flatMap((group) => (
+    workflowJobContainerImageReferences(group, scalarAnchors)
+  ));
+}
+
+function workflowJobContainerImageReferences(group, scalarAnchors) {
   const images = [];
-  for (const group of workflowJobPropertyGroups(text, scalarAnchors)) {
-    for (const property of group.properties) {
-      const propertyName = property.entry.key.toLowerCase();
-      if (propertyName === "container") {
-        const containerGroup = { ...group, properties: [property] };
-        const imageEntries = workflowPropertyMappingEntries(
-          containerGroup,
-          property,
-          scalarAnchors,
-        ).filter(({ entry }) => entry.key.toLowerCase() === "image");
-        if (imageEntries.length > 0) {
-          images.push(...imageEntries.map(({ entry }) => (
-            resolveYamlScalarValue(entry.value, scalarAnchors)
-          )));
-        } else {
-          const inlineValue = resolveYamlScalarValue(
-            property.entry.inlineValue ?? property.entry.value,
-            scalarAnchors,
-          );
-          if (inlineValue.length > 0 && !inlineValue.startsWith("{")) {
-            images.push(inlineValue);
-          }
-        }
-      }
-      if (propertyName !== "services") continue;
-      const servicesGroup = { ...group, properties: [property] };
-      for (const serviceProperty of workflowPropertyMappingEntries(
-        servicesGroup,
+  for (const property of group.properties) {
+    const propertyName = property.entry.key.toLowerCase();
+    if (propertyName === "container") {
+      const containerGroup = { ...group, properties: [property] };
+      const imageEntries = workflowPropertyMappingEntries(
+        containerGroup,
         property,
         scalarAnchors,
-      )) {
-        const serviceGroup = { ...group, properties: [serviceProperty] };
-        images.push(...workflowPropertyMappingEntries(
-          serviceGroup,
-          serviceProperty,
+      ).filter(({ entry }) => entry.key.toLowerCase() === "image");
+      if (imageEntries.length > 0) {
+        images.push(...imageEntries.map(({ entry }) => (
+          resolveYamlScalarValue(entry.value, scalarAnchors)
+        )));
+      } else {
+        const inlineValue = resolveYamlScalarValue(
+          property.entry.inlineValue ?? property.entry.value,
           scalarAnchors,
-        ).filter(({ entry }) => entry.key.toLowerCase() === "image")
-          .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors)));
+        );
+        if (inlineValue.length > 0 && !inlineValue.startsWith("{")) {
+          images.push(inlineValue);
+        }
       }
+    }
+    if (propertyName !== "services") continue;
+    const servicesGroup = { ...group, properties: [property] };
+    for (const serviceProperty of workflowPropertyMappingEntries(
+      servicesGroup,
+      property,
+      scalarAnchors,
+    )) {
+      const serviceGroup = { ...group, properties: [serviceProperty] };
+      images.push(...workflowPropertyMappingEntries(
+        serviceGroup,
+        serviceProperty,
+        scalarAnchors,
+      ).filter(({ entry }) => entry.key.toLowerCase() === "image")
+        .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors)));
     }
   }
   return images;

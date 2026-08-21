@@ -1995,6 +1995,39 @@ test("artifact execution resolves step working directories", () => {
   );
 });
 
+test("artifact execution tracks inline shell directory changes", () => {
+  const repoRoot = makeRepository();
+  const runIdExpression = ["$", "{{ github.event.workflow_run.id }}"].join("");
+  write(repoRoot, ".github/workflows/workflow-run-artifact-cd.yml", [
+    "name: workflow run artifact cd",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - run: cd payload && bash run.sh",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add inline artifact directory execution");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-artifact-execution",
+    ".github/workflows/workflow-run-artifact-cd.yml",
+  );
+});
+
 test("issue_comment pull-request checkouts are privileged and untrusted", () => {
   const repoRoot = makeRepository();
   const issueExpression = ["$", "{{ github.event.issue.number }}"].join("");
@@ -2243,6 +2276,64 @@ test("privileged scripts require environment indirection for untrusted values", 
   assert.equal(safeAudit.status, 0);
 });
 
+test("pull-request title and body values are untrusted script inputs", () => {
+  const repoRoot = makeRepository();
+  for (const field of ["title", "body"]) {
+    const valueExpression = ["$", `{{ github.event.pull_request.${field} }}`].join("");
+    write(repoRoot, `.github/workflows/pull-request-${field}-script.yml`, [
+      `name: pull request ${field} script`,
+      "on: pull_request_target",
+      "permissions: read-all",
+      "jobs:",
+      "  inspect:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      `      - run: echo "value=${valueExpression}"`,
+      "",
+    ].join("\n"));
+  }
+  commitAll(repoRoot, "add pull request text scripts");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  for (const field of ["title", "body"]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-script-interpolation",
+      `.github/workflows/pull-request-${field}-script.yml`,
+    );
+  }
+});
+
+test("tainted environment values cannot reach shell evaluators", () => {
+  const repoRoot = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  write(repoRoot, ".github/workflows/comment-eval.yml", [
+    "name: comment eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: eval \"$COMMAND\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add tainted shell evaluator");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-eval.yml",
+  );
+});
+
 test("public event author identities are untrusted checkout coordinates", () => {
   const repoRoot = makeRepository();
   const issueAuthorExpression = [
@@ -2421,6 +2512,47 @@ test("workflow container and service images require immutable digests", () => {
   assert.equal(audit.result.findings.some((finding) => (
     finding.path === ".github/workflows/pinned-containers.yml"
   )), false);
+});
+
+test("privileged workflows reject attacker-selected container images", () => {
+  const repoRoot = makeRepository();
+  const matrixExpression = ["$", "{{ fromJSON(github.event.comment.body) }}"].join("");
+  const imageExpression = ["$", "{{ matrix.image }}"].join("");
+  for (const [name, imageConfiguration] of [
+    ["job", ["    container: " + imageExpression]],
+    ["service", [
+      "    services:",
+      "      payload:",
+      "        image: " + imageExpression,
+    ]],
+  ]) {
+    write(repoRoot, `.github/workflows/dynamic-${name}-container.yml`, [
+      `name: dynamic ${name} container`,
+      "on: issue_comment",
+      "permissions: read-all",
+      "jobs:",
+      "  inspect:",
+      "    strategy:",
+      "      matrix: " + matrixExpression,
+      "    runs-on: ubuntu-latest",
+      ...imageConfiguration,
+      "    steps:",
+      "      - run: echo inspect",
+      "",
+    ].join("\n"));
+  }
+  commitAll(repoRoot, "add attacker-selected containers");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  for (const name of ["job", "service"]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-container-image",
+      `.github/workflows/dynamic-${name}-container.yml`,
+    );
+  }
 });
 
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
@@ -2727,6 +2859,46 @@ test("GITHUB_ENV taint propagates across local composite action steps", () => {
     audit.result,
     "workflow-privileged-untrusted-checkout",
     ".github/actions/environment-checkout/action.yml",
+  );
+});
+
+test("local actions inherit caller environment taint", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const envExpression = ["$", "{{ env.PR_REF }}"].join("");
+  write(repoRoot, ".github/workflows/inherited-action-environment.yml", [
+    "name: inherited action environment",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          SOURCE_REF: " + headExpression,
+    "        run: echo \"PR_REF=$SOURCE_REF\" >> \"$GITHUB_ENV\"",
+    "      - uses: ./.github/actions/inherited-environment-checkout",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/inherited-environment-checkout/action.yml", [
+    "name: inherited environment checkout",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: actions/checkout@" + "a".repeat(40),
+    "      with:",
+    "        ref: " + envExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add inherited composite environment checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/actions/inherited-environment-checkout/action.yml",
   );
 });
 
