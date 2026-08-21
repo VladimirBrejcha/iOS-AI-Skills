@@ -456,9 +456,9 @@ function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSo
           `${workflow.snapshot}\0${dockerfilePath}`,
         );
         if (!dockerfile) continue;
-        if (dockerfileBaseImages(dockerfile.text).some(isMutableDockerBaseImage)) {
+        if (dockerfileReferencedImages(dockerfile.text).some(isMutableDockerBaseImage)) {
           findings.push(workflowFinding({
-            message: "Docker action base images should use reviewed immutable digests.",
+            message: "Docker action image dependencies should use reviewed immutable digests.",
             path: dockerfile.path,
             ruleId: "workflow-mutable-action-ref",
             severity: "warning",
@@ -478,10 +478,17 @@ function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSo
           manifestPath: nestedPath,
         }] : [];
       }));
-      if (privileged && analysis.stepGroups.some((stepGroup) => stepGroupHasUntrustedCheckout(
-        stepGroup,
+      const actionStepContexts = workflowStepTaintAnalysis(
+        analysis.stepGroups,
         analysis.syntax.scalarAnchors,
         effectiveTaintedBindings,
+      ).stepContexts;
+      if (privileged && actionStepContexts.some(({ stepGroup, taintedBindings }) => (
+        stepGroupHasUntrustedCheckout(
+          stepGroup,
+          analysis.syntax.scalarAnchors,
+          taintedBindings,
+        )
       ))) {
         findings.push(workflowFinding({
           message: "A local composite action called from a privileged workflow must not execute an untrusted checkout.",
@@ -510,16 +517,28 @@ function localDockerfilePath(actionManifestPath, image) {
   return DOCKERFILE_PATH_PATTERN.test(dockerfilePath) ? dockerfilePath : undefined;
 }
 
-function dockerfileBaseImages(text) {
+function dockerfileReferencedImages(text) {
   const logicalLines = text
     .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
     .replace(/\\\n[ \t]*/gu, " ")
     .split("\n");
-  return logicalLines.flatMap((line) => {
-    if (/^\s*#/u.test(line)) return [];
-    const from = /^\s*FROM\s+(?:(?:--[^\s=]+=[^\s]+)\s+)*(\S+)/iu.exec(line);
-    return from ? [from[1]] : [];
+  const baseImages = [];
+  const stageNames = new Set();
+  for (const line of logicalLines) {
+    if (/^\s*#/u.test(line)) continue;
+    const from = /^\s*FROM\s+(?:(?:--[^\s=]+=[^\s]+)\s+)*(\S+)(?:\s+AS\s+(\S+))?/iu.exec(line);
+    if (!from) continue;
+    baseImages.push(from[1]);
+    if (from[2]) stageNames.add(from[2].toLowerCase());
+  }
+  const copyImages = logicalLines.flatMap((line) => {
+    if (/^\s*#/u.test(line) || !/^\s*COPY\b/iu.test(line)) return [];
+    const from = /(?:^|\s)--from=(?:"([^"]+)"|'([^']+)'|([^\s]+))/iu.exec(line);
+    const image = from?.[1] ?? from?.[2] ?? from?.[3];
+    if (!image || /^\d+$/u.test(image) || stageNames.has(image.toLowerCase())) return [];
+    return [image];
   });
+  return [...baseImages, ...copyImages];
 }
 
 function isMutableDockerBaseImage(image) {
@@ -780,6 +799,20 @@ function workflowJobTaintContexts(
   scalarAnchors,
   inheritedTaintedBindings,
 ) {
+  return new Map([...workflowJobTaintAnalyses(
+    jobGroups,
+    workflowEnvBindings,
+    scalarAnchors,
+    inheritedTaintedBindings,
+  )].map(([group, analysis]) => [group, analysis.taintedBindings]));
+}
+
+function workflowJobTaintAnalyses(
+  jobGroups,
+  workflowEnvBindings,
+  scalarAnchors,
+  inheritedTaintedBindings,
+) {
   const workflowTaintedBindings = contextTaintedBindings(
     workflowEnvBindings,
     inheritedTaintedBindings,
@@ -821,11 +854,19 @@ function workflowJobTaintContexts(
   );
   return new Map(jobGroups.map((group) => [
     group,
-    workflowJobTaintedBindings(group, scalarAnchors, jobInheritedBindings),
+    workflowJobTaintAnalysis(group, scalarAnchors, jobInheritedBindings),
   ]));
 }
 
 function workflowJobTaintedBindings(group, scalarAnchors, inheritedTaintedBindings) {
+  return workflowJobTaintAnalysis(
+    group,
+    scalarAnchors,
+    inheritedTaintedBindings,
+  ).taintedBindings;
+}
+
+function workflowJobTaintAnalysis(group, scalarAnchors, inheritedTaintedBindings) {
   const jobTaintedBindings = contextTaintedBindings(
     workflowMappingBindings(group, "env", "env", scalarAnchors),
     inheritedTaintedBindings,
@@ -834,28 +875,48 @@ function workflowJobTaintedBindings(group, scalarAnchors, inheritedTaintedBindin
     workflowJobMatrixBindings(group, scalarAnchors),
     jobTaintedBindings,
   );
-  return mergeTaintedBindings(
+  const stepAnalysis = workflowStepTaintAnalysis(
+    mappingContainerStepPropertyGroups(group, scalarAnchors),
+    scalarAnchors,
     matrixTaintedBindings,
-    workflowStepOutputTaintedBindings(group, scalarAnchors, matrixTaintedBindings),
   );
+  return {
+    stepContexts: stepAnalysis.stepContexts,
+    taintedBindings: mergeTaintedBindings(
+      matrixTaintedBindings,
+      stepAnalysis.derivedTaintedBindings,
+    ),
+  };
 }
 
-function workflowStepOutputTaintedBindings(group, scalarAnchors, inheritedTaintedBindings) {
-  const taintedBindings = new Set();
-  for (const stepGroup of mappingContainerStepPropertyGroups(group, scalarAnchors)) {
+function workflowStepTaintAnalysis(stepGroups, scalarAnchors, inheritedTaintedBindings) {
+  const derivedTaintedBindings = new Set();
+  const stepContexts = [];
+  for (const stepGroup of stepGroups) {
+    const accumulatedTaintedBindings = mergeTaintedBindings(
+      inheritedTaintedBindings,
+      derivedTaintedBindings,
+    );
     const stepId = stepGroup.properties
       .filter(({ entry }) => entry.key.toLowerCase() === "id")
       .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors).toLowerCase())
       .find(Boolean);
-    if (!stepId) continue;
     const stepTaintedBindings = contextTaintedBindings(
       workflowMappingBindings(stepGroup, "env", "env", scalarAnchors),
-      inheritedTaintedBindings,
+      accumulatedTaintedBindings,
     );
+    stepContexts.push({ stepGroup, taintedBindings: stepTaintedBindings });
+    const runSources = stepGroup.properties
+      .filter(({ entry }) => entry.key.toLowerCase() === "run")
+      .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors));
+    for (const runSource of runSources) {
+      for (const binding of githubEnvironmentWriteBindings(runSource, stepTaintedBindings)) {
+        derivedTaintedBindings.add(`env.${binding}`);
+      }
+    }
+    if (!stepId) continue;
     const outputSources = [
-      ...stepGroup.properties
-        .filter(({ entry }) => entry.key.toLowerCase() === "run")
-        .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors)),
+      ...runSources,
       ...workflowMappingBindings(stepGroup, "with", "with", scalarAnchors)
         .map((binding) => binding.value),
     ];
@@ -863,10 +924,35 @@ function workflowStepOutputTaintedBindings(group, scalarAnchors, inheritedTainte
       value,
       stepTaintedBindings,
     ))) {
-      taintedBindings.add(`steps.${stepId}.outputs.*`);
+      derivedTaintedBindings.add(`steps.${stepId}.outputs.*`);
     }
   }
-  return taintedBindings;
+  return { derivedTaintedBindings, stepContexts };
+}
+
+function githubEnvironmentWriteBindings(runSource, taintedBindings) {
+  const taintedEnvironmentVariables = new Set([...taintedBindings].flatMap((binding) => (
+    binding.startsWith("env.") && binding !== "env.*"
+      ? [binding.slice("env.".length).toLowerCase()]
+      : []
+  )));
+  if (!isUntrustedReusableValue(runSource, taintedBindings)
+    && !shellSourceReferencesTaintedVariable(
+      runSource,
+      taintedEnvironmentVariables,
+      taintedBindings.has("env.*"),
+    )) return [];
+  const writeLines = runSource
+    .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
+    .replace(/\\\n[ \t]*/gu, " ")
+    .split("\n")
+    .filter((line) => /GITHUB_ENV/iu.test(line)
+      && /(?:>>?|\b(?:Add-Content|Out-File|Set-Content|tee)\b)/iu.test(line));
+  if (writeLines.length === 0) return [];
+  const names = new Set(writeLines.flatMap((line) => [
+    ...line.matchAll(/(?:^|[\s"'`])([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|<<)/gu),
+  ].map((match) => match[1].toLowerCase())));
+  return names.size > 0 ? [...names] : ["*"];
 }
 
 function mergeTaintedBindings(...bindingSets) {
@@ -875,35 +961,32 @@ function mergeTaintedBindings(...bindingSets) {
 
 function workflowLocalActionCalls(text, scalarAnchors, inheritedTaintedBindings) {
   const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
-  const contexts = workflowJobTaintContexts(
+  const analyses = workflowJobTaintAnalyses(
     jobGroups,
     workflowRootMappingBindings(text, "env", "env", scalarAnchors),
     scalarAnchors,
     inheritedTaintedBindings,
   );
-  return jobGroups.flatMap((group) => mappingContainerStepPropertyGroups(
-    group,
-    scalarAnchors,
-  ).flatMap((stepGroup) => localActionCallsFromStepGroup(
+  return jobGroups.flatMap((group) => (
+    analyses.get(group)?.stepContexts ?? []
+  ).flatMap(({ stepGroup, taintedBindings }) => localActionCallsFromStepGroup(
     stepGroup,
     scalarAnchors,
-    contexts.get(group) ?? inheritedTaintedBindings,
+    taintedBindings,
   )));
 }
 
 function compositeLocalActionCalls(stepGroups, scalarAnchors, inheritedTaintedBindings) {
-  return stepGroups.flatMap((stepGroup) => localActionCallsFromStepGroup(
-    stepGroup,
+  return workflowStepTaintAnalysis(
+    stepGroups,
     scalarAnchors,
     inheritedTaintedBindings,
+  ).stepContexts.flatMap(({ stepGroup, taintedBindings }) => (
+    localActionCallsFromStepGroup(stepGroup, scalarAnchors, taintedBindings)
   ));
 }
 
-function localActionCallsFromStepGroup(stepGroup, scalarAnchors, inheritedTaintedBindings) {
-  const stepTaintedBindings = contextTaintedBindings(
-    workflowMappingBindings(stepGroup, "env", "env", scalarAnchors),
-    inheritedTaintedBindings,
-  );
+function localActionCallsFromStepGroup(stepGroup, scalarAnchors, stepTaintedBindings) {
   const inputBindings = workflowMappingBindings(stepGroup, "with", "inputs", scalarAnchors);
   const providedBindings = new Set(inputBindings.map((binding) => (
     `${binding.namespace}.${binding.name}`
@@ -2098,18 +2181,20 @@ function readYamlFlowKey(text, startIndex) {
 
 function hasUntrustedPullRequestCheckout(text, scalarAnchors, taintedBindings = new Set()) {
   const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
-  const jobTaintContexts = workflowJobTaintContexts(
+  const jobTaintAnalyses = workflowJobTaintAnalyses(
     jobGroups,
     workflowRootMappingBindings(text, "env", "env", scalarAnchors),
     scalarAnchors,
     taintedBindings,
   );
   for (const jobGroup of jobGroups) {
-    for (const stepGroup of mappingContainerStepPropertyGroups(jobGroup, scalarAnchors)) {
+    for (const { stepGroup, taintedBindings: stepTaintedBindings } of (
+      jobTaintAnalyses.get(jobGroup)?.stepContexts ?? []
+    )) {
       if (stepGroupHasUntrustedCheckout(
         stepGroup,
         scalarAnchors,
-        jobTaintContexts.get(jobGroup) ?? taintedBindings,
+        stepTaintedBindings,
       )) {
         return true;
       }
@@ -2118,23 +2203,67 @@ function hasUntrustedPullRequestCheckout(text, scalarAnchors, taintedBindings = 
   return false;
 }
 
-function stepGroupHasUntrustedCheckout(stepGroup, scalarAnchors, inheritedTaintedBindings) {
+function stepGroupHasUntrustedCheckout(stepGroup, scalarAnchors, stepTaintedBindings) {
+  const hasUntrustedShellCheckout = stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "run")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+    .some((runSource) => shellRunHasUntrustedCheckout(runSource, stepTaintedBindings));
+  if (hasUntrustedShellCheckout) return true;
   const usesCheckout = stepGroup.properties
     .filter(({ entry }) => entry.key.toLowerCase() === "uses")
     .some(({ entry }) => /^actions\/checkout@/iu.test(
       resolveYamlScalarValue(entry.value, scalarAnchors),
     ));
   if (!usesCheckout) return false;
-  const stepTaintedBindings = contextTaintedBindings(
-    workflowMappingBindings(stepGroup, "env", "env", scalarAnchors),
-    inheritedTaintedBindings,
-  );
   return workflowMappingBindings(stepGroup, "with", "with", scalarAnchors)
     .some((input) => isUntrustedCheckoutInput(
       input.name,
       input.value,
       stepTaintedBindings,
     ));
+}
+
+function shellRunHasUntrustedCheckout(runSource, taintedBindings) {
+  const checkoutCommand = /\b(?:gh\s+repo\s+clone|git(?:\s+--?[^\s]+(?:[=\s][^\s]+)?)*\s+(?:checkout|clone|pull|reset|switch|worktree))\b/iu;
+  const taintedVariables = new Set([...taintedBindings].flatMap((binding) => (
+    binding.startsWith("env.") && binding !== "env.*"
+      ? [binding.slice("env.".length).toLowerCase()]
+      : []
+  )));
+  taintedVariables.add("github_head_ref");
+  const anyEnvironmentVariableTainted = taintedBindings.has("env.*");
+  const lines = runSource
+    .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
+    .replace(/\\\n[ \t]*/gu, " ")
+    .split("\n")
+    .filter((line) => !/^\s*#/u.test(line));
+  for (const line of lines) {
+    const assignment = /^\s*(?:(?:export|local|readonly)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(line);
+    if (assignment && (isUntrustedReusableValue(line, taintedBindings)
+      || shellSourceReferencesTaintedVariable(
+        line,
+        taintedVariables,
+        anyEnvironmentVariableTainted,
+      ))) {
+      taintedVariables.add((assignment[1] ?? assignment[2]).toLowerCase());
+    }
+    if (checkoutCommand.test(line)
+      && (isUntrustedReusableValue(line, taintedBindings)
+        || shellSourceReferencesTaintedVariable(
+          line,
+          taintedVariables,
+          anyEnvironmentVariableTainted,
+        ))) return true;
+  }
+  return false;
+}
+
+function shellSourceReferencesTaintedVariable(source, taintedVariables, anyTainted) {
+  const references = [
+    ...source.matchAll(/\$(?:env:)?(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/giu),
+    ...source.matchAll(/%([A-Za-z_][A-Za-z0-9_]*)%/gu),
+  ].map((match) => (match[1] ?? match[2]).toLowerCase());
+  return references.some((name) => anyTainted || taintedVariables.has(name));
 }
 
 function contextTaintedBindings(bindings, inheritedTaintedBindings) {
@@ -2160,7 +2289,7 @@ function contextTaintedBindings(bindings, inheritedTaintedBindings) {
 function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
   if (!["ref", "repository"].includes(key.toLowerCase())) return false;
   if (valueReferencesTaintedBinding(value, taintedBindings)) return true;
-  if (/github\.event\.(?:comment|issue)\.body(?:\.|\b)/iu.test(
+  if (/github\.event\.(?:comment\.body|issue\.(?:body|title))(?:\.|\b)/iu.test(
     normalizeExpressionPropertyAccess(value),
   )) return true;
   if (key.toLowerCase() === "repository") {
@@ -2171,7 +2300,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|github\.event\.(?:comment\.body|issue\.(?:body|number))|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.head_sha)/iu
+  return /(?:github\.head_ref|github\.event\.(?:comment\.body|issue\.(?:body|number|title))|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.head_sha)/iu
     .test(normalizeExpressionPropertyAccess(value));
 }
 
@@ -2330,12 +2459,21 @@ function workflowBlockStepPropertyGroups(jobGroup, stepsEntry, scalarAnchors) {
       .filter(({ entry }) => entry.indentation === mappingIndentation);
     if (inlineEntry) {
       const inlineValue = inlineEntry.value.trim();
+      let value = inlineValue;
+      if (isYamlBlockScalarHeader(inlineValue)) {
+        for (let lineIndex = step.lineIndex + 1; lineIndex < nextLine; lineIndex += 1) {
+          const line = lines[lineIndex];
+          if (line.trim().length > 0
+            && /^\s*/u.exec(line)[0].length <= inlineEntry.indentation) break;
+          value += "\n" + line.trimStart();
+        }
+      }
       properties.unshift({
         entry: {
           ...inlineEntry,
           inlineValue,
           lineIndex: step.lineIndex,
-          value: inlineValue,
+          value,
           valueLineIndex: step.lineIndex,
         },
       });

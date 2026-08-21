@@ -1312,6 +1312,68 @@ test("untrusted refs propagate through workflow job and step environments", () =
   }
 });
 
+test("untrusted refs persisted through GITHUB_ENV reach later steps", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const envExpression = ["$", "{{ env.PR_REF }}"].join("");
+  write(repoRoot, ".github/workflows/github-env-ref.yml", [
+    "name: GITHUB_ENV ref",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: |",
+    "          echo \"PR_REF=" + headExpression + "\" >> \"$GITHUB_ENV\"",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + envExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add persisted environment checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/github-env-ref.yml",
+  );
+});
+
+test("GITHUB_ENV taint does not flow backward to earlier steps", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const envExpression = ["$", "{{ env.PR_REF }}"].join("");
+  write(repoRoot, ".github/workflows/github-env-order.yml", [
+    "name: GITHUB_ENV order",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "env:",
+    "  PR_REF: main",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + envExpression,
+    "      - run: |",
+    "          echo \"PR_REF=" + headExpression + "\" >> \"$GITHUB_ENV\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add ordered environment workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.findings.some((finding) => (
+    finding.ruleId === "workflow-privileged-untrusted-checkout"
+  )), false);
+});
+
 test("untrusted refs propagate through job outputs", () => {
   const repoRoot = makeRepository();
   const headExpression = ["$", "{{ github.head_ref }}"].join("");
@@ -1853,6 +1915,104 @@ test("issue bodies are privileged untrusted checkout coordinates", () => {
   );
 });
 
+test("issue titles are privileged untrusted checkout coordinates", () => {
+  const repoRoot = makeRepository();
+  const repositoryExpression = [
+    "$",
+    "{{ fromJSON(github.event.issue.title).repository }}",
+  ].join("");
+  const refExpression = [
+    "$",
+    "{{ fromJSON(github.event.issue.title).ref }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/issue-title-checkout.yml", [
+    "name: issue title checkout",
+    "on: issues",
+    "permissions:",
+    "  contents: write",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          repository: " + repositoryExpression,
+    "          ref: " + refExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add issue title checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/issue-title-checkout.yml",
+  );
+});
+
+test("privileged workflows reject shell-based untrusted checkouts", () => {
+  const repoRoot = makeRepository();
+  const repositoryExpression = [
+    "$",
+    "{{ github.event.pull_request.head.repo.full_name }}",
+  ].join("");
+  const refExpression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/shell-checkout.yml", [
+    "name: shell checkout",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: |",
+    "          REF=\"" + refExpression + "\"",
+    "          git clone \"https://github.com/" + repositoryExpression + "\" source",
+    "          git -C source checkout \"$REF\"",
+    "          ./source/verify.sh",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add shell checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/shell-checkout.yml",
+  );
+});
+
+test("untrusted shell values unrelated to a fixed checkout do not block", () => {
+  const repoRoot = makeRepository();
+  const refExpression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/fixed-shell-checkout.yml", [
+    "name: fixed shell checkout",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: |",
+    "          git fetch origin \"" + refExpression + "\"",
+    "          git checkout main",
+    "          echo \"requested ref: " + refExpression + "\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add fixed shell checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.findings.some((finding) => (
+    finding.ruleId === "workflow-privileged-untrusted-checkout"
+  )), false);
+});
+
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/mutable-docker.yml", [
@@ -2112,6 +2272,52 @@ test("caller taint propagates into local composite action inputs", () => {
   );
 });
 
+test("GITHUB_ENV taint propagates across local composite action steps", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const inputExpression = ["$", "{{ inputs.ref }}"].join("");
+  const envExpression = ["$", "{{ env.PR_REF }}"].join("");
+  write(repoRoot, ".github/workflows/composite-environment.yml", [
+    "name: composite environment",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/environment-checkout",
+    "        with:",
+    "          ref: " + headExpression,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/environment-checkout/action.yml", [
+    "name: environment checkout",
+    "inputs:",
+    "  ref:",
+    "    required: true",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - shell: bash",
+    "      run: |",
+    "        echo \"PR_REF=" + inputExpression + "\" >> \"$GITHUB_ENV\"",
+    "    - uses: actions/checkout@" + "a".repeat(40),
+    "      with:",
+    "        ref: " + envExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add composite environment checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/actions/environment-checkout/action.yml",
+  );
+});
+
 test("composite input defaults are tainted unless callers override them", () => {
   const unsafeRepo = makeRepository();
   const safeRepo = makeRepository();
@@ -2300,6 +2506,63 @@ test("Dockerfile-backed local actions require immutable base images", () => {
   assert.equal(audit.result.findings.some((finding) => (
     finding.path === ".github/actions/pinned-base/Dockerfile"
   )), false);
+});
+
+test("Dockerfile-backed actions require immutable external COPY images", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/dockerfile-copy-actions.yml", [
+    "name: Dockerfile COPY actions",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/mutable-copy",
+    "      - uses: ./.github/actions/pinned-copy",
+    "      - uses: ./.github/actions/staged-copy",
+    "",
+  ].join("\n"));
+  for (const actionName of ["mutable-copy", "pinned-copy", "staged-copy"]) {
+    write(repoRoot, `.github/actions/${actionName}/action.yml`, [
+      "name: " + actionName,
+      "runs:",
+      "  using: docker",
+      "  image: Dockerfile",
+      "",
+    ].join("\n"));
+  }
+  write(repoRoot, ".github/actions/mutable-copy/Dockerfile", [
+    "FROM scratch",
+    "COPY --from=alpine:latest /bin/sh /bin/sh",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/pinned-copy/Dockerfile", [
+    "FROM scratch",
+    `COPY --from=alpine@sha256:${"a".repeat(64)} /bin/sh /bin/sh`,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/staged-copy/Dockerfile", [
+    `FROM alpine@sha256:${"b".repeat(64)} AS builder`,
+    "FROM scratch",
+    "COPY --from=builder /bin/sh /bin/sh",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add Dockerfile COPY fixtures");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-mutable-action-ref",
+    ".github/actions/mutable-copy/Dockerfile",
+  );
+  for (const actionName of ["pinned-copy", "staged-copy"]) {
+    assert.equal(audit.result.findings.some((finding) => (
+      finding.path === `.github/actions/${actionName}/Dockerfile`
+    )), false);
+  }
 });
 
 test("runner-group selectors require proof of hosted isolation", () => {
