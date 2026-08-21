@@ -805,7 +805,7 @@ function auditTrackedTree(repoRoot) {
     const trackedBlobEntries = trackedEntries.filter((entry) => entry.type === "blob" && entry.mode !== "160000");
     const blobRuleIdsByObjectId = findRuleIdsForGitBlobs(repoRoot, [...new Set(trackedBlobEntries.map((entry) => entry.objectId))]);
     const findings = [];
-    let fileCount = 0;
+    const fileCount = new Set(trackedBlobEntries.map((entry) => entry.path)).size;
     trackedEntries.forEach((entry) => {
         const redactedPath = redactSensitivePath(entry.path);
         findings.push(...findingsForSource({
@@ -817,7 +817,6 @@ function auditTrackedTree(repoRoot) {
         if (entry.type !== "blob" || entry.mode === "160000") {
             return;
         }
-        fileCount += 1;
         blobRuleIdsByObjectId.get(entry.objectId)?.forEach((ruleId) => {
             findings.push({
                 path: redactedPath,

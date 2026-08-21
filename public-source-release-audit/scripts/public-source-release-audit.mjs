@@ -296,7 +296,10 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   const uncommented = text.split(/\r?\n/u).map(stripYamlComment).join("\n");
   const scalarAnchors = yamlScalarAnchors(uncommented);
   const hasPullRequestTarget = yamlKeyValues(uncommented, "on", { indentation: 0 })
-    .some((value) => yamlValueContainsToken(value, "pull_request_target"));
+    .some((value) => yamlValueContainsToken(
+      resolveYamlScalarValue(value, scalarAnchors),
+      "pull_request_target",
+    ));
   const hasWriteAll = yamlKeyValues(uncommented, "permissions")
     .some((value) => resolveYamlScalarValue(value, scalarAnchors).toLowerCase() === "write-all");
 
@@ -311,7 +314,8 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   }
 
   for (const runner of yamlKeyValues(uncommented, "runs-on")) {
-    if (/(?:^|[\s,[{'"])self-hosted(?:$|[\s,\]}'"])/iu.test(runner)) {
+    const resolvedRunner = resolveYamlScalarValue(runner, scalarAnchors);
+    if (/(?:^|[\s,[{'"])self-hosted(?:$|[\s,\]}'"])/iu.test(resolvedRunner)) {
       findings.push(workflowFinding({
         message: "Public workflows must not select a persistent self-hosted runner.",
         path: workflowPath,
@@ -319,9 +323,9 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
         severity: "error",
         source,
       }));
-    } else if (/\$\{\{|^\s*\*/u.test(runner)
-      || yamlValueContainsToken(runner, "group")
-      || !isKnownGithubHostedRunnerLabel(yamlScalarValue(runner))) {
+    } else if (/\$\{\{|^\s*\*/u.test(resolvedRunner)
+      || yamlValueContainsToken(resolvedRunner, "group")
+      || !isKnownGithubHostedRunnerLabel(yamlScalarValue(resolvedRunner))) {
       findings.push(workflowFinding({
         message: "Dynamic or runner-group selection requires proof that it cannot resolve to self-hosted.",
         path: workflowPath,
@@ -341,7 +345,7 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
       source,
     }));
 
-    if (hasUntrustedPullRequestCheckout(uncommented)) {
+    if (hasUntrustedPullRequestCheckout(uncommented, scalarAnchors)) {
       findings.push(workflowFinding({
         message: "A privileged pull_request_target workflow must not execute an untrusted PR checkout.",
         path: workflowPath,
@@ -352,7 +356,7 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
     }
   }
 
-  for (const actionRef of actionReferences(uncommented)) {
+  for (const actionRef of actionReferences(uncommented, scalarAnchors)) {
     if (actionRef.startsWith("./") || IMMUTABLE_DOCKER_ACTION_PATTERN.test(actionRef)) continue;
     const separator = actionRef.lastIndexOf("@");
     const revision = separator < 0 ? "" : actionRef.slice(separator + 1);
@@ -407,8 +411,10 @@ function yamlKeyValues(text, key, { indentation: requiredIndentation } = {}) {
 
 function yamlBlockMappingEntries(text) {
   const lines = text.split("\n");
+  const blockScalarBodyLines = yamlBlockScalarBodyLineIndexes(lines);
   const entries = [];
   for (let index = 0; index < lines.length; index += 1) {
+    if (blockScalarBodyLines.has(index)) continue;
     const entry = parseYamlKeyLine(lines[index]);
     if (!entry) continue;
     let value = entry.value;
@@ -422,6 +428,51 @@ function yamlBlockMappingEntries(text) {
     entries.push({ ...entry, value: value.trim() });
   }
   return entries;
+}
+
+function yamlBlockScalarBodyLineIndexes(lines) {
+  const bodyLines = new Set();
+  let scalarIndentation;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const indentation = /^\s*/u.exec(line)[0].length;
+    if (scalarIndentation !== undefined) {
+      if (line.trim().length === 0 || indentation > scalarIndentation) {
+        bodyLines.add(index);
+        continue;
+      }
+      scalarIndentation = undefined;
+    }
+    const entry = parseYamlStructuralKeyLine(line);
+    if (entry && isYamlBlockScalarHeader(entry.value)) {
+      scalarIndentation = entry.indentation;
+    }
+  }
+  return bodyLines;
+}
+
+function parseYamlStructuralKeyLine(line) {
+  const directEntry = parseYamlKeyLine(line);
+  if (directEntry) return directEntry;
+  const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(line);
+  if (!sequenceItem) return undefined;
+  return parseYamlKeyLine(" ".repeat(sequenceItem[1].length + 2) + sequenceItem[2]);
+}
+
+function isYamlBlockScalarHeader(value) {
+  let normalized = value.trim();
+  let property = /^(?:&[^\s]+|![^\s]+)\s+/u.exec(normalized);
+  while (property) {
+    normalized = normalized.slice(property[0].length);
+    property = /^(?:&[^\s]+|![^\s]+)\s+/u.exec(normalized);
+  }
+  return /^[>|](?:[1-9]?[+-]?|[+-]?[1-9]?)?\s*$/u.test(normalized);
+}
+
+function maskYamlBlockScalarBodies(text) {
+  const lines = text.split("\n");
+  const bodyLines = yamlBlockScalarBodyLineIndexes(lines);
+  return lines.map((line, index) => bodyLines.has(index) ? "" : line).join("\n");
 }
 
 function yamlScalarValue(value) {
@@ -443,6 +494,11 @@ function yamlScalarAnchors(text) {
   const anchors = new Map();
   const entries = [
     ...yamlBlockMappingEntries(text),
+    ...maskYamlBlockScalarBodies(text).split("\n").flatMap((line) => {
+      if (!/^(\s*)-\s*/u.test(line)) return [];
+      const entry = parseYamlStructuralKeyLine(line);
+      return entry ? [entry] : [];
+    }),
     ...yamlFlowMappings(text).flat(),
   ];
   for (const entry of entries) {
@@ -485,6 +541,7 @@ function yamlFlowMappingValues(text, key) {
 }
 
 function yamlFlowMappings(text) {
+  text = maskYamlBlockScalarBodies(text);
   const mappings = [];
   let quote;
   for (let index = 0; index < text.length; index += 1) {
@@ -622,12 +679,13 @@ function readYamlFlowKey(text, startIndex) {
   return key.length > 0 ? { key, nextIndex: cursor } : undefined;
 }
 
-function hasUntrustedPullRequestCheckout(text) {
+function hasUntrustedPullRequestCheckout(text, scalarAnchors) {
+  text = maskYamlBlockScalarBodies(text);
   for (const entries of yamlFlowMappings(text)) {
     const usesEntry = entries.find((entry) => entry.key.toLowerCase() === "uses");
     const withEntry = entries.find((entry) => entry.key.toLowerCase() === "with");
     if (!usesEntry || !withEntry
-      || !/^actions\/checkout@/iu.test(yamlScalarValue(usesEntry.value))) {
+      || !/^actions\/checkout@/iu.test(resolveYamlScalarValue(usesEntry.value, scalarAnchors))) {
       continue;
     }
     const refs = yamlFlowMappingValues(withEntry.value, "ref");
@@ -641,7 +699,7 @@ function hasUntrustedPullRequestCheckout(text) {
     if (!sequenceItem) continue;
     const itemIndentation = sequenceItem[1].length;
     const flowUses = yamlFlowMappingValue(sequenceItem[2], "uses");
-    if (flowUses && /^actions\/checkout@/iu.test(flowUses)
+    if (flowUses && /^actions\/checkout@/iu.test(resolveYamlScalarValue(flowUses, scalarAnchors))
       && yamlFlowMappingHasKey(sequenceItem[2], "ref")
       && isUntrustedPullRequestRef(sequenceItem[2])) {
       return true;
@@ -663,7 +721,8 @@ function hasUntrustedPullRequestCheckout(text) {
     const mappingIndentation = Math.min(...entries.map((entry) => entry.indentation));
     const usesEntry = entries.find((entry) => entry.indentation === mappingIndentation
       && entry.key.toLowerCase() === "uses");
-    if (!usesEntry || !/^actions\/checkout@/iu.test(yamlScalarValue(usesEntry.value))) continue;
+    if (!usesEntry
+      || !/^actions\/checkout@/iu.test(resolveYamlScalarValue(usesEntry.value, scalarAnchors))) continue;
     const withIndex = entries.findIndex((entry) => entry.indentation === mappingIndentation
       && entry.key.toLowerCase() === "with");
     if (withIndex < 0) continue;
@@ -686,17 +745,20 @@ function isUntrustedPullRequestRef(value) {
   return /(?:github\.head_ref|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/)/iu.test(value);
 }
 
-function actionReferences(text) {
+function actionReferences(text, scalarAnchors) {
+  text = maskYamlBlockScalarBodies(text);
   return text.split("\n").flatMap((line) => {
     const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(line);
     const flowReference = yamlFlowMappingValue(sequenceItem?.[2] ?? line.trim(), "uses");
-    if (flowReference !== undefined) return [flowReference];
+    if (flowReference !== undefined) {
+      return [resolveYamlScalarValue(flowReference, scalarAnchors)];
+    }
     const candidate = sequenceItem
       ? " ".repeat(sequenceItem[1].length + 2) + sequenceItem[2]
       : line;
     const entry = parseYamlKeyLine(candidate);
     return entry?.key.toLowerCase() === "uses"
-      ? [yamlScalarValue(entry.value)]
+      ? [resolveYamlScalarValue(entry.value, scalarAnchors)]
       : [];
   });
 }
@@ -932,11 +994,44 @@ function refGlobExpression(pattern) {
       expression += "[^/]*";
     } else if (character === "?") {
       expression += "[^/]";
+    } else if (character === "[") {
+      const characterClass = refGlobCharacterClass(pattern, index);
+      if (characterClass) {
+        expression += characterClass.expression;
+        index = characterClass.closingIndex;
+      } else {
+        expression += "\\[";
+      }
     } else {
       expression += escapeRegExp(character);
     }
   }
   return expression + "$";
+}
+
+function refGlobCharacterClass(pattern, openingIndex) {
+  let closingIndex = openingIndex + 1;
+  if (pattern[closingIndex] === "]") closingIndex += 1;
+  while (closingIndex < pattern.length && pattern[closingIndex] !== "]") closingIndex += 1;
+  if (closingIndex >= pattern.length) return undefined;
+  const content = pattern.slice(openingIndex + 1, closingIndex);
+  if (content.length === 0) return undefined;
+  let expression = "";
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    if (character === "\\" || character === "]" || character === "[" || character === "^") {
+      expression += `\\${character}`;
+    } else if (character === "-" && (index === 0 || index === content.length - 1
+      || content.codePointAt(index - 1) > content.codePointAt(index + 1))) {
+      expression += "\\-";
+    } else {
+      expression += character;
+    }
+  }
+  return {
+    closingIndex,
+    expression: `(?=[^/])[${expression}]`,
+  };
 }
 
 function uniqueSortedFindings(findings) {

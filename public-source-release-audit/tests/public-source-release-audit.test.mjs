@@ -53,6 +53,19 @@ test("the staged candidate cannot be hidden by a clean working-tree replacement"
   assert.doesNotMatch(audit.stdout, new RegExp(credential, "u"));
 });
 
+test("staged blob versions do not inflate the tracked path count", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  write(repoRoot, "README.md", "updated fixture repository\n");
+  git(repoRoot, ["add", "README.md"]);
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.scannedTrackedFileCount, 2);
+});
+
 test("an unsafe HEAD cannot be hidden by a staged clean replacement", () => {
   const repoRoot = makeRepository();
   write(repoRoot, "published.txt", classicToken("b"));
@@ -401,6 +414,31 @@ test("aliased write-all permissions are release-blocking", () => {
   assertFinding(audit.result, "workflow-write-all", ".github/workflows/aliased-permissions.yml");
 });
 
+test("aliased privileged triggers remain guarded", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/aliased-trigger.yml", [
+    "name: &event pull_request_target",
+    "on: *event",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased trigger workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-pull-request-target", ".github/workflows/aliased-trigger.yml");
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/aliased-trigger.yml");
+});
+
 test("flow-style workflow mappings preserve guarded key checks", () => {
   const repoRoot = makeRepository();
   write(
@@ -432,6 +470,56 @@ test("flow-style step sequences preserve privileged checkout checks", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/flow-steps.yml");
 });
 
+test("aliased checkout actions remain guarded", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/aliased-checkout.yml", [
+    "name: aliased checkout",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: &checkout actions/checkout@" + "a".repeat(40),
+    "      - uses: *checkout",
+    "        with:",
+    "          ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/aliased-checkout.yml");
+  assert.equal(audit.result.findings.some((finding) => finding.ruleId === "workflow-mutable-action-ref"), false);
+});
+
+test("block scalar script bodies are not parsed as workflow mappings", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/generated-yaml.yml", [
+    "name: generated yaml",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: |",
+    "          permissions: write-all",
+    "          uses: example/action@main",
+    "          echo '{permissions: write-all, uses: example/action@main}'",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add generated yaml workflow");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.findingCount, 0);
+});
+
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/quoted-runner-key.yml", [
@@ -448,6 +536,24 @@ test("quoted runs-on keys cannot hide self-hosted labels", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/quoted-runner-key.yml");
+});
+
+test("aliased self-hosted runner labels remain release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/aliased-runner.yml", [
+    "name: &runner self-hosted",
+    "on: push",
+    "jobs:",
+    "  unsafe:",
+    "    runs-on: *runner",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased runner workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/aliased-runner.yml");
 });
 
 test("block-list privileged triggers detect reordered checkout inputs", () => {
@@ -574,6 +680,28 @@ test("flow-style mutable action references emit an advisory", () => {
   assert.equal(defaultAudit.status, 0);
   assertFinding(defaultAudit.result, "workflow-mutable-action-ref", ".github/workflows/flow-action.yml");
   assert.equal(strictAudit.status, 1);
+});
+
+test("quoted immutable flow-style action references remain trusted", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/quoted-flow-actions.yml", [
+    "name: quoted flow actions",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - { uses: './local-action' }",
+    "      - { uses: 'example/action@" + "a".repeat(40) + "' }",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add quoted flow action workflow");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.warningCount, 0);
 });
 
 test("runner-group selectors require proof of hosted isolation", () => {
@@ -763,6 +891,23 @@ test("ruleset double-star directories may match zero levels", () => {
   const snapshot = githubSnapshot();
   snapshot.repository.default_branch = "releases/1";
   snapshot.rulesets[0].conditions.ref_name.include = ["refs/heads/releases/**/*"];
+
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(snapshot),
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.passed, true);
+});
+
+test("ruleset character classes match default branch segments", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshot = githubSnapshot();
+  snapshot.repository.default_branch = "release/1.0";
+  snapshot.rulesets[0].conditions.ref_name.include = ["refs/heads/release/[0-9]*"];
 
   const audit = runAudit(repoRoot, [
     "--github-snapshot", writeSnapshot(snapshot),
