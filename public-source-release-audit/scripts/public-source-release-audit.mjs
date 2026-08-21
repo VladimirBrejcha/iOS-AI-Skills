@@ -294,10 +294,11 @@ function hasHead(repoRoot) {
 function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   const findings = [];
   const uncommented = text.split(/\r?\n/u).map(stripYamlComment).join("\n");
+  const scalarAnchors = yamlScalarAnchors(uncommented);
   const hasPullRequestTarget = yamlKeyValues(uncommented, "on", { indentation: 0 })
     .some((value) => yamlValueContainsToken(value, "pull_request_target"));
   const hasWriteAll = yamlKeyValues(uncommented, "permissions")
-    .some((value) => yamlScalarValue(value).toLowerCase() === "write-all");
+    .some((value) => resolveYamlScalarValue(value, scalarAnchors).toLowerCase() === "write-all");
 
   if (hasWriteAll) {
     findings.push(workflowFinding({
@@ -394,12 +395,22 @@ function parseYamlKeyLine(line) {
 }
 
 function yamlKeyValues(text, key, { indentation: requiredIndentation } = {}) {
+  const values = yamlBlockMappingEntries(text)
+    .filter((entry) => entry.key.toLowerCase() === key.toLowerCase()
+      && (requiredIndentation === undefined || entry.indentation === requiredIndentation))
+    .map((entry) => entry.value);
+  const flowValues = requiredIndentation === 0
+    ? yamlRootFlowMappingValues(text, key)
+    : yamlFlowMappingValues(text, key);
+  return [...values, ...flowValues];
+}
+
+function yamlBlockMappingEntries(text) {
   const lines = text.split("\n");
-  const values = [];
+  const entries = [];
   for (let index = 0; index < lines.length; index += 1) {
     const entry = parseYamlKeyLine(lines[index]);
-    if (!entry || entry.key.toLowerCase() !== key.toLowerCase()) continue;
-    if (requiredIndentation !== undefined && entry.indentation !== requiredIndentation) continue;
+    if (!entry) continue;
     let value = entry.value;
     for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
       const line = lines[cursor];
@@ -408,12 +419,9 @@ function yamlKeyValues(text, key, { indentation: requiredIndentation } = {}) {
       if (nextIndentation <= entry.indentation) break;
       value += " " + line.trim();
     }
-    values.push(value.trim());
+    entries.push({ ...entry, value: value.trim() });
   }
-  const flowValues = requiredIndentation === 0
-    ? yamlRootFlowMappingValues(text, key)
-    : yamlFlowMappingValues(text, key);
-  return [...values, ...flowValues];
+  return entries;
 }
 
 function yamlScalarValue(value) {
@@ -431,6 +439,35 @@ function yamlScalarValue(value) {
     : normalized;
 }
 
+function yamlScalarAnchors(text) {
+  const anchors = new Map();
+  const entries = [
+    ...yamlBlockMappingEntries(text),
+    ...yamlFlowMappings(text).flat(),
+  ];
+  for (const entry of entries) {
+    let value = entry.value.trim();
+    while (/^![^\s]+\s+/u.test(value)) {
+      value = value.replace(/^![^\s]+\s+/u, "");
+    }
+    const anchor = /^&([^\s]+)\s+([\s\S]*)$/u.exec(value);
+    if (anchor) anchors.set(anchor[1], anchor[2].trim());
+  }
+  return anchors;
+}
+
+function resolveYamlScalarValue(value, anchors) {
+  const visited = new Set();
+  let currentValue = value;
+  while (true) {
+    const scalar = yamlScalarValue(currentValue);
+    const alias = /^\*([^\s]+)$/u.exec(scalar);
+    if (!alias || !anchors.has(alias[1]) || visited.has(alias[1])) return scalar;
+    visited.add(alias[1]);
+    currentValue = anchors.get(alias[1]);
+  }
+}
+
 function isKnownGithubHostedRunnerLabel(value) {
   return /^(?:ubuntu-(?:slim|latest|\d{2}\.\d{2})(?:-arm)?|windows-(?:latest|\d{4}(?:-vs\d{4})?|\d{2}(?:-vs\d{4})?-arm)|macos-(?:latest|\d{2})(?:-(?:intel|large|xlarge))?|xcode-\d{2}(?:-xlarge)?)$/iu.test(value);
 }
@@ -441,7 +478,14 @@ function yamlValueContainsToken(value, expectedToken) {
 }
 
 function yamlFlowMappingValues(text, key) {
-  const values = [];
+  return yamlFlowMappings(text)
+    .flat()
+    .filter((entry) => entry.key.toLowerCase() === key.toLowerCase())
+    .map((entry) => entry.value);
+}
+
+function yamlFlowMappings(text) {
+  const mappings = [];
   let quote;
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
@@ -460,13 +504,9 @@ function yamlFlowMappingValues(text, key) {
       continue;
     }
     if (character !== "{" || !isYamlFlowMappingStart(text, index)) continue;
-    for (const entry of yamlFlowMappingEntriesAt(text, index)) {
-      if (entry.key.toLowerCase() === key.toLowerCase()) {
-        values.push(entry.value);
-      }
-    }
+    mappings.push(yamlFlowMappingEntriesAt(text, index));
   }
-  return values;
+  return mappings;
 }
 
 function yamlFlowMappingValue(value, key) {
@@ -583,6 +623,18 @@ function readYamlFlowKey(text, startIndex) {
 }
 
 function hasUntrustedPullRequestCheckout(text) {
+  for (const entries of yamlFlowMappings(text)) {
+    const usesEntry = entries.find((entry) => entry.key.toLowerCase() === "uses");
+    const withEntry = entries.find((entry) => entry.key.toLowerCase() === "with");
+    if (!usesEntry || !withEntry
+      || !/^actions\/checkout@/iu.test(yamlScalarValue(usesEntry.value))) {
+      continue;
+    }
+    const refs = yamlFlowMappingValues(withEntry.value, "ref");
+    if (refs.some((ref) => isUntrustedPullRequestRef(yamlScalarValue(ref)))) {
+      return true;
+    }
+  }
   const lines = text.split("\n");
   for (let index = 0; index < lines.length; index += 1) {
     const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(lines[index]);
@@ -860,8 +912,31 @@ function rulesetAppliesToDefaultBranch(ruleset, defaultBranch) {
 function refPatternMatches(pattern, reference, defaultBranch) {
   if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH") return true;
   if (pattern === defaultBranch || pattern === reference) return true;
-  const expression = `^${escapeRegExp(pattern).replaceAll("\\*\\*", ".*").replaceAll("\\*", "[^/]*").replaceAll("\\?", "[^/]")}$`;
+  const expression = refGlobExpression(pattern);
   return new RegExp(expression, "u").test(reference) || new RegExp(expression, "u").test(defaultBranch);
+}
+
+function refGlobExpression(pattern) {
+  let expression = "^";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (character === "*" && pattern[index + 1] === "*") {
+      if (pattern[index + 2] === "/") {
+        expression += "(?:.*/)?";
+        index += 2;
+      } else {
+        expression += ".*";
+        index += 1;
+      }
+    } else if (character === "*") {
+      expression += "[^/]*";
+    } else if (character === "?") {
+      expression += "[^/]";
+    } else {
+      expression += escapeRegExp(character);
+    }
+  }
+  return expression + "$";
 }
 
 function uniqueSortedFindings(findings) {

@@ -72,6 +72,7 @@ test("credential and private-key formats are release-blocking", () => {
   write(repoRoot, "fine-grained.txt", fineGrainedToken("d"));
   write(repoRoot, "app-jwt.txt", githubAppJwt());
   write(repoRoot, "bearer.txt", ["Authorization:", "Bearer", "b".repeat(32)].join(" "));
+  write(repoRoot, "refresh.txt", ["ghr_", "r".repeat(76)].join(""));
   write(repoRoot, "private-key.txt", privateKeyBlock());
   commitAll(repoRoot, "add credential fixtures");
 
@@ -82,6 +83,7 @@ test("credential and private-key formats are release-blocking", () => {
   assertFinding(audit.result, "access-token", "fine-grained.txt");
   assertFinding(audit.result, "access-token", "app-jwt.txt");
   assertFinding(audit.result, "access-token", "bearer.txt");
+  assertFinding(audit.result, "access-token", "refresh.txt");
   assertFinding(audit.result, "private-key", "private-key.txt");
 });
 
@@ -379,6 +381,26 @@ test("anchored write-all permissions are release-blocking", () => {
   assertFinding(audit.result, "workflow-write-all", ".github/workflows/anchored-permissions.yml");
 });
 
+test("aliased write-all permissions are release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/aliased-permissions.yml", [
+    "name: aliased permissions",
+    "on: push",
+    "x-all: &all write-all",
+    "permissions: *all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased permissions workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/aliased-permissions.yml");
+});
+
 test("flow-style workflow mappings preserve guarded key checks", () => {
   const repoRoot = makeRepository();
   write(
@@ -393,6 +415,21 @@ test("flow-style workflow mappings preserve guarded key checks", () => {
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-write-all", ".github/workflows/flow-document.yml");
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/flow-document.yml");
+});
+
+test("flow-style step sequences preserve privileged checkout checks", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  const workflow = "{on: pull_request_target, permissions: read-all, jobs: {build: {runs-on: ubuntu-latest, steps: ["
+    + "{uses: actions/checkout@" + "a".repeat(40) + ", with: {ref: '" + expression + "'}}, "
+    + "{run: ./script.sh}]}}}\n";
+  write(repoRoot, ".github/workflows/flow-steps.yml", workflow);
+  commitAll(repoRoot, "add flow steps workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/flow-steps.yml");
 });
 
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
@@ -717,6 +754,23 @@ test("ruleset question globs do not cross branch separators", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "github-required-check-missing");
+});
+
+test("ruleset double-star directories may match zero levels", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshot = githubSnapshot();
+  snapshot.repository.default_branch = "releases/1";
+  snapshot.rulesets[0].conditions.ref_name.include = ["refs/heads/releases/**/*"];
+
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(snapshot),
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.passed, true);
 });
 
 test("live GitHub evidence consumes every ruleset page", () => {
