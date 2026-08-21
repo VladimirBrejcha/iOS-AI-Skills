@@ -3274,10 +3274,30 @@ function gitArgsWithAuditConfig(args) {
         : args;
 }
 function auditGitEnvironment() {
-    return {
-        ...process.env,
-        GIT_NO_REPLACE_OBJECTS: "1",
-    };
+    const environment = { ...process.env };
+    for (const name of [
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_DIR",
+        "GIT_GRAFT_FILE",
+        "GIT_INDEX_FILE",
+        "GIT_NAMESPACE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_SHALLOW_FILE",
+        "GIT_WORK_TREE",
+    ]) {
+        delete environment[name];
+    }
+    for (const name of Object.keys(environment)) {
+        if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name))
+            delete environment[name];
+    }
+    environment.GIT_NO_REPLACE_OBJECTS = "1";
+    return environment;
 }
 function scanLargeDecodedAuditTextFile(filePath, createScanner) {
     const detection = detectLargeBlobTextEncoding(filePath);

@@ -53,6 +53,30 @@ test("the staged candidate cannot be hidden by a clean working-tree replacement"
   assert.doesNotMatch(audit.stdout, new RegExp(credential, "u"));
 });
 
+test("Git environment variables cannot redirect the audited index", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  write(repoRoot, "candidate.txt", classicToken("z"));
+  git(repoRoot, ["add", "candidate.txt"]);
+  const alternateDirectory = mkdtempSync(path.join(os.tmpdir(), "public-source-index-"));
+  temporaryRoots.add(alternateDirectory);
+  const alternateIndex = path.join(alternateDirectory, "index");
+  const readTree = spawnSync("git", ["read-tree", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, GIT_INDEX_FILE: alternateIndex },
+  });
+  assert.equal(readTree.status, 0, readTree.stderr);
+
+  const audit = runAudit(repoRoot, [], {
+    env: { ...process.env, GIT_INDEX_FILE: alternateIndex },
+  });
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "access-token", "candidate.txt");
+});
+
 test("staged blob versions do not inflate the tracked path count", () => {
   const repoRoot = makeRepository();
   writeSafeWorkflow(repoRoot);
@@ -585,6 +609,22 @@ test("flow-style workflow mappings preserve guarded key checks", () => {
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/flow-document.yml");
 });
 
+test("explicit keys in flow mappings preserve guarded workflow settings", () => {
+  const repoRoot = makeRepository();
+  write(
+    repoRoot,
+    ".github/workflows/explicit-flow-keys.yml",
+    "{on: push, ? permissions: write-all, jobs: {build: {? runs-on: self-hosted}}}\n",
+  );
+  commitAll(repoRoot, "add explicit flow key workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/explicit-flow-keys.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/explicit-flow-keys.yml");
+});
+
 test("indented flow job mappings preserve guarded key checks", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/indented-flow-jobs.yml", [
@@ -1050,6 +1090,46 @@ test("untrusted inputs propagate through local reusable workflows", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/input-callee.yml");
 });
 
+test("caller matrix taint propagates into reusable workflow inputs", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const matrixExpression = ["$", "{{ matrix.revision }}"].join("");
+  const inputExpression = ["$", "{{ inputs.ref }}"].join("");
+  write(repoRoot, ".github/workflows/matrix-caller.yml", [
+    "name: matrix caller",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  call:",
+    "    strategy:",
+    "      matrix:",
+    "        revision: [" + headExpression + "]",
+    "    uses: ./.github/workflows/matrix-callee.yml",
+    "    with:",
+    "      ref: " + matrixExpression,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/matrix-callee.yml", [
+    "name: matrix callee",
+    "on: workflow_call",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + inputExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add reusable matrix checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/matrix-callee.yml");
+});
+
 test("untrusted refs propagate through workflow job and step environments", () => {
   const repoRoot = makeRepository();
   const headExpression = ["$", "{{ github.head_ref }}"].join("");
@@ -1122,6 +1202,34 @@ test("untrusted refs propagate through job matrix bindings", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/matrix-ref.yml");
+});
+
+test("matrix include objects propagate untrusted checkout refs", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const matrixExpression = ["$", "{{ matrix.revision }}"].join("");
+  write(repoRoot, ".github/workflows/matrix-include.yml", [
+    "name: matrix include",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    strategy:",
+    "      matrix:",
+    "        include: [{revision: " + headExpression + "}]",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + matrixExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add matrix include checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/matrix-include.yml");
 });
 
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
@@ -1244,6 +1352,30 @@ test("github head_ref is an untrusted privileged checkout source", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/head-ref-checkout.yml");
+});
+
+test("bracket notation preserves untrusted GitHub checkout sources", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github['head_ref'] }}"].join("");
+  write(repoRoot, ".github/workflows/bracket-head-ref.yml", [
+    "name: bracket head ref",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add bracket checkout source");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/bracket-head-ref.yml");
 });
 
 test("pull-request merge refs are untrusted privileged checkout sources", () => {
@@ -1395,6 +1527,56 @@ test("action inputs named uses are not dependency references", () => {
 
   assert.equal(audit.status, 0);
   assert.equal(audit.result.warningCount, 0);
+});
+
+test("local composite action dependencies are audited recursively", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/local-action.yml", [
+    "name: local action",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/outer",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/outer/action.yml", [
+    "name: outer",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: ./.github/actions/inner",
+    "    - uses: example/action@main",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/inner/action.yml", [
+    "name: inner",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: actions/checkout@" + "a".repeat(40),
+    "      with:",
+    "        ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add recursive composite actions");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/actions/inner/action.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-mutable-action-ref",
+    ".github/actions/outer/action.yml",
+  );
 });
 
 test("runner-group selectors require proof of hosted isolation", () => {
