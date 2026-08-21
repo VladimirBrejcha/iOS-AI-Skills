@@ -318,7 +318,9 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
         severity: "error",
         source,
       }));
-    } else if (/\$\{\{|^\s*\*/u.test(runner) || yamlValueContainsToken(runner, "group")) {
+    } else if (/\$\{\{|^\s*\*/u.test(runner)
+      || yamlValueContainsToken(runner, "group")
+      || !isKnownGithubHostedRunnerLabel(yamlScalarValue(runner))) {
       findings.push(workflowFinding({
         message: "Dynamic or runner-group selection requires proof that it cannot resolve to self-hosted.",
         path: workflowPath,
@@ -412,13 +414,22 @@ function yamlKeyValues(text, key, { indentation: requiredIndentation } = {}) {
 }
 
 function yamlScalarValue(value) {
-  const trimmed = value.trim();
-  const blockScalar = /^[>|](?:[1-9]?[+-]?|[+-]?[1-9]?)?(?:\s+|$)([\s\S]*)$/u.exec(trimmed);
+  let normalized = value.trim();
+  let property = /^(?:&[^\s]+|![^\s]+)\s+/u.exec(normalized);
+  while (property) {
+    normalized = normalized.slice(property[0].length);
+    property = /^(?:&[^\s]+|![^\s]+)\s+/u.exec(normalized);
+  }
+  const blockScalar = /^[>|](?:[1-9]?[+-]?|[+-]?[1-9]?)?(?:\s+|$)([\s\S]*)$/u.exec(normalized);
   if (blockScalar) return blockScalar[1].trim();
-  const quote = trimmed[0];
-  return (quote === "\"" || quote === "'") && trimmed.at(-1) === quote
-    ? trimmed.slice(1, -1)
-    : trimmed;
+  const quote = normalized[0];
+  return (quote === "\"" || quote === "'") && normalized.at(-1) === quote
+    ? normalized.slice(1, -1)
+    : normalized;
+}
+
+function isKnownGithubHostedRunnerLabel(value) {
+  return /^(?:ubuntu-(?:slim|latest|\d{2}\.\d{2})(?:-arm)?|windows-(?:latest|\d{4}(?:-vs\d{4})?|\d{2}(?:-vs\d{4})?-arm)|macos-(?:latest|\d{2})(?:-(?:intel|large|xlarge))?|xcode-\d{2}(?:-xlarge)?)$/iu.test(value);
 }
 
 function yamlValueContainsToken(value, expectedToken) {
@@ -491,7 +502,7 @@ function hasUntrustedPullRequestCheckout(text) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|pull_request\.head|head\.sha)/iu.test(value);
+  return /(?:github\.head_ref|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/)/iu.test(value);
 }
 
 function actionReferences(text) {
@@ -720,7 +731,7 @@ function rulesetAppliesToDefaultBranch(ruleset, defaultBranch) {
 function refPatternMatches(pattern, reference, defaultBranch) {
   if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH") return true;
   if (pattern === defaultBranch || pattern === reference) return true;
-  const expression = `^${escapeRegExp(pattern).replaceAll("\\*\\*", ".*").replaceAll("\\*", "[^/]*").replaceAll("\\?", ".")}$`;
+  const expression = `^${escapeRegExp(pattern).replaceAll("\\*\\*", ".*").replaceAll("\\*", "[^/]*").replaceAll("\\?", "[^/]")}$`;
   return new RegExp(expression, "u").test(reference) || new RegExp(expression, "u").test(defaultBranch);
 }
 

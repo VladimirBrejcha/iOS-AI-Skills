@@ -360,6 +360,25 @@ test("block-scalar write-all permissions are release-blocking", () => {
   assertFinding(audit.result, "workflow-write-all", ".github/workflows/block-permissions.yml");
 });
 
+test("anchored write-all permissions are release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/anchored-permissions.yml", [
+    "name: anchored permissions",
+    "on: push",
+    "permissions: &all write-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add anchored permissions workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/anchored-permissions.yml");
+});
+
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/quoted-runner-key.yml", [
@@ -424,6 +443,30 @@ test("github head_ref is an untrusted privileged checkout source", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/head-ref-checkout.yml");
+});
+
+test("pull-request merge refs are untrusted privileged checkout sources", () => {
+  const repoRoot = makeRepository();
+  const numberExpression = ["$", "{{ github.event.pull_request.number }}"].join("");
+  write(repoRoot, ".github/workflows/merge-ref-checkout.yml", [
+    "name: merge ref checkout",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: refs/pull/" + numberExpression + "/merge",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add merge ref checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/merge-ref-checkout.yml");
 });
 
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
@@ -510,6 +553,54 @@ test("runner-group selectors require proof of hosted isolation", () => {
   assert.equal(strictAudit.status, 1);
 });
 
+test("unknown static runner labels require proof of hosted isolation", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/custom-runner-label.yml", [
+    "name: custom runner label",
+    "on: push",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: production-runner",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add custom runner label workflow");
+
+  const defaultAudit = runAudit(repoRoot);
+  const strictAudit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(defaultAudit.status, 0);
+  assertFinding(defaultAudit.result, "workflow-dynamic-runner", ".github/workflows/custom-runner-label.yml");
+  assert.equal(strictAudit.status, 1);
+});
+
+test("standard GitHub-hosted runner labels remain trusted", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/hosted-runner-labels.yml", [
+    "name: hosted runner labels",
+    "on: push",
+    "jobs:",
+    "  slim:",
+    "    runs-on: ubuntu-slim",
+    "  linux-arm:",
+    "    runs-on: ubuntu-26.04-arm",
+    "  windows:",
+    "    runs-on: windows-2025-vs2026",
+    "  windows-arm:",
+    "    runs-on: windows-11-vs2026-arm",
+    "  mac-intel:",
+    "    runs-on: macos-15-intel",
+    "  xcode:",
+    "    runs-on: xcode-27",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add hosted runner label workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.warningCount, 0);
+});
+
 test("unsafe public workflow execution is release-blocking", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/unsafe.yml", [
@@ -593,6 +684,23 @@ test("the all-branches ruleset selector protects the default branch", () => {
 
   assert.equal(audit.status, 0);
   assert.equal(audit.result.passed, true);
+});
+
+test("ruleset question globs do not cross branch separators", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshot = githubSnapshot();
+  snapshot.repository.default_branch = "release/main";
+  snapshot.rulesets[0].conditions.ref_name.include = ["refs/heads/release?main"];
+
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(snapshot),
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "github-required-check-missing");
 });
 
 test("live GitHub evidence consumes every ruleset page", () => {
