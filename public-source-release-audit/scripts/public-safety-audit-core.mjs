@@ -90,6 +90,7 @@ const TEXT_FILE_LINE_SEGMENT_MAX_CHARACTERS = 64 * 1024;
 const WINDOWS_HOME_PATH_PATTERN = /(?:[A-Za-z]:)?[\\/]+Users[\\/]+([^\\/:\r\n"<>|?*]+)/giu;
 const STRICT_UTF8_TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 const WINDOWS_1252_TEXT_DECODER = new TextDecoder("windows-1252");
+const AUTHORIZATION_BEARER_PREFIX_PATTERN = /Authorization:\s*Bearer/iu;
 const ACCESS_TOKEN_PATTERNS = [
     /Authorization:\s*Bearer\s+[A-Za-z0-9._~-]{16,}/iu,
     /(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])/u,
@@ -2864,7 +2865,8 @@ function findRuleIdsForText(source) {
 function couldMatchRuleInText(ruleId, source) {
     switch (ruleId) {
         case "access-token":
-            return source.includes("AKIA")
+            return AUTHORIZATION_BEARER_PREFIX_PATTERN.test(source)
+                || source.includes("AKIA")
                 || source.includes("ASIA")
                 || source.includes("AIza")
                 || source.includes("eyJ")

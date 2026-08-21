@@ -138,6 +138,9 @@ function parseArguments(args) {
   if (options.github && options.githubSnapshot) {
     throw new Error("Use only one of --github or --github-snapshot.");
   }
+  if (options.requiredChecks.length > 0 && !options.github && !options.githubSnapshot) {
+    throw new Error("--required-check requires --github or --github-snapshot.");
+  }
   if (!["json", "text"].includes(options.format)) {
     throw new Error("--format must be text or json.");
   }
@@ -155,7 +158,7 @@ function parseArguments(args) {
 }
 
 function helpText() {
-  return `Usage: public-source-release-audit [options]\n\nOptions:\n  --repo PATH                 Git repository to audit (default: .)\n  --history                   Audit all locally reachable refs and fail on shallow/grafted history\n  --github OWNER/REPO         Audit live GitHub repository controls with gh\n  --github-snapshot PATH      Audit a captured GitHub evidence fixture instead of the network\n  --required-check NAME       Require a strict GitHub Actions check; repeat as needed\n  --fail-on-warning           Treat workflow advisories as failures\n  --format text|json          Output format (default: text)\n  --help                      Show this help\n`;
+  return `Usage: public-source-release-audit [options]\n\nOptions:\n  --repo PATH                 Git repository to audit (default: .)\n  --history                   Audit all locally reachable refs and fail on shallow/grafted history\n  --github OWNER/REPO         Audit live GitHub repository controls with gh\n  --github-snapshot PATH      Audit a captured GitHub evidence fixture instead of the network\n  --required-check NAME       Require a strict GitHub Actions check with GitHub evidence; repeat as needed\n  --fail-on-warning           Treat workflow advisories as failures\n  --format text|json          Output format (default: text)\n  --help                      Show this help\n`;
 }
 
 function resolveRepositoryRoot(inputPath) {
@@ -247,7 +250,7 @@ function resolveTreeObjectId(repoRoot, ref) {
   const result = spawnSync("git", ["rev-parse", "--verify", ref + "^{tree}"], {
     cwd: repoRoot,
     encoding: "utf8",
-    env: process.env,
+    env: auditGitEnvironment(),
   });
   if (result.status !== 0) return undefined;
   const objectId = result.stdout.trim();
@@ -283,6 +286,7 @@ function splitNulRecords(buffer) {
 function hasHead(repoRoot) {
   return spawnSync("git", ["rev-parse", "--verify", "HEAD"], {
     cwd: repoRoot,
+    env: auditGitEnvironment(),
     stdio: "ignore",
   }).status === 0;
 }
@@ -314,9 +318,9 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
         severity: "error",
         source,
       }));
-    } else if (/\$\{\{|^\s*\*/u.test(runner)) {
+    } else if (/\$\{\{|^\s*\*/u.test(runner) || yamlValueContainsToken(runner, "group")) {
       findings.push(workflowFinding({
-        message: "Dynamic runner selection requires proof that it cannot resolve to self-hosted.",
+        message: "Dynamic or runner-group selection requires proof that it cannot resolve to self-hosted.",
         path: workflowPath,
         ruleId: "workflow-dynamic-runner",
         severity: "warning",
@@ -409,6 +413,8 @@ function yamlKeyValues(text, key, { indentation: requiredIndentation } = {}) {
 
 function yamlScalarValue(value) {
   const trimmed = value.trim();
+  const blockScalar = /^[>|](?:[1-9]?[+-]?|[+-]?[1-9]?)?(?:\s+|$)([\s\S]*)$/u.exec(trimmed);
+  if (blockScalar) return blockScalar[1].trim();
   const quote = trimmed[0];
   return (quote === "\"" || quote === "'") && trimmed.at(-1) === quote
     ? trimmed.slice(1, -1)
@@ -420,12 +426,34 @@ function yamlValueContainsToken(value, expectedToken) {
     .some((token) => token.toLowerCase() === expectedToken.toLowerCase());
 }
 
+function yamlFlowMappingValue(value, key) {
+  const escapedKey = escapeRegExp(key);
+  const keyPattern = "(?:\"" + escapedKey + "\"|'" + escapedKey + "'|" + escapedKey + ")";
+  const match = new RegExp(
+    "(?:^|[{,])\\s*" + keyPattern + "\\s*:\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s,}]+))",
+    "iu",
+  ).exec(value.trim());
+  return match ? match[1] ?? match[2] ?? match[3] : undefined;
+}
+
+function yamlFlowMappingHasKey(value, key) {
+  const escapedKey = escapeRegExp(key);
+  const keyPattern = "(?:\"" + escapedKey + "\"|'" + escapedKey + "'|" + escapedKey + ")";
+  return new RegExp("(?:^|[{,])\\s*" + keyPattern + "\\s*:", "iu").test(value.trim());
+}
+
 function hasUntrustedPullRequestCheckout(text) {
   const lines = text.split("\n");
   for (let index = 0; index < lines.length; index += 1) {
     const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(lines[index]);
     if (!sequenceItem) continue;
     const itemIndentation = sequenceItem[1].length;
+    const flowUses = yamlFlowMappingValue(sequenceItem[2], "uses");
+    if (flowUses && /^actions\/checkout@/iu.test(flowUses)
+      && yamlFlowMappingHasKey(sequenceItem[2], "ref")
+      && isUntrustedPullRequestRef(sequenceItem[2])) {
+      return true;
+    }
     const entries = [];
     if (sequenceItem[2].trim().length > 0) {
       const inlineEntry = parseYamlKeyLine(" ".repeat(itemIndentation + 2) + sequenceItem[2]);
@@ -463,12 +491,14 @@ function hasUntrustedPullRequestCheckout(text) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:pull_request\.head|head\.sha)/iu.test(value);
+  return /(?:github\.head_ref|pull_request\.head|head\.sha)/iu.test(value);
 }
 
 function actionReferences(text) {
   return text.split("\n").flatMap((line) => {
     const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(line);
+    const flowReference = yamlFlowMappingValue(sequenceItem?.[2] ?? line.trim(), "uses");
+    if (flowReference !== undefined) return [flowReference];
     const candidate = sequenceItem
       ? " ".repeat(sequenceItem[1].length + 2) + sequenceItem[2]
       : line;
@@ -768,13 +798,20 @@ function runCommand(command, args, { cwd, encoding = "utf8" }) {
   const result = spawnSync(command, args, {
     cwd,
     encoding,
-    env: process.env,
+    env: command === "git" ? auditGitEnvironment() : process.env,
     maxBuffer: 128 * 1024 * 1024,
   });
   if (result.status !== 0) {
     throw new Error(`${command} could not provide required audit evidence.`);
   }
   return result;
+}
+
+function auditGitEnvironment() {
+  return {
+    ...process.env,
+    GIT_NO_REPLACE_OBJECTS: "1",
+  };
 }
 
 function escapeRegExp(value) {

@@ -176,6 +176,23 @@ test("history mode catches removed content and sensitive commit messages", () =>
   assert.ok(historyAudit.result.scannedHistoryCommitCount >= 4);
 });
 
+test("history mode detects bearer credentials in commit messages", () => {
+  const repoRoot = makeRepository();
+  git(repoRoot, [
+    "commit",
+    "--allow-empty",
+    "-m",
+    ["Authorization:", "Bearer", "c".repeat(32)].join(" "),
+  ]);
+
+  const currentAudit = runAudit(repoRoot);
+  const historyAudit = runAudit(repoRoot, ["--history"]);
+
+  assert.equal(currentAudit.status, 0);
+  assert.equal(historyAudit.status, 1);
+  assertFinding(historyAudit.result, "access-token");
+});
+
 test("history mode scans workflows on every reachable branch", () => {
   const repoRoot = makeRepository();
   const defaultBranch = git(repoRoot, ["branch", "--show-current"]).stdout.trim();
@@ -199,6 +216,34 @@ test("history mode scans workflows on every reachable branch", () => {
   assert.equal(historyAudit.status, 1);
   assertFinding(historyAudit.result, "workflow-write-all", ".github/workflows/alternate.yml");
   assertFinding(historyAudit.result, "workflow-self-hosted-runner", ".github/workflows/alternate.yml");
+});
+
+test("workflow history ignores local Git replacement objects", () => {
+  const repoRoot = makeRepository();
+  const defaultBranch = git(repoRoot, ["branch", "--show-current"]).stdout.trim();
+  git(repoRoot, ["checkout", "--quiet", "-b", "public-unsafe"]);
+  write(repoRoot, ".github/workflows/replaced.yml", [
+    "name: replaced",
+    "on: push",
+    "jobs:",
+    "  unsafe:",
+    "    runs-on: self-hosted",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add unsafe workflow");
+  const unsafeCommit = git(repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
+  git(repoRoot, ["checkout", "--quiet", defaultBranch]);
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const safeCommit = git(repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
+  git(repoRoot, ["replace", unsafeCommit, safeCommit]);
+
+  const currentAudit = runAudit(repoRoot);
+  const historyAudit = runAudit(repoRoot, ["--history"]);
+
+  assert.equal(currentAudit.status, 0);
+  assert.equal(historyAudit.status, 1);
+  assertFinding(historyAudit.result, "workflow-self-hosted-runner", ".github/workflows/replaced.yml");
 });
 
 test("history mode rejects shallow evidence", () => {
@@ -295,6 +340,26 @@ test("quoted permissions keys and write-all values are release-blocking", () => 
   assertFinding(audit.result, "workflow-write-all", ".github/workflows/quoted-permissions-key.yml");
 });
 
+test("block-scalar write-all permissions are release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/block-permissions.yml", [
+    "name: block permissions",
+    "on: push",
+    "permissions: >-",
+    "  write-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add block permissions workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/block-permissions.yml");
+});
+
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/quoted-runner-key.yml", [
@@ -339,6 +404,28 @@ test("block-list privileged triggers detect reordered checkout inputs", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/reordered-checkout.yml");
 });
 
+test("github head_ref is an untrusted privileged checkout source", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/head-ref-checkout.yml", [
+    "name: head ref checkout",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - { uses: actions/checkout@" + "a".repeat(40) + ", with: { ref: " + expression + " } }",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add head ref checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/head-ref-checkout.yml");
+});
+
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/mutable-docker.yml", [
@@ -369,6 +456,58 @@ test("mutable Docker actions warn while digest-pinned actions pass", () => {
   assert.equal(audit.result.warningCount, 1);
   assertFinding(audit.result, "workflow-mutable-action-ref", ".github/workflows/mutable-docker.yml");
   assert.equal(audit.result.findings.some((finding) => finding.path === ".github/workflows/pinned-docker.yml"), false);
+});
+
+test("flow-style mutable action references emit an advisory", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/flow-action.yml", [
+    "name: flow action",
+    "on: push",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - { name: inspect, uses: example/action@main }",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add flow action workflow");
+
+  const defaultAudit = runAudit(repoRoot);
+  const strictAudit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(defaultAudit.status, 0);
+  assertFinding(defaultAudit.result, "workflow-mutable-action-ref", ".github/workflows/flow-action.yml");
+  assert.equal(strictAudit.status, 1);
+});
+
+test("runner-group selectors require proof of hosted isolation", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/flow-runner-group.yml", [
+    "name: flow runner group",
+    "on: push",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: { group: private-runners }",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/block-runner-group.yml", [
+    "name: block runner group",
+    "on: push",
+    "jobs:",
+    "  inspect:",
+    "    runs-on:",
+    "      group: private-runners",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add runner group workflows");
+
+  const defaultAudit = runAudit(repoRoot);
+  const strictAudit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(defaultAudit.status, 0);
+  assertFinding(defaultAudit.result, "workflow-dynamic-runner", ".github/workflows/flow-runner-group.yml");
+  assertFinding(defaultAudit.result, "workflow-dynamic-runner", ".github/workflows/block-runner-group.yml");
+  assert.equal(strictAudit.status, 1);
 });
 
 test("unsafe public workflow execution is release-blocking", () => {
@@ -553,6 +692,16 @@ test("incomplete GitHub evidence fails closed", () => {
   assert.equal(audit.status, 2);
   assert.equal(audit.result.passed, false);
   assert.equal(audit.result.error.code, "audit-error");
+});
+
+test("required checks cannot be requested without GitHub evidence", () => {
+  const repoRoot = makeRepository();
+
+  const audit = runAudit(repoRoot, ["--required-check", "verify"]);
+
+  assert.equal(audit.status, 2);
+  assert.equal(audit.result.passed, false);
+  assert.equal(audit.result.error.code, "usage-error");
 });
 
 test("invalid arguments return a distinct usage failure", () => {
