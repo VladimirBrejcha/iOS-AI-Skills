@@ -610,6 +610,33 @@ test("block-node aliases used as triggers remain guarded", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/block-aliased-trigger.yml");
 });
 
+test("block-sequence aliases used as triggers remain guarded", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/sequence-aliased-trigger.yml", [
+    "name: sequence aliased trigger",
+    "x-events: &events",
+    "  - pull_request_target",
+    "on: *events",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add sequence aliased trigger workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-pull-request-target", ".github/workflows/sequence-aliased-trigger.yml");
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/sequence-aliased-trigger.yml");
+});
+
 test("flow-style workflow mappings preserve guarded key checks", () => {
   const repoRoot = makeRepository();
   write(
@@ -1113,6 +1140,51 @@ test("privileged context propagates through local reusable workflows", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/reusable.yml");
 });
 
+test("privileged reusable workflows propagate into local composite actions", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/action-caller.yml", [
+    "name: action caller",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  call:",
+    "    uses: ./.github/workflows/action-callee.yml",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/action-callee.yml", [
+    "name: action callee",
+    "on: workflow_call",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/reusable-checkout",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/reusable-checkout/action.yml", [
+    "name: reusable checkout",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: actions/checkout@" + "a".repeat(40),
+    "      with:",
+    "        ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add reusable composite checkout chain");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/actions/reusable-checkout/action.yml",
+  );
+});
+
 test("untrusted inputs propagate through local reusable workflows", () => {
   const repoRoot = makeRepository();
   const headExpression = ["$", "{{ github.head_ref }}"].join("");
@@ -1272,6 +1344,40 @@ test("untrusted refs propagate through job outputs", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/job-output-ref.yml");
 });
 
+test("untrusted refs propagate through step and job outputs", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const outputExpression = ["$", "{{ needs.source.outputs.revision }}"].join("");
+  write(repoRoot, ".github/workflows/step-output-ref.yml", [
+    "name: step output ref",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  source:",
+    "    runs-on: ubuntu-latest",
+    "    outputs:",
+    "      revision: ${{ steps.ref.outputs.revision }}",
+    "    steps:",
+    "      - id: ref",
+    "        run: |",
+    "          echo \"revision=" + headExpression + "\" >> \"$GITHUB_OUTPUT\"",
+    "  inspect:",
+    "    needs: source",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + outputExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add step output checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/step-output-ref.yml");
+});
+
 test("untrusted refs propagate through job matrix bindings", () => {
   const repoRoot = makeRepository();
   const headExpression = ["$", "{{ github.head_ref }}"].join("");
@@ -1400,6 +1506,37 @@ test("block-sequence runner labels remain release-blocking", () => {
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/block-runner-sequence.yml");
+});
+
+test("runs-on mappings preserve blocking self-hosted labels", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/flow-runner-mapping.yml", [
+    "name: flow runner mapping",
+    "on: push",
+    "jobs:",
+    "  unsafe:",
+    "    runs-on: { group: public-runners, labels: self-hosted }",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/block-runner-mapping.yml", [
+    "name: block runner mapping",
+    "on: push",
+    "jobs:",
+    "  unsafe:",
+    "    runs-on:",
+    "      group: public-runners",
+    "      labels:",
+    "        - self-hosted",
+    "        - linux",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add runner mapping workflows");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/flow-runner-mapping.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/block-runner-mapping.yml");
 });
 
 test("block-list privileged triggers detect reordered checkout inputs", () => {
@@ -1584,6 +1721,43 @@ test("constructed issue_comment pull-request refs remain untrusted", () => {
   );
 });
 
+test("issue-comment bodies are untrusted checkout coordinates", () => {
+  const repoRoot = makeRepository();
+  const repositoryExpression = [
+    "$",
+    "{{ fromJSON(github.event.comment.body).repository }}",
+  ].join("");
+  const refExpression = [
+    "$",
+    "{{ fromJSON(github.event.comment.body).ref }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/comment-body-checkout.yml", [
+    "name: comment body checkout",
+    "on: issue_comment",
+    "permissions:",
+    "  contents: write",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          repository: " + repositoryExpression,
+    "          ref: " + refExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add comment body checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/comment-body-checkout.yml",
+  );
+});
+
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/mutable-docker.yml", [
@@ -1730,6 +1904,40 @@ test("local composite action dependencies are audited recursively", () => {
     "workflow-mutable-action-ref",
     ".github/actions/outer/action.yml",
   );
+});
+
+test("repository-root local actions are audited", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/root-action.yml", [
+    "name: root action",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./",
+    "",
+  ].join("\n"));
+  write(repoRoot, "action.yml", [
+    "name: root action",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: actions/checkout@" + "a".repeat(40),
+    "      with:",
+    "        ref: " + expression,
+    "    - uses: example/action@main",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add repository root action");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", "action.yml");
+  assertFinding(audit.result, "workflow-mutable-action-ref", "action.yml");
 });
 
 test("flow-style composite runs expand block sequence aliases", () => {

@@ -282,6 +282,60 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
   return findings;
 }
 
+function workflowExecutionStates(workflowSources) {
+  const sourceBySnapshotPath = new Map(workflowSources.map((source) => [
+    `${source.snapshot}\0${source.path}`,
+    source,
+  ]));
+  const analysisBySource = new Map();
+  const analysisFor = (source) => {
+    if (analysisBySource.has(source)) return analysisBySource.get(source);
+    const syntax = workflowSyntax(source.text);
+    const analysis = {
+      isReusable: syntax.triggerNames.some((name) => name.toLowerCase() === "workflow_call"),
+      localCalls: localReusableWorkflowCalls(syntax.uncommented, syntax.scalarAnchors),
+      privileged: hasPrivilegedWorkflowTrigger(syntax.triggerNames),
+      syntax,
+    };
+    analysisBySource.set(source, analysis);
+    return analysis;
+  };
+  const pending = workflowSources.map((workflow) => ({
+    depth: 0,
+    privileged: analysisFor(workflow).privileged,
+    taintedBindings: new Set(),
+    workflow,
+  }));
+  const states = [];
+  const visited = new Set();
+  while (pending.length > 0) {
+    const state = pending.pop();
+    const stateKey = [
+      state.workflow.snapshot,
+      state.workflow.path,
+      state.privileged ? "privileged" : "unprivileged",
+      ...[...state.taintedBindings].sort(),
+    ].join("\0");
+    if (state.depth > 10 || visited.has(stateKey)) continue;
+    visited.add(stateKey);
+    states.push(state);
+    const analysis = analysisFor(state.workflow);
+    for (const call of analysis.localCalls) {
+      const callee = sourceBySnapshotPath.get(
+        `${state.workflow.snapshot}\0${call.workflowPath}`,
+      );
+      if (!callee || !analysisFor(callee).isReusable) continue;
+      pending.push({
+        depth: state.depth + 1,
+        privileged: state.privileged,
+        taintedBindings: reusableCallTaintedBindings(call, state.taintedBindings),
+        workflow: callee,
+      });
+    }
+  }
+  return states;
+}
+
 function auditLocalCompositeActions(workflowSources, actionSources) {
   const actionBySnapshotPath = new Map(actionSources.map((source) => [
     `${source.snapshot}\0${source.path}`,
@@ -334,9 +388,9 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
     return analysis;
   };
   const findings = [];
-  for (const workflow of workflowSources) {
+  for (const execution of workflowExecutionStates(workflowSources)) {
+    const { privileged, taintedBindings: workflowTaintedBindings, workflow } = execution;
     const syntax = workflowSyntax(workflow.text);
-    const privileged = hasPrivilegedWorkflowTrigger(syntax.triggerNames);
     const resolveManifestPath = (reference) => localActionManifestPath(
       reference,
       (manifestPath) => actionBySnapshotPath.has(`${workflow.snapshot}\0${manifestPath}`),
@@ -344,7 +398,7 @@ function auditLocalCompositeActions(workflowSources, actionSources) {
     const pending = workflowLocalActionCalls(
       syntax.uncommented,
       syntax.scalarAnchors,
-      new Set(),
+      workflowTaintedBindings,
     ).flatMap((call) => {
       const manifestPath = resolveManifestPath(call.reference);
       return manifestPath ? [{ ...call, depth: 1, manifestPath }] : [];
@@ -445,7 +499,8 @@ function actionInputTaintedBindings(defaultBindings, callerTaintedBindings, prov
 function localActionManifestCandidates(reference) {
   if (!reference.startsWith("./") || /\$\{\{/u.test(reference)) return [];
   const actionPath = path.posix.normalize(reference.slice(2));
-  if (actionPath.length === 0 || actionPath === "." || actionPath === ".."
+  if (actionPath === ".") return ["action.yml", "action.yaml"];
+  if (actionPath.length === 0 || actionPath === ".."
     || actionPath.startsWith("../") || path.posix.isAbsolute(actionPath)) {
     return [];
   }
@@ -700,10 +755,43 @@ function workflowJobTaintedBindings(group, scalarAnchors, inheritedTaintedBindin
     workflowMappingBindings(group, "env", "env", scalarAnchors),
     inheritedTaintedBindings,
   );
-  return contextTaintedBindings(
+  const matrixTaintedBindings = contextTaintedBindings(
     workflowJobMatrixBindings(group, scalarAnchors),
     jobTaintedBindings,
   );
+  return mergeTaintedBindings(
+    matrixTaintedBindings,
+    workflowStepOutputTaintedBindings(group, scalarAnchors, matrixTaintedBindings),
+  );
+}
+
+function workflowStepOutputTaintedBindings(group, scalarAnchors, inheritedTaintedBindings) {
+  const taintedBindings = new Set();
+  for (const stepGroup of mappingContainerStepPropertyGroups(group, scalarAnchors)) {
+    const stepId = stepGroup.properties
+      .filter(({ entry }) => entry.key.toLowerCase() === "id")
+      .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors).toLowerCase())
+      .find(Boolean);
+    if (!stepId) continue;
+    const stepTaintedBindings = contextTaintedBindings(
+      workflowMappingBindings(stepGroup, "env", "env", scalarAnchors),
+      inheritedTaintedBindings,
+    );
+    const outputSources = [
+      ...stepGroup.properties
+        .filter(({ entry }) => entry.key.toLowerCase() === "run")
+        .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors)),
+      ...workflowMappingBindings(stepGroup, "with", "with", scalarAnchors)
+        .map((binding) => binding.value),
+    ];
+    if (outputSources.some((value) => isUntrustedReusableValue(
+      value,
+      stepTaintedBindings,
+    ))) {
+      taintedBindings.add(`steps.${stepId}.outputs.*`);
+    }
+  }
+  return taintedBindings;
 }
 
 function mergeTaintedBindings(...bindingSets) {
@@ -767,6 +855,16 @@ function isUntrustedReusableValue(value, taintedBindings) {
 
 function valueReferencesTaintedBinding(value, taintedBindings) {
   for (const binding of taintedBindings) {
+    if (binding.endsWith(".*")) {
+      const pathPattern = binding.slice(0, -2).split(".")
+        .map((segment) => escapeRegExp(segment))
+        .join(String.raw`\s*\.\s*`);
+      if (new RegExp(
+        String.raw`\b${pathPattern}\s*\.\s*[A-Za-z0-9_-]+`,
+        "iu",
+      ).test(normalizeExpressionPropertyAccess(value))) return true;
+      continue;
+    }
     const separator = binding.indexOf(".");
     const namespace = binding.slice(0, separator);
     const name = binding.slice(separator + 1);
@@ -1277,7 +1375,12 @@ function workflowTriggerNames(text, scalarAnchors, blockNodeAnchors) {
     if (entry) entry.key = resolveYamlScalarValue(entry.key, scalarAnchors);
     if (!entry || entry.indentation !== 0 || entry.key.toLowerCase() !== "on") continue;
     if (entry.value.trim().length > 0 && !yamlValueHasOnlyProperties(entry.value)) {
-      names.push(...workflowTriggerNamesFromValue(entry.value, scalarAnchors, blockNodeAnchors));
+      names.push(...workflowTriggerNamesFromValue(
+        entry.value,
+        scalarAnchors,
+        blockNodeAnchors,
+        text,
+      ));
       continue;
     }
     let childIndentation;
@@ -1296,12 +1399,22 @@ function workflowTriggerNames(text, scalarAnchors, blockNodeAnchors) {
           if (/^\s*/u.exec(continuationLine)[0].length <= entry.indentation) break;
           flowValue += " " + continuationLine.trim();
         }
-        names.push(...workflowTriggerNamesFromValue(flowValue, scalarAnchors, blockNodeAnchors));
+        names.push(...workflowTriggerNamesFromValue(
+          flowValue,
+          scalarAnchors,
+          blockNodeAnchors,
+          text,
+        ));
         break;
       }
       const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(line);
       if (sequenceItem) {
-        names.push(...workflowTriggerNamesFromValue(sequenceItem[2], scalarAnchors, blockNodeAnchors));
+        names.push(...workflowTriggerNamesFromValue(
+          sequenceItem[2],
+          scalarAnchors,
+          blockNodeAnchors,
+          text,
+        ));
         continue;
       }
       const parsedEvent = parseYamlMappingEntryAt(lines, cursor);
@@ -1312,7 +1425,12 @@ function workflowTriggerNames(text, scalarAnchors, blockNodeAnchors) {
     }
   }
   for (const onValue of yamlRootFlowMappingValues(text, "on", scalarAnchors)) {
-    names.push(...workflowTriggerNamesFromValue(onValue, scalarAnchors, blockNodeAnchors));
+    names.push(...workflowTriggerNamesFromValue(
+      onValue,
+      scalarAnchors,
+      blockNodeAnchors,
+      text,
+    ));
   }
   return names;
 }
@@ -1321,7 +1439,7 @@ function yamlValueHasOnlyProperties(value) {
   return /^(?:(?:&[^\s]+|![^\s]+)\s*)+$/u.test(value.trim());
 }
 
-function workflowTriggerNamesFromValue(value, scalarAnchors, blockNodeAnchors) {
+function workflowTriggerNamesFromValue(value, scalarAnchors, blockNodeAnchors, text) {
   const blockAliasEntries = yamlBlockAliasMappingEntries(
     value,
     blockNodeAnchors,
@@ -1329,6 +1447,22 @@ function workflowTriggerNamesFromValue(value, scalarAnchors, blockNodeAnchors) {
   );
   if (blockAliasEntries.length > 0) {
     return blockAliasEntries.map(({ entry }) => resolveYamlScalarValue(entry.key, scalarAnchors));
+  }
+  const blockSequenceParent = yamlBlockSequenceAliasParentEntry(
+    value,
+    yamlBlockMappingEntries(text, scalarAnchors),
+    scalarAnchors,
+  );
+  const blockSequenceValues = blockSequenceParent
+    ? yamlBlockSequenceValues(text, blockSequenceParent)
+    : undefined;
+  if (blockSequenceValues) {
+    return blockSequenceValues.flatMap((item) => workflowTriggerNamesFromValue(
+      item,
+      scalarAnchors,
+      blockNodeAnchors,
+      text,
+    ));
   }
   const resolved = resolveYamlScalarValue(value, scalarAnchors);
   const mappingEntries = yamlDirectFlowMappingEntries(resolved);
@@ -1341,6 +1475,7 @@ function workflowTriggerNamesFromValue(value, scalarAnchors, blockNodeAnchors) {
       item,
       scalarAnchors,
       blockNodeAnchors,
+      text,
     ));
   }
   return [resolved];
@@ -1573,6 +1708,40 @@ function workflowJobRunnerLabelSets(text, scalarAnchors) {
     for (const property of group.properties) {
       if (property.entry.key.toLowerCase() !== "runs-on") continue;
       const inlineValue = property.entry.inlineValue ?? property.entry.value;
+      const mappingEntries = workflowPropertyMappingEntries(
+        group,
+        property,
+        scalarAnchors,
+      );
+      if (mappingEntries.length > 0) {
+        const mappingRunnerValues = mappingEntries.flatMap((mappingEntry) => {
+          const key = resolveYamlScalarValue(
+            mappingEntry.entry.key,
+            scalarAnchors,
+          ).toLowerCase();
+          if (key === "group") {
+            return [`group: ${resolveYamlScalarValue(
+              mappingEntry.entry.value,
+              scalarAnchors,
+            )}`];
+          }
+          if (key !== "labels") return [];
+          const labelInlineValue = mappingEntry.entry.inlineValue
+            ?? mappingEntry.entry.value;
+          const blockLabels = group.entries
+            && mappingEntry.index !== undefined
+            && (labelInlineValue.length === 0 || yamlValueHasOnlyProperties(labelInlineValue))
+            ? yamlBlockSequenceValues(group.text, mappingEntry.entry)
+            : undefined;
+          return (blockLabels ?? [mappingEntry.entry.value]).flatMap((value) => (
+            workflowRunnerLabels(value, scalarAnchors)
+          ));
+        });
+        if (mappingRunnerValues.length > 0) {
+          runnerLabelSets.push(mappingRunnerValues);
+          continue;
+        }
+      }
       const blockValues = group.entries
         && property.index !== undefined
         && (inlineValue.length === 0 || yamlValueHasOnlyProperties(inlineValue))
@@ -1843,7 +2012,6 @@ function readYamlFlowKey(text, startIndex) {
 }
 
 function hasUntrustedPullRequestCheckout(text, scalarAnchors, taintedBindings = new Set()) {
-  text = maskYamlBlockScalarBodies(text);
   const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
   const jobTaintContexts = workflowJobTaintContexts(
     jobGroups,
@@ -1907,6 +2075,9 @@ function contextTaintedBindings(bindings, inheritedTaintedBindings) {
 function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
   if (!["ref", "repository"].includes(key.toLowerCase())) return false;
   if (valueReferencesTaintedBinding(value, taintedBindings)) return true;
+  if (/github\.event\.comment\.body(?:\.|\b)/iu.test(
+    normalizeExpressionPropertyAccess(value),
+  )) return true;
   if (key.toLowerCase() === "repository") {
     return /(?:pull_request\.head\.repo|workflow_run\.head_repository)(?:\.|\b)/iu
       .test(normalizeExpressionPropertyAccess(value));
@@ -1915,7 +2086,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|github\.event\.issue\.number|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.head_sha)/iu
+  return /(?:github\.head_ref|github\.event\.(?:comment\.body|issue\.number)|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.head_sha)/iu
     .test(normalizeExpressionPropertyAccess(value));
 }
 
