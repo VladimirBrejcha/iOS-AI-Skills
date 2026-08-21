@@ -1399,8 +1399,10 @@ test("untrusted refs persisted through GITHUB_ENV reach later steps", () => {
     "  inspect:",
     "    runs-on: ubuntu-latest",
     "    steps:",
-    "      - run: |",
-    "          echo \"PR_REF=" + headExpression + "\" >> \"$GITHUB_ENV\"",
+    "      - env:",
+    "          SOURCE_REF: " + headExpression,
+    "        run: |",
+    "          echo \"PR_REF=$SOURCE_REF\" >> \"$GITHUB_ENV\"",
     "      - uses: actions/checkout@" + "a".repeat(40),
     "        with:",
     "          ref: " + envExpression,
@@ -1435,8 +1437,10 @@ test("GITHUB_ENV taint does not flow backward to earlier steps", () => {
     "      - uses: actions/checkout@" + "a".repeat(40),
     "        with:",
     "          ref: " + envExpression,
-    "      - run: |",
-    "          echo \"PR_REF=" + headExpression + "\" >> \"$GITHUB_ENV\"",
+    "      - env:",
+    "          SOURCE_REF: " + headExpression,
+    "        run: |",
+    "          echo \"PR_REF=$SOURCE_REF\" >> \"$GITHUB_ENV\"",
     "",
   ].join("\n"));
   commitAll(repoRoot, "add ordered environment workflow");
@@ -1888,6 +1892,41 @@ test("workflow_run head checkouts are privileged and untrusted", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/workflow-run-checkout.yml");
 });
 
+test("workflow_run pull-request repositories remain untrusted", () => {
+  const repoRoot = makeRepository();
+  const repositoryExpression = [
+    "$",
+    "{{ github.event.workflow_run.pull_requests[0].head.repo.full_name }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/workflow-run-pr-repository.yml", [
+    "name: workflow run PR repository",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          repository: " + repositoryExpression,
+    "          ref: main",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add workflow run PR repository checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/workflow-run-pr-repository.yml",
+  );
+});
+
 test("workflow_run artifacts remain untrusted when later executed", () => {
   const repoRoot = makeRepository();
   const runIdExpression = ["$", "{{ github.event.workflow_run.id }}"].join("");
@@ -1919,6 +1958,40 @@ test("workflow_run artifacts remain untrusted when later executed", () => {
     audit.result,
     "workflow-privileged-untrusted-artifact-execution",
     ".github/workflows/workflow-run-artifact.yml",
+  );
+});
+
+test("artifact execution resolves step working directories", () => {
+  const repoRoot = makeRepository();
+  const runIdExpression = ["$", "{{ github.event.workflow_run.id }}"].join("");
+  write(repoRoot, ".github/workflows/workflow-run-artifact-directory.yml", [
+    "name: workflow run artifact directory",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - working-directory: payload",
+    "        run: bash run.sh",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add artifact working directory execution");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-artifact-execution",
+    ".github/workflows/workflow-run-artifact-directory.yml",
   );
 });
 
@@ -2127,6 +2200,89 @@ test("discussion bodies are privileged untrusted checkout coordinates", () => {
   );
 });
 
+test("privileged scripts require environment indirection for untrusted values", () => {
+  const unsafeRepo = makeRepository();
+  const safeRepo = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  write(unsafeRepo, ".github/workflows/direct-comment-script.yml", [
+    "name: direct comment script",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo \"comment=" + bodyExpression + "\"",
+    "",
+  ].join("\n"));
+  write(safeRepo, ".github/workflows/environment-comment-script.yml", [
+    "name: environment comment script",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMENT_BODY: " + bodyExpression,
+    "        run: printf '%s\\n' \"$COMMENT_BODY\"",
+    "",
+  ].join("\n"));
+  commitAll(unsafeRepo, "add direct comment interpolation");
+  commitAll(safeRepo, "add environment comment handling");
+
+  const unsafeAudit = runAudit(unsafeRepo);
+  const safeAudit = runAudit(safeRepo);
+
+  assert.equal(unsafeAudit.status, 1);
+  assertFinding(
+    unsafeAudit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/direct-comment-script.yml",
+  );
+  assert.equal(safeAudit.status, 0);
+});
+
+test("public event author identities are untrusted checkout coordinates", () => {
+  const repoRoot = makeRepository();
+  const issueAuthorExpression = [
+    "$",
+    "{{ github.event.issue.user.login }}",
+  ].join("");
+  const actorExpression = ["$", "{{ github.actor }}"].join("");
+  for (const [name, trigger, ownerExpression] of [
+    ["issue-author", "issues", issueAuthorExpression],
+    ["watch-actor", "watch", actorExpression],
+  ]) {
+    write(repoRoot, `.github/workflows/${name}-checkout.yml`, [
+      "name: " + name + " checkout",
+      "on: " + trigger,
+      "permissions: read-all",
+      "jobs:",
+      "  inspect:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - uses: actions/checkout@" + "a".repeat(40),
+      "        with:",
+      "          repository: " + ownerExpression + "/public-payload",
+      "          ref: main",
+      "",
+    ].join("\n"));
+  }
+  commitAll(repoRoot, "add public author checkouts");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  for (const name of ["issue-author", "watch-actor"]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-checkout",
+      `.github/workflows/${name}-checkout.yml`,
+    );
+  }
+});
+
 test("privileged workflows reject shell-based untrusted checkouts", () => {
   const repoRoot = makeRepository();
   const repositoryExpression = [
@@ -2201,10 +2357,12 @@ test("untrusted shell values unrelated to a fixed checkout do not block", () => 
     "  inspect:",
     "    runs-on: ubuntu-latest",
     "    steps:",
-    "      - run: |",
-    "          git fetch origin \"" + refExpression + "\"",
+    "      - env:",
+    "          FETCH_REF: " + refExpression,
+    "        run: |",
+    "          git fetch origin \"$FETCH_REF\"",
     "          git checkout main",
-    "          echo \"requested ref: " + refExpression + "\"",
+    "          echo \"requested ref: $FETCH_REF\"",
     "",
   ].join("\n"));
   commitAll(repoRoot, "add fixed shell checkout workflow");
@@ -2214,6 +2372,54 @@ test("untrusted shell values unrelated to a fixed checkout do not block", () => 
   assert.equal(audit.status, 0);
   assert.equal(audit.result.findings.some((finding) => (
     finding.ruleId === "workflow-privileged-untrusted-checkout"
+  )), false);
+});
+
+test("workflow container and service images require immutable digests", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/mutable-containers.yml", [
+    "name: mutable containers",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    container:",
+    "      image: alpine:latest",
+    "    services:",
+    "      database:",
+    "        image: postgres:latest",
+    "    steps:",
+    "      - run: echo inspect",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/pinned-containers.yml", [
+    "name: pinned containers",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    `    container: alpine@sha256:${"a".repeat(64)}`,
+    "    services:",
+    "      database:",
+    `        image: postgres@sha256:${"b".repeat(64)}`,
+    "    steps:",
+    "      - run: echo inspect",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add workflow container fixtures");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-mutable-container-image",
+    ".github/workflows/mutable-containers.yml",
+  );
+  assert.equal(audit.result.findings.some((finding) => (
+    finding.path === ".github/workflows/pinned-containers.yml"
   )), false);
 });
 
@@ -2503,8 +2709,10 @@ test("GITHUB_ENV taint propagates across local composite action steps", () => {
     "  using: composite",
     "  steps:",
     "    - shell: bash",
+    "      env:",
+    "        SOURCE_REF: " + inputExpression,
     "      run: |",
-    "        echo \"PR_REF=" + inputExpression + "\" >> \"$GITHUB_ENV\"",
+    "        echo \"PR_REF=$SOURCE_REF\" >> \"$GITHUB_ENV\"",
     "    - uses: actions/checkout@" + "a".repeat(40),
     "      with:",
     "        ref: " + envExpression,

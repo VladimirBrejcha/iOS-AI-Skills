@@ -19,6 +19,7 @@ const PRIVILEGED_WORKFLOW_TRIGGERS = new Set([
   "issue_comment",
   "issues",
   "pull_request_target",
+  "watch",
   "workflow_run",
 ]);
 const WORKFLOW_PATH_PATTERN = /^\.github\/workflows\/[^/]+\.ya?ml$/u;
@@ -411,6 +412,19 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
           source: callee.source,
         }));
       }
+      if (hasUntrustedScriptInterpolation(
+        calleeAnalysis.syntax.uncommented,
+        calleeAnalysis.syntax.scalarAnchors,
+        taintedBindings,
+      )) {
+        findings.push(workflowFinding({
+          message: "A reusable workflow called from a privileged trigger must not interpolate untrusted values directly into scripts.",
+          path: callee.path,
+          ruleId: "workflow-privileged-untrusted-script-interpolation",
+          severity: "error",
+          source: callee.source,
+        }));
+      }
       pending.push(...calleeAnalysis.localCalls.map((nestedCall) => ({
         depth: depth + 1,
         taintedBindings: reusableCallTaintedBindings(nestedCall, taintedBindings),
@@ -626,6 +640,18 @@ function auditLocalCompositeActions(workflowSources, actionSources, dockerfileSo
           message: "A local composite action called from a privileged workflow must not execute untrusted workflow artifacts.",
           path: action.path,
           ruleId: "workflow-privileged-untrusted-artifact-execution",
+          severity: "error",
+          source: action.source,
+        }));
+      }
+      if (privileged && stepContextsHaveUntrustedScriptInterpolation(
+        actionStepContexts,
+        analysis.syntax.scalarAnchors,
+      )) {
+        findings.push(workflowFinding({
+          message: "A local composite action called from a privileged workflow must not interpolate untrusted values directly into scripts.",
+          path: action.path,
+          ruleId: "workflow-privileged-untrusted-script-interpolation",
           severity: "error",
           source: action.source,
         }));
@@ -1208,7 +1234,8 @@ function localActionCallsFromStepGroup(stepGroup, scalarAnchors, stepTaintedBind
 
 function isUntrustedReusableValue(value, taintedBindings) {
   return isUntrustedPullRequestRef(value)
-    || /(?:pull_request\.head\.repo|workflow_run\.head_repository)(?:\.|\b)/iu
+    || isUntrustedPublicEventIdentity(value)
+    || /(?:pull_request\.head\.repo|workflow_run\.(?:head_repository|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head\s*\.\s*repo))(?:\.|\b)/iu
       .test(normalizeExpressionPropertyAccess(value))
     || valueReferencesTaintedBinding(value, taintedBindings);
 }
@@ -1418,6 +1445,17 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
     }));
   }
 
+  if (hasPrivilegedTrigger
+    && hasUntrustedScriptInterpolation(uncommented, scalarAnchors)) {
+    findings.push(workflowFinding({
+      message: "A privileged workflow must not interpolate untrusted values directly into scripts; pass them through the step environment.",
+      path: workflowPath,
+      ruleId: "workflow-privileged-untrusted-script-interpolation",
+      severity: "error",
+      source,
+    }));
+  }
+
   for (const actionRef of actionReferences(uncommented, scalarAnchors)) {
     if (isMutableRemoteActionReference(actionRef)) {
       findings.push(workflowFinding({
@@ -1428,6 +1466,17 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
         source,
       }));
     }
+  }
+
+  if (workflowContainerImageReferences(uncommented, scalarAnchors)
+    .some(isMutableDockerBaseImage)) {
+    findings.push(workflowFinding({
+      message: "Workflow job and service container images should use reviewed immutable digests.",
+      path: workflowPath,
+      ruleId: "workflow-mutable-container-image",
+      severity: "warning",
+      source,
+    }));
   }
 
   return findings;
@@ -1864,6 +1913,7 @@ function yamlBlockMappingEntries(text, scalarAnchors) {
     if (!parsedEntry) continue;
     const { entry, valueLineIndex } = parsedEntry;
     let value = entry.value;
+    const blockScalarValue = isYamlBlockScalarHeader(entry.value);
     for (let cursor = valueLineIndex + 1; cursor < lines.length; cursor += 1) {
       const line = lines[cursor];
       if (line.trim().length === 0) continue;
@@ -1871,6 +1921,8 @@ function yamlBlockMappingEntries(text, scalarAnchors) {
       if (nextIndentation <= entry.indentation) break;
       if (yamlDoubleQuotedScalarContinues(value)) {
         value = value.slice(0, -1) + line.trimStart();
+      } else if (blockScalarValue) {
+        value += "\n" + line.trimStart();
       } else {
         value += " " + line.trim();
       }
@@ -2509,6 +2561,28 @@ function hasUntrustedWorkflowArtifactExecution(
   ));
 }
 
+function hasUntrustedScriptInterpolation(text, scalarAnchors, taintedBindings = new Set()) {
+  const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
+  const jobTaintAnalyses = workflowJobTaintAnalyses(
+    jobGroups,
+    workflowRootMappingBindings(text, "env", "env", scalarAnchors),
+    scalarAnchors,
+    taintedBindings,
+  );
+  return jobGroups.some((jobGroup) => stepContextsHaveUntrustedScriptInterpolation(
+    jobTaintAnalyses.get(jobGroup)?.stepContexts ?? [],
+    scalarAnchors,
+  ));
+}
+
+function stepContextsHaveUntrustedScriptInterpolation(stepContexts, scalarAnchors) {
+  return stepContexts.some(({ stepGroup, taintedBindings }) => stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "run")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+    .some((runSource) => /\$\{\{/u.test(runSource)
+      && isUntrustedReusableValue(runSource, taintedBindings)));
+}
+
 function stepContextsHaveUntrustedArtifactExecution(stepContexts, scalarAnchors) {
   const artifactPaths = [];
   for (const { stepGroup, taintedBindings } of stepContexts) {
@@ -2561,13 +2635,21 @@ function stepExecutesArtifactPath(stepGroup, scalarAnchors, artifactPath) {
   if (localActionReference && artifactSourceMatchesPath(localActionReference, artifactPath)) {
     return true;
   }
+  const workingDirectory = stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "working-directory")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+    .find(Boolean) ?? ".";
   return stepGroup.properties
     .filter(({ entry }) => entry.key.toLowerCase() === "run")
     .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
-    .some((runSource) => shellRunExecutesArtifactPath(runSource, artifactPath));
+    .some((runSource) => shellRunExecutesArtifactPath(
+      runSource,
+      artifactPath,
+      workingDirectory,
+    ));
 }
 
-function shellRunExecutesArtifactPath(runSource, artifactPath) {
+function shellRunExecutesArtifactPath(runSource, artifactPath, workingDirectory) {
   const executableCommand = /(?:^|[;&|]\s*)(?:sudo\s+|command\s+)?(?:(?:bash|deno|node|perl|php|python\d*|ruby|sh|zsh)\s+(?:-[^\s]+\s+)*|(?:source|\.)\s+|\.\.?\/)([^\s;&|]+)/iu;
   return runSource
     .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
@@ -2576,14 +2658,24 @@ function shellRunExecutesArtifactPath(runSource, artifactPath) {
     .filter((line) => !/^\s*#/u.test(line))
     .some((line) => {
       const execution = executableCommand.exec(line);
-      return execution && artifactSourceMatchesPath(execution[1], artifactPath);
+      return execution && artifactSourceMatchesPath(
+        execution[1],
+        artifactPath,
+        workingDirectory,
+      );
     });
 }
 
-function artifactSourceMatchesPath(source, artifactPath) {
+function artifactSourceMatchesPath(source, artifactPath, workingDirectory = ".") {
   const normalized = source.replace(/^["']|["']$/gu, "").replace(/^\.\//u, "");
-  if (artifactPath === ".") return !path.posix.isAbsolute(normalized);
-  return normalized === artifactPath || normalized.startsWith(`${artifactPath}/`);
+  if (path.posix.isAbsolute(normalized)) return artifactPath === ".";
+  if (/\$|%/u.test(workingDirectory)) return true;
+  const effectivePath = path.posix.normalize(path.posix.join(
+    workingDirectory.replace(/^\.\//u, ""),
+    normalized,
+  ));
+  if (artifactPath === ".") return !effectivePath.startsWith("../");
+  return effectivePath === artifactPath || effectivePath.startsWith(`${artifactPath}/`);
 }
 
 function stepGroupHasUntrustedCheckout(stepGroup, scalarAnchors, stepTaintedBindings) {
@@ -2690,18 +2782,24 @@ function contextTaintedBindings(bindings, inheritedTaintedBindings) {
 function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
   if (!["ref", "repository"].includes(key.toLowerCase())) return false;
   if (valueReferencesTaintedBinding(value, taintedBindings)) return true;
+  if (isUntrustedPublicEventIdentity(value)) return true;
   if (/github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|title))(?:\.|\b)/iu.test(
     normalizeExpressionPropertyAccess(value),
   )) return true;
   if (key.toLowerCase() === "repository") {
-    return /(?:pull_request\.head\.repo|workflow_run\.head_repository)(?:\.|\b)/iu
+    return /(?:pull_request\.head\.repo|workflow_run\.(?:head_repository|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head\s*\.\s*repo))(?:\.|\b)/iu
       .test(normalizeExpressionPropertyAccess(value));
   }
   return isUntrustedPullRequestRef(value);
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:head|merge_commit_sha)|head\.sha|refs\/pull\/|workflow_run\.(?:head_sha|id))/iu
+  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:head|merge_commit_sha)|refs\/pull\/|workflow_run\.(?:head_sha|id|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head))/iu
+    .test(normalizeExpressionPropertyAccess(value));
+}
+
+function isUntrustedPublicEventIdentity(value) {
+  return /(?:github\.(?:actor|triggering_actor)|github\.event\.(?:sender\.login|(?:comment|discussion|issue|pull_request)\.user\.login|workflow_run\.actor\.login))(?:\.|\b)/iu
     .test(normalizeExpressionPropertyAccess(value));
 }
 
@@ -2716,6 +2814,52 @@ function normalizeExpressionPropertyAccess(value) {
     );
   } while (normalized !== previous);
   return normalized;
+}
+
+function workflowContainerImageReferences(text, scalarAnchors) {
+  const images = [];
+  for (const group of workflowJobPropertyGroups(text, scalarAnchors)) {
+    for (const property of group.properties) {
+      const propertyName = property.entry.key.toLowerCase();
+      if (propertyName === "container") {
+        const containerGroup = { ...group, properties: [property] };
+        const imageEntries = workflowPropertyMappingEntries(
+          containerGroup,
+          property,
+          scalarAnchors,
+        ).filter(({ entry }) => entry.key.toLowerCase() === "image");
+        if (imageEntries.length > 0) {
+          images.push(...imageEntries.map(({ entry }) => (
+            resolveYamlScalarValue(entry.value, scalarAnchors)
+          )));
+        } else {
+          const inlineValue = resolveYamlScalarValue(
+            property.entry.inlineValue ?? property.entry.value,
+            scalarAnchors,
+          );
+          if (inlineValue.length > 0 && !inlineValue.startsWith("{")) {
+            images.push(inlineValue);
+          }
+        }
+      }
+      if (propertyName !== "services") continue;
+      const servicesGroup = { ...group, properties: [property] };
+      for (const serviceProperty of workflowPropertyMappingEntries(
+        servicesGroup,
+        property,
+        scalarAnchors,
+      )) {
+        const serviceGroup = { ...group, properties: [serviceProperty] };
+        images.push(...workflowPropertyMappingEntries(
+          serviceGroup,
+          serviceProperty,
+          scalarAnchors,
+        ).filter(({ entry }) => entry.key.toLowerCase() === "image")
+          .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors)));
+      }
+    }
+  }
+  return images;
 }
 
 function actionReferences(text, scalarAnchors) {
