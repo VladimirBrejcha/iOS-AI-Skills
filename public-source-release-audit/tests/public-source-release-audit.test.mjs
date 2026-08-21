@@ -560,6 +560,51 @@ test("aliased checkout refs remain guarded", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/aliased-checkout-ref.yml");
 });
 
+test("untrusted checkout repository inputs remain guarded", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.event.pull_request.head.repo.full_name }}"].join("");
+  write(repoRoot, ".github/workflows/fork-repository-checkout.yml", [
+    "name: fork repository checkout",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          repository: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add fork repository checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/fork-repository-checkout.yml");
+});
+
+test("block-node aliases used as jobs preserve guarded properties", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/aliased-job.yml", [
+    "name: aliased job",
+    "on: push",
+    "x-job: &unsafe-job",
+    "  permissions: write-all",
+    "  runs-on: self-hosted",
+    "jobs:",
+    "  build: *unsafe-job",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased job workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/aliased-job.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/aliased-job.yml");
+});
+
 test("block scalar script bodies are not parsed as workflow mappings", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/generated-yaml.yml", [
@@ -635,6 +680,31 @@ test("mapping properties do not hide privileged trigger keys", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/anchored-trigger-map.yml");
 });
 
+test("indented flow sequences preserve privileged trigger names", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/indented-flow-trigger.yml", [
+    "name: indented flow trigger",
+    "on:",
+    "  [pull_request_target]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add indented flow trigger workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/indented-flow-trigger.yml");
+});
+
 test("YAML double-quoted escapes cannot hide guarded values", () => {
   const repoRoot = makeRepository();
   const expression = ["$", "{{ github\\u002ehead_ref }}"].join("");
@@ -662,6 +732,64 @@ test("YAML double-quoted escapes cannot hide guarded values", () => {
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/escaped-values.yml");
 });
 
+test("escaped multiline YAML scalars cannot hide guarded values", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/multiline-values.yml", [
+    "name: multiline values",
+    "on: push",
+    ["permissions: \"write-", "\\"].join(""),
+    "  all\" # folded permission",
+    "jobs:",
+    "  inspect:",
+    ["    runs-on: \"self-", "\\"].join(""),
+    "      hosted\" # folded runner",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add multiline guarded values workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/multiline-values.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/multiline-values.yml");
+});
+
+test("CR-only workflow lines preserve guarded mappings", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/cr-only.yml", [
+    "name: cr only",
+    "on: push",
+    "permissions: write-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: self-hosted",
+    "",
+  ].join("\r"));
+  commitAll(repoRoot, "add CR-only workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/cr-only.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/cr-only.yml");
+});
+
+test("document markers preserve root flow workflow checks", () => {
+  const repoRoot = makeRepository();
+  write(
+    repoRoot,
+    ".github/workflows/document-flow.yml",
+    "%YAML 1.2\n--- {name: document flow, on: push, permissions: write-all, jobs: {build: {runs-on: self-hosted}}}\n",
+  );
+  commitAll(repoRoot, "add marked flow workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/document-flow.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/document-flow.yml");
+});
+
 test("workflow entrypoint paths are case-sensitive", () => {
   const directoryRepo = makeRepository();
   write(directoryRepo, ".GITHUB/workflows/lookalike.yml", [
@@ -683,6 +811,48 @@ test("workflow entrypoint paths are case-sensitive", () => {
 
   assert.equal(runAudit(directoryRepo, ["--fail-on-warning"]).status, 0);
   assert.equal(runAudit(extensionRepo, ["--fail-on-warning"]).status, 0);
+});
+
+test("privileged context propagates through local reusable workflows", () => {
+  const repoRoot = makeRepository();
+  const expression = ["$", "{{ github.head_ref }}"].join("");
+  write(repoRoot, ".github/workflows/caller.yml", [
+    "name: caller",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  call:",
+    "    uses: ./.github/workflows/middle.yml",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/middle.yml", [
+    "name: middle",
+    "on: workflow_call",
+    "permissions: read-all",
+    "jobs:",
+    "  call:",
+    "    uses: ./.github/workflows/reusable.yml",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/reusable.yml", [
+    "name: reusable",
+    "on: workflow_call",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + expression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add privileged reusable workflow chain");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/reusable.yml");
 });
 
 test("quoted runs-on keys cannot hide self-hosted labels", () => {

@@ -170,6 +170,7 @@ function resolveRepositoryRoot(inputPath) {
 function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
   const entries = trackedWorkflowEntries(repoRoot, { includeHistory });
   const findings = [];
+  const workflowSources = [];
 
   for (const entry of entries) {
     if (entry.mode !== "100644" && entry.mode !== "100755") {
@@ -199,10 +200,70 @@ function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
       continue;
     }
 
+    workflowSources.push({ ...entry, text });
     findings.push(...auditWorkflowText(entry.path, text, entry.source));
   }
 
+  findings.push(...auditPrivilegedReusableWorkflowCalls(workflowSources));
+
   return findings;
+}
+
+function auditPrivilegedReusableWorkflowCalls(workflowSources) {
+  const sourceBySnapshotPath = new Map(workflowSources.map((source) => [
+    `${source.snapshot}\0${source.path}`,
+    source,
+  ]));
+  const analysisBySource = new Map();
+  const analysisFor = (source) => {
+    if (analysisBySource.has(source)) return analysisBySource.get(source);
+    const syntax = workflowSyntax(source.text);
+    const analysis = {
+      hasPrivilegedTrigger: syntax.triggerNames.some((name) => name.toLowerCase() === "pull_request_target"),
+      isReusable: syntax.triggerNames.some((name) => name.toLowerCase() === "workflow_call"),
+      localCalls: localReusableWorkflowPaths(syntax.uncommented, syntax.scalarAnchors),
+      untrustedCheckout: hasUntrustedPullRequestCheckout(syntax.uncommented, syntax.scalarAnchors),
+    };
+    analysisBySource.set(source, analysis);
+    return analysis;
+  };
+  const findings = [];
+  for (const caller of workflowSources) {
+    const callerAnalysis = analysisFor(caller);
+    if (!callerAnalysis.hasPrivilegedTrigger) continue;
+    const pending = callerAnalysis.localCalls.map((workflowPath) => ({ depth: 1, workflowPath }));
+    const visited = new Set();
+    while (pending.length > 0) {
+      const { depth, workflowPath } = pending.pop();
+      if (depth > 10 || visited.has(workflowPath)) continue;
+      visited.add(workflowPath);
+      const callee = sourceBySnapshotPath.get(`${caller.snapshot}\0${workflowPath}`);
+      if (!callee) continue;
+      const calleeAnalysis = analysisFor(callee);
+      if (!calleeAnalysis.isReusable) continue;
+      if (calleeAnalysis.untrustedCheckout) {
+        findings.push(workflowFinding({
+          message: "A reusable workflow called from pull_request_target must not execute an untrusted PR checkout.",
+          path: callee.path,
+          ruleId: "workflow-privileged-untrusted-checkout",
+          severity: "error",
+          source: callee.source,
+        }));
+      }
+      pending.push(...calleeAnalysis.localCalls.map((nestedPath) => ({
+        depth: depth + 1,
+        workflowPath: nestedPath,
+      })));
+    }
+  }
+  return findings;
+}
+
+function localReusableWorkflowPaths(text, scalarAnchors) {
+  return workflowJobValues(text, "uses", scalarAnchors)
+    .map((value) => resolveYamlScalarValue(value, scalarAnchors))
+    .filter((value) => /^\.\/\.github\/workflows\/[^/]+\.ya?ml$/u.test(value))
+    .map((value) => value.slice(2));
 }
 
 function trackedWorkflowEntries(repoRoot, { includeHistory = false } = {}) {
@@ -221,23 +282,24 @@ function trackedWorkflowEntries(repoRoot, { includeHistory = false } = {}) {
           "git",
           ["ls-tree", "-r", "-z", "--full-tree", tree, "--", ".github/workflows"],
           { cwd: repoRoot, encoding: null },
-        ).stdout).map((record) => ({ ...record, source: "history" })));
+        ).stdout).map((record) => ({ ...record, snapshot: tree, source: "history" })));
       }
     }
+    const headTree = resolveTreeObjectId(repoRoot, "HEAD");
     records.push(...parseTreeRecords(runCommand("git", ["ls-tree", "-r", "-z", "--full-tree", "HEAD"], {
       cwd: repoRoot,
       encoding: null,
-    }).stdout).map((record) => ({ ...record, source: "tracked-file" })));
+    }).stdout).map((record) => ({ ...record, snapshot: headTree ?? "HEAD", source: "tracked-file" })));
   }
   records.push(...parseIndexRecords(runCommand("git", ["ls-files", "--stage", "-z"], {
     cwd: repoRoot,
     encoding: null,
-  }).stdout).map((record) => ({ ...record, source: "tracked-file" })));
+  }).stdout).map((record) => ({ ...record, snapshot: "index", source: "tracked-file" })));
 
   const unique = new Map();
   for (const record of records) {
     if (WORKFLOW_PATH_PATTERN.test(record.path)) {
-      const key = `${record.path}\0${record.objectId}\0${record.mode}`;
+      const key = `${record.snapshot}\0${record.path}\0${record.objectId}\0${record.mode}`;
       if (unique.has(key) === false || record.source === "tracked-file") {
         unique.set(key, record);
       }
@@ -291,11 +353,21 @@ function hasHead(repoRoot) {
   }).status === 0;
 }
 
+function workflowSyntax(text) {
+  const normalized = text.replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n");
+  const uncommented = stripYamlComments(normalized);
+  const scalarAnchors = yamlScalarAnchors(uncommented);
+  return {
+    scalarAnchors,
+    triggerNames: workflowTriggerNames(uncommented, scalarAnchors),
+    uncommented,
+  };
+}
+
 function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   const findings = [];
-  const uncommented = text.split(/\r?\n/u).map(stripYamlComment).join("\n");
-  const scalarAnchors = yamlScalarAnchors(uncommented);
-  const hasPullRequestTarget = workflowTriggerNames(uncommented, scalarAnchors)
+  const { scalarAnchors, triggerNames, uncommented } = workflowSyntax(text);
+  const hasPullRequestTarget = triggerNames
     .some((eventName) => eventName.toLowerCase() === "pull_request_target");
   const hasWriteAll = [
     ...workflowRootValues(uncommented, "permissions"),
@@ -388,6 +460,49 @@ function stripYamlComment(line) {
   return line;
 }
 
+function stripYamlComments(text) {
+  const lines = text.split("\n");
+  const blockScalarBodyLines = yamlBlockScalarBodyLineIndexes(lines.map(stripYamlComment));
+  let singleQuoted = false;
+  let doubleQuoted = false;
+  return lines.map((line, lineIndex) => {
+    if (blockScalarBodyLines.has(lineIndex)) {
+      singleQuoted = false;
+      doubleQuoted = false;
+      return line;
+    }
+    let uncommented = "";
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index];
+      if (singleQuoted) {
+        uncommented += character;
+        if (character === "'" && line[index + 1] === "'") {
+          uncommented += line[index + 1];
+          index += 1;
+        } else if (character === "'") {
+          singleQuoted = false;
+        }
+        continue;
+      }
+      if (doubleQuoted) {
+        uncommented += character;
+        if (character === "\\" && line[index + 1] !== undefined) {
+          uncommented += line[index + 1];
+          index += 1;
+        } else if (character === "\"") {
+          doubleQuoted = false;
+        }
+        continue;
+      }
+      if (character === "'") singleQuoted = true;
+      if (character === "\"") doubleQuoted = true;
+      if (character === "#" && (index === 0 || /\s/u.test(line[index - 1]))) break;
+      uncommented += character;
+    }
+    return uncommented;
+  }).join("\n");
+}
+
 function parseYamlKeyLine(line) {
   const match = /^(\s*)(?:"((?:\\[^\r\n]|[^"\\\r\n])*)"|'((?:''|[^'\r\n])*)'|([A-Za-z0-9_-]+))\s*:\s*(.*)$/u.exec(line);
   if (!match) return undefined;
@@ -411,6 +526,7 @@ function workflowRootValues(text, key) {
 
 function workflowJobValues(text, key, scalarAnchors) {
   const entries = yamlBlockMappingEntries(text);
+  const blockNodeAnchors = yamlBlockNodeAnchors(entries);
   const values = [];
   for (let index = 0; index < entries.length; index += 1) {
     const jobsEntry = entries[index];
@@ -419,6 +535,12 @@ function workflowJobValues(text, key, scalarAnchors) {
       values.push(...directBlockMappingChildren(entries, job.index)
         .filter(({ entry }) => entry.key.toLowerCase() === key.toLowerCase())
         .map(({ entry }) => entry.value));
+      values.push(...yamlBlockAliasMappingValues(
+        job.entry.inlineValue,
+        key,
+        blockNodeAnchors,
+        scalarAnchors,
+      ));
       values.push(...yamlDirectFlowMappingValues(
         resolveYamlScalarValue(job.entry.inlineValue, scalarAnchors),
         key,
@@ -430,6 +552,42 @@ function workflowJobValues(text, key, scalarAnchors) {
     values.push(...workflowJobValuesFromFlowJobs(jobsValue, key, scalarAnchors));
   }
   return values;
+}
+
+function yamlBlockNodeAnchors(entries) {
+  const anchors = new Map();
+  for (let index = 0; index < entries.length; index += 1) {
+    let value = entries[index].inlineValue.trim();
+    let anchorName;
+    while (true) {
+      const property = /^(&([^\s]+)|![^\s]+)(?:\s+|$)/u.exec(value);
+      if (!property) break;
+      if (property[2]) anchorName = property[2];
+      value = value.slice(property[0].length);
+    }
+    if (!anchorName) continue;
+    const children = directBlockMappingChildren(entries, index);
+    if (children.length > 0) anchors.set(anchorName, children);
+  }
+  return anchors;
+}
+
+function yamlBlockAliasMappingValues(value, key, blockNodeAnchors, scalarAnchors) {
+  const visited = new Set();
+  let current = yamlScalarValue(value);
+  while (true) {
+    const alias = /^\*([^\s]+)$/u.exec(current);
+    if (!alias || visited.has(alias[1])) return [];
+    visited.add(alias[1]);
+    const blockNode = blockNodeAnchors.get(alias[1]);
+    if (blockNode) {
+      return blockNode
+        .filter(({ entry }) => entry.key.toLowerCase() === key.toLowerCase())
+        .map(({ entry }) => entry.value);
+    }
+    if (!scalarAnchors.has(alias[1])) return [];
+    current = yamlScalarValue(scalarAnchors.get(alias[1]));
+  }
 }
 
 function directBlockMappingChildren(entries, parentIndex) {
@@ -471,6 +629,17 @@ function workflowTriggerNames(text, scalarAnchors) {
       if (indentation <= entry.indentation) break;
       if (childIndentation === undefined) childIndentation = indentation;
       if (indentation !== childIndentation) continue;
+      if (/^[\[{]/u.test(line.trim())) {
+        let flowValue = line.trim();
+        for (let continuation = cursor + 1; continuation < lines.length; continuation += 1) {
+          const continuationLine = lines[continuation];
+          if (continuationLine.trim().length === 0) continue;
+          if (/^\s*/u.exec(continuationLine)[0].length <= entry.indentation) break;
+          flowValue += " " + continuationLine.trim();
+        }
+        names.push(...workflowTriggerNamesFromValue(flowValue, scalarAnchors));
+        break;
+      }
       const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(line);
       if (sequenceItem) {
         names.push(...workflowTriggerNamesFromValue(sequenceItem[2], scalarAnchors));
@@ -517,7 +686,11 @@ function yamlBlockMappingEntries(text) {
       if (line.trim().length === 0) continue;
       const nextIndentation = /^\s*/u.exec(line)[0].length;
       if (nextIndentation <= entry.indentation) break;
-      value += " " + line.trim();
+      if (yamlDoubleQuotedScalarContinues(value)) {
+        value = value.slice(0, -1) + line.trimStart();
+      } else {
+        value += " " + line.trim();
+      }
     }
     entries.push({
       ...entry,
@@ -526,6 +699,26 @@ function yamlBlockMappingEntries(text) {
     });
   }
   return entries;
+}
+
+function yamlDoubleQuotedScalarContinues(value) {
+  if (!value.endsWith("\\")) return false;
+  let normalized = value.trimStart();
+  let property = /^(?:&[^\s]+|![^\s]+)\s+/u.exec(normalized);
+  while (property) {
+    normalized = normalized.slice(property[0].length);
+    property = /^(?:&[^\s]+|![^\s]+)\s+/u.exec(normalized);
+  }
+  if (!normalized.startsWith("\"")) return false;
+  for (let index = 1; index < normalized.length; index += 1) {
+    if (normalized[index] === "\\") {
+      if (index === normalized.length - 1) return true;
+      index += 1;
+    } else if (normalized[index] === "\"") {
+      return false;
+    }
+  }
+  return false;
 }
 
 function yamlBlockScalarBodyLineIndexes(lines) {
@@ -620,6 +813,11 @@ function decodeYamlDoubleQuotedScalar(value) {
       continue;
     }
     const escape = value[index + 1];
+    if (escape === "\n") {
+      index += 1;
+      while (index + 1 < value.length && /[ \t]/u.test(value[index + 1])) index += 1;
+      continue;
+    }
     if (simpleEscapes.has(escape)) {
       decoded += simpleEscapes.get(escape);
       index += 1;
@@ -778,11 +976,35 @@ function yamlFlowMappingValue(value, key) {
 }
 
 function yamlRootFlowMappingValues(text, key) {
-  const openingBraceIndex = text.search(/\S/u);
+  const openingBraceIndex = yamlDocumentContentStart(text);
   if (openingBraceIndex < 0 || text[openingBraceIndex] !== "{") return [];
   return yamlFlowMappingEntriesAt(text, openingBraceIndex)
     .filter((entry) => entry.key.toLowerCase() === key.toLowerCase())
     .map((entry) => entry.value);
+}
+
+function yamlDocumentContentStart(text) {
+  let index = 0;
+  while (index < text.length) {
+    while (index < text.length && /\s/u.test(text[index])) index += 1;
+    if (text[index] === "\ufeff") {
+      index += 1;
+      continue;
+    }
+    if (text[index] === "%") {
+      const lineEnd = text.indexOf("\n", index);
+      if (lineEnd < 0) return -1;
+      index = lineEnd + 1;
+      continue;
+    }
+    if (text.startsWith("---", index)
+      && (text[index + 3] === undefined || /\s/u.test(text[index + 3]))) {
+      index += 3;
+      continue;
+    }
+    return index;
+  }
+  return -1;
 }
 
 function isYamlFlowMappingStart(text, index) {
@@ -893,8 +1115,7 @@ function hasUntrustedPullRequestCheckout(text, scalarAnchors) {
       || !/^actions\/checkout@/iu.test(resolveYamlScalarValue(usesEntry.value, scalarAnchors))) {
       continue;
     }
-    const refs = yamlFlowMappingValues(withEntry.value, "ref");
-    if (refs.some((ref) => isUntrustedPullRequestRef(resolveYamlScalarValue(ref, scalarAnchors)))) {
+    if (hasUntrustedCheckoutInputs(withEntry.value, scalarAnchors)) {
       return true;
     }
   }
@@ -904,11 +1125,8 @@ function hasUntrustedPullRequestCheckout(text, scalarAnchors) {
     if (!sequenceItem) continue;
     const itemIndentation = sequenceItem[1].length;
     const flowUses = yamlFlowMappingValue(sequenceItem[2], "uses");
-    const flowRefs = yamlFlowMappingValues(sequenceItem[2], "ref");
     if (flowUses && /^actions\/checkout@/iu.test(resolveYamlScalarValue(flowUses, scalarAnchors))
-      && flowRefs.some((ref) => isUntrustedPullRequestRef(
-        resolveYamlScalarValue(ref, scalarAnchors),
-      ))) {
+      && hasUntrustedCheckoutInputs(sequenceItem[2], scalarAnchors)) {
       return true;
     }
     const entries = [];
@@ -934,15 +1152,14 @@ function hasUntrustedPullRequestCheckout(text, scalarAnchors) {
       && entry.key.toLowerCase() === "with");
     if (withIndex < 0) continue;
     const withEntry = entries[withIndex];
-    if (yamlFlowMappingValues(withEntry.value, "ref").some((ref) => isUntrustedPullRequestRef(
-      resolveYamlScalarValue(ref, scalarAnchors),
-    ))) {
+    if (hasUntrustedCheckoutInputs(withEntry.value, scalarAnchors)) {
       return true;
     }
     for (let entryIndex = withIndex + 1; entryIndex < entries.length; entryIndex += 1) {
       const entry = entries[entryIndex];
       if (entry.indentation <= mappingIndentation) break;
-      if (entry.key.toLowerCase() === "ref" && isUntrustedPullRequestRef(
+      if (isUntrustedCheckoutInput(
+        entry.key,
         resolveYamlScalarValue(entry.value, scalarAnchors),
       )) {
         return true;
@@ -950,6 +1167,21 @@ function hasUntrustedPullRequestCheckout(text, scalarAnchors) {
     }
   }
   return false;
+}
+
+function hasUntrustedCheckoutInputs(value, scalarAnchors) {
+  return ["ref", "repository"].some((key) => yamlFlowMappingValues(value, key)
+    .some((input) => isUntrustedCheckoutInput(
+      key,
+      resolveYamlScalarValue(input, scalarAnchors),
+    )));
+}
+
+function isUntrustedCheckoutInput(key, value) {
+  if (key.toLowerCase() === "repository") {
+    return /pull_request\.head\.repo(?:\.|\b)/iu.test(value);
+  }
+  return key.toLowerCase() === "ref" && isUntrustedPullRequestRef(value);
 }
 
 function isUntrustedPullRequestRef(value) {
