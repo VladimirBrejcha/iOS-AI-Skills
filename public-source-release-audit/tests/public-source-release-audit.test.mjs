@@ -437,6 +437,27 @@ test("YAML node properties preceding keys preserve guarded workflow settings", (
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/key-properties.yml");
 });
 
+test("scalar aliases used as keys preserve guarded workflow settings", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/aliased-keys.yml", [
+    "name: &permission-key permissions",
+    "x-runner: &runner-key runs-on",
+    "on: push",
+    "*permission-key: write-all",
+    "jobs:",
+    "  build:",
+    "    *runner-key: self-hosted",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased key workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/aliased-keys.yml");
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/aliased-keys.yml");
+});
+
 test("block-scalar write-all permissions are release-blocking", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/block-permissions.yml", [
@@ -1075,6 +1096,34 @@ test("untrusted refs propagate through workflow job and step environments", () =
   }
 });
 
+test("untrusted refs propagate through job matrix bindings", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const matrixExpression = ["$", "{{ matrix.revision }}"].join("");
+  write(repoRoot, ".github/workflows/matrix-ref.yml", [
+    "name: matrix ref",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    strategy:",
+    "      matrix:",
+    "        revision: [" + headExpression + "]",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + matrixExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add matrix checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/matrix-ref.yml");
+});
+
 test("quoted runs-on keys cannot hide self-hosted labels", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/quoted-runner-key.yml", [
@@ -1219,6 +1268,35 @@ test("pull-request merge refs are untrusted privileged checkout sources", () => 
 
   assert.equal(audit.status, 1);
   assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/merge-ref-checkout.yml");
+});
+
+test("workflow_run head checkouts are privileged and untrusted", () => {
+  const repoRoot = makeRepository();
+  const repositoryExpression = ["$", "{{ github.event.workflow_run.head_repository.full_name }}"].join("");
+  const shaExpression = ["$", "{{ github.event.workflow_run.head_sha }}"].join("");
+  write(repoRoot, ".github/workflows/workflow-run-checkout.yml", [
+    "name: workflow run checkout",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: write-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          repository: " + repositoryExpression,
+    "          ref: " + shaExpression,
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add workflow run checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/workflow-run-checkout.yml");
 });
 
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
@@ -1482,6 +1560,38 @@ test("required-check strictness is associated with the supplying rule", () => {
   );
 });
 
+test("missing ruleset bypass evidence fails closed", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshot = githubSnapshot();
+  delete snapshot.rulesets[0].bypass_actors;
+
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(snapshot),
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "github-protection-bypass");
+});
+
+test("an unbypassable ruleset covers a classic administrator exemption", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshot = githubSnapshot();
+  snapshot.branchProtection = { enforce_admins: { enabled: false } };
+
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(snapshot),
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.passed, true);
+});
+
 test("each missing requested status check remains a distinct finding", () => {
   const repoRoot = makeRepository();
   writeSafeWorkflow(repoRoot);
@@ -1597,7 +1707,6 @@ test("live GitHub evidence consumes every ruleset page", () => {
   commitAll(repoRoot, "add safe workflow");
   const snapshot = githubSnapshot();
   const laterRuleset = {
-    bypass_actors: [{ actor_id: 1, actor_type: "OrganizationAdmin" }],
     conditions: { ref_name: { exclude: [], include: ["~DEFAULT_BRANCH"] } },
     enforcement: "active",
     rules: [],
