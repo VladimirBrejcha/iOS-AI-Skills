@@ -71,6 +71,7 @@ test("credential and private-key formats are release-blocking", () => {
   write(repoRoot, "classic.txt", classicToken("c"));
   write(repoRoot, "fine-grained.txt", fineGrainedToken("d"));
   write(repoRoot, "app-jwt.txt", githubAppJwt());
+  write(repoRoot, "bearer.txt", ["Authorization:", "Bearer", "b".repeat(32)].join(" "));
   write(repoRoot, "private-key.txt", privateKeyBlock());
   commitAll(repoRoot, "add credential fixtures");
 
@@ -80,6 +81,7 @@ test("credential and private-key formats are release-blocking", () => {
   assertFinding(audit.result, "access-token", "classic.txt");
   assertFinding(audit.result, "access-token", "fine-grained.txt");
   assertFinding(audit.result, "access-token", "app-jwt.txt");
+  assertFinding(audit.result, "access-token", "bearer.txt");
   assertFinding(audit.result, "private-key", "private-key.txt");
 });
 
@@ -264,6 +266,79 @@ test("quoted self-hosted runner labels are release-blocking", () => {
   assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/quoted-array.yml");
 });
 
+test("quoted permissions keys and write-all values are release-blocking", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/quoted-permissions-value.yml", [
+    "name: quoted permissions value",
+    "on: push",
+    "permissions: \"write-all\"",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/quoted-permissions-key.yml", [
+    "name: quoted permissions key",
+    "on: push",
+    "\"permissions\": 'write-all'",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add quoted permissions workflows");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/quoted-permissions-value.yml");
+  assertFinding(audit.result, "workflow-write-all", ".github/workflows/quoted-permissions-key.yml");
+});
+
+test("quoted runs-on keys cannot hide self-hosted labels", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/quoted-runner-key.yml", [
+    "name: quoted runner key",
+    "on: push",
+    "jobs:",
+    "  unsafe:",
+    "    \"runs-on\": \"self-hosted\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add quoted runner key workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-self-hosted-runner", ".github/workflows/quoted-runner-key.yml");
+});
+
+test("block-list privileged triggers detect reordered checkout inputs", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/reordered-checkout.yml", [
+    "name: reordered checkout",
+    "on:",
+    "  - pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - name: inspect",
+    "        with:",
+    ["          ref: ", "$", "{{ github.event.pull_request.head.sha }}"].join(""),
+    "        \"uses\": \"actions/checkout@" + "a".repeat(40) + "\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add reordered checkout workflow");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(audit.result, "workflow-pull-request-target", ".github/workflows/reordered-checkout.yml");
+  assertFinding(audit.result, "workflow-privileged-untrusted-checkout", ".github/workflows/reordered-checkout.yml");
+});
+
 test("mutable Docker actions warn while digest-pinned actions pass", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/mutable-docker.yml", [
@@ -345,6 +420,40 @@ test("a protected public GitHub snapshot passes", () => {
   ]);
   assert.equal(unboundAudit.status, 1);
   assertFinding(unboundAudit.result, "github-required-check-not-github-actions");
+});
+
+test("each missing requested status check remains a distinct finding", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(githubSnapshot()),
+    "--required-check", "first-check",
+    "--required-check", "second-check",
+  ]);
+
+  const missingChecks = audit.result.findings
+    .filter((finding) => finding.ruleId === "github-required-check-missing");
+  assert.equal(audit.status, 1);
+  assert.equal(audit.result.errorCount, 2);
+  assert.equal(audit.result.findingCount, 2);
+  assert.deepEqual(missingChecks.map((finding) => finding.check).sort(), ["first-check", "second-check"]);
+});
+
+test("the all-branches ruleset selector protects the default branch", () => {
+  const repoRoot = makeRepository();
+  writeSafeWorkflow(repoRoot);
+  commitAll(repoRoot, "add safe workflow");
+  const snapshot = githubSnapshot();
+  snapshot.rulesets[0].conditions.ref_name.include = ["~ALL"];
+
+  const audit = runAudit(repoRoot, [
+    "--github-snapshot", writeSnapshot(snapshot),
+    "--required-check", "verify",
+  ]);
+
+  assert.equal(audit.status, 0);
+  assert.equal(audit.result.passed, true);
 });
 
 test("live GitHub evidence consumes every ruleset page", () => {

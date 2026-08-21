@@ -290,8 +290,10 @@ function hasHead(repoRoot) {
 function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   const findings = [];
   const uncommented = text.split(/\r?\n/u).map(stripYamlComment).join("\n");
-  const hasPullRequestTarget = /^\s*(?:["']?pull_request_target["']?\s*:|on\s*:\s*[\[{][^\n]*\bpull_request_target\b)/imu.test(uncommented);
-  const hasWriteAll = /^\s*permissions\s*:\s*write-all\s*$/imu.test(uncommented);
+  const hasPullRequestTarget = yamlKeyValues(uncommented, "on", { indentation: 0 })
+    .some((value) => yamlValueContainsToken(value, "pull_request_target"));
+  const hasWriteAll = yamlKeyValues(uncommented, "permissions")
+    .some((value) => yamlScalarValue(value).toLowerCase() === "write-all");
 
   if (hasWriteAll) {
     findings.push(workflowFinding({
@@ -332,7 +334,7 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
       source,
     }));
 
-    if (/uses\s*:\s*["']?actions\/checkout@[^\n]+[\s\S]{0,1000}?ref\s*:\s*[^\n]*(?:pull_request\.head|head\.sha)/iu.test(uncommented)) {
+    if (hasUntrustedPullRequestCheckout(uncommented)) {
       findings.push(workflowFinding({
         message: "A privileged pull_request_target workflow must not execute an untrusted PR checkout.",
         path: workflowPath,
@@ -375,33 +377,105 @@ function stripYamlComment(line) {
   return line;
 }
 
-function yamlKeyValues(text, key) {
+function parseYamlKeyLine(line) {
+  const match = /^(\s*)(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([A-Za-z0-9_-]+))\s*:\s*(.*)$/u.exec(line);
+  if (!match) return undefined;
+  return {
+    indentation: match[1].length,
+    key: match[2] ?? match[3] ?? match[4],
+    value: match[5],
+  };
+}
+
+function yamlKeyValues(text, key, { indentation: requiredIndentation } = {}) {
   const lines = text.split("\n");
   const values = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const match = new RegExp(`^(\\s*)${escapeRegExp(key)}\\s*:\\s*(.*)$`, "iu").exec(lines[index]);
-    if (!match) continue;
-    const indentation = match[1].length;
-    let value = match[2];
+    const entry = parseYamlKeyLine(lines[index]);
+    if (!entry || entry.key.toLowerCase() !== key.toLowerCase()) continue;
+    if (requiredIndentation !== undefined && entry.indentation !== requiredIndentation) continue;
+    let value = entry.value;
     for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
       const line = lines[cursor];
       if (line.trim().length === 0) continue;
       const nextIndentation = /^\s*/u.exec(line)[0].length;
-      if (nextIndentation <= indentation) break;
-      value += ` ${line.trim()}`;
+      if (nextIndentation <= entry.indentation) break;
+      value += " " + line.trim();
     }
     values.push(value.trim());
   }
   return values;
 }
 
+function yamlScalarValue(value) {
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  return (quote === "\"" || quote === "'") && trimmed.at(-1) === quote
+    ? trimmed.slice(1, -1)
+    : trimmed;
+}
+
+function yamlValueContainsToken(value, expectedToken) {
+  return (value.match(/[A-Za-z0-9_-]+/gu) ?? [])
+    .some((token) => token.toLowerCase() === expectedToken.toLowerCase());
+}
+
+function hasUntrustedPullRequestCheckout(text) {
+  const lines = text.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(lines[index]);
+    if (!sequenceItem) continue;
+    const itemIndentation = sequenceItem[1].length;
+    const entries = [];
+    if (sequenceItem[2].trim().length > 0) {
+      const inlineEntry = parseYamlKeyLine(" ".repeat(itemIndentation + 2) + sequenceItem[2]);
+      if (inlineEntry) entries.push(inlineEntry);
+    }
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const line = lines[cursor];
+      if (line.trim().length === 0) continue;
+      const indentation = /^\s*/u.exec(line)[0].length;
+      if (indentation <= itemIndentation) break;
+      const entry = parseYamlKeyLine(line);
+      if (entry) entries.push(entry);
+    }
+    if (entries.length === 0) continue;
+    const mappingIndentation = Math.min(...entries.map((entry) => entry.indentation));
+    const usesEntry = entries.find((entry) => entry.indentation === mappingIndentation
+      && entry.key.toLowerCase() === "uses");
+    if (!usesEntry || !/^actions\/checkout@/iu.test(yamlScalarValue(usesEntry.value))) continue;
+    const withIndex = entries.findIndex((entry) => entry.indentation === mappingIndentation
+      && entry.key.toLowerCase() === "with");
+    if (withIndex < 0) continue;
+    const withEntry = entries[withIndex];
+    if (yamlValueContainsToken(withEntry.value, "ref") && isUntrustedPullRequestRef(withEntry.value)) {
+      return true;
+    }
+    for (let entryIndex = withIndex + 1; entryIndex < entries.length; entryIndex += 1) {
+      const entry = entries[entryIndex];
+      if (entry.indentation <= mappingIndentation) break;
+      if (entry.key.toLowerCase() === "ref" && isUntrustedPullRequestRef(entry.value)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function isUntrustedPullRequestRef(value) {
+  return /(?:pull_request\.head|head\.sha)/iu.test(value);
+}
+
 function actionReferences(text) {
-  return [...text.matchAll(/^\s*(?:-\s*)?uses\s*:\s*([^\s#]+)\s*$/gimu)].map((match) => {
-    const reference = match[1];
-    const quote = reference[0];
-    return (quote === "\"" || quote === "'") && reference.at(-1) === quote
-      ? reference.slice(1, -1)
-      : reference;
+  return text.split("\n").flatMap((line) => {
+    const sequenceItem = /^(\s*)-\s*(.*)$/u.exec(line);
+    const candidate = sequenceItem
+      ? " ".repeat(sequenceItem[1].length + 2) + sequenceItem[2]
+      : line;
+    const entry = parseYamlKeyLine(candidate);
+    return entry?.key.toLowerCase() === "uses"
+      ? [yamlScalarValue(entry.value)]
+      : [];
   });
 }
 
@@ -547,9 +621,17 @@ function auditGithubControls(evidence, requiredChecks) {
   }
   for (const requiredCheck of requiredChecks) {
     if (!requiredContexts.has(requiredCheck)) {
-      findings.push(githubFinding("github-required-check-missing", `Required status check ${requiredCheck} is not enforced.`));
+      findings.push(githubFinding(
+        "github-required-check-missing",
+        `Required status check ${requiredCheck} is not enforced.`,
+        requiredCheck,
+      ));
     } else if (!githubActionsContexts.has(requiredCheck)) {
-      findings.push(githubFinding("github-required-check-not-github-actions", `Required status check ${requiredCheck} is not bound to GitHub Actions.`));
+      findings.push(githubFinding(
+        "github-required-check-not-github-actions",
+        `Required status check ${requiredCheck} is not bound to GitHub Actions.`,
+        requiredCheck,
+      ));
     }
   }
   if (strictStatusChecks === false) {
@@ -584,8 +666,9 @@ function classicStatusChecks(branchProtection) {
   return checks;
 }
 
-function githubFinding(ruleId, message) {
+function githubFinding(ruleId, message, check) {
   return {
+    ...(check === undefined ? {} : { check }),
     message,
     ruleId,
     scope: "github",
@@ -605,7 +688,7 @@ function rulesetAppliesToDefaultBranch(ruleset, defaultBranch) {
 }
 
 function refPatternMatches(pattern, reference, defaultBranch) {
-  if (pattern === "~DEFAULT_BRANCH") return true;
+  if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH") return true;
   if (pattern === defaultBranch || pattern === reference) return true;
   const expression = `^${escapeRegExp(pattern).replaceAll("\\*\\*", ".*").replaceAll("\\*", "[^/]*").replaceAll("\\?", ".")}$`;
   return new RegExp(expression, "u").test(reference) || new RegExp(expression, "u").test(defaultBranch);
@@ -614,7 +697,15 @@ function refPatternMatches(pattern, reference, defaultBranch) {
 function uniqueSortedFindings(findings) {
   const unique = new Map();
   for (const finding of findings) {
-    const key = [finding.severity, finding.scope, finding.ruleId, finding.commit ?? "", finding.path ?? "", finding.source ?? ""].join("\0");
+    const key = [
+      finding.severity,
+      finding.scope,
+      finding.ruleId,
+      finding.commit ?? "",
+      finding.path ?? "",
+      finding.source ?? "",
+      finding.check ?? "",
+    ].join("\0");
     unique.set(key, finding);
   }
   const severityRank = { error: 0, warning: 1 };
@@ -623,7 +714,8 @@ function uniqueSortedFindings(findings) {
       || left.scope.localeCompare(right.scope)
       || left.ruleId.localeCompare(right.ruleId)
       || (left.path ?? "").localeCompare(right.path ?? "")
-      || (left.commit ?? "").localeCompare(right.commit ?? "");
+      || (left.commit ?? "").localeCompare(right.commit ?? "")
+      || (left.check ?? "").localeCompare(right.check ?? "");
   });
 }
 
@@ -640,7 +732,9 @@ function printResult(result, format) {
       ? ` path:${displayTextValue(finding.path)}`
       : finding.commit
         ? ` commit:${displayTextValue(finding.commit)}`
-        : "";
+        : finding.check
+          ? ` check:${displayTextValue(finding.check)}`
+          : "";
     process.stdout.write(`- [${finding.severity}] ${finding.ruleId} (${finding.scope})${location}\n`);
   }
   if (result.omittedFindingCount > 0) {

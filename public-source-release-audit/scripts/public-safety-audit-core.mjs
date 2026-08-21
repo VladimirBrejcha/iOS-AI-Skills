@@ -91,6 +91,7 @@ const WINDOWS_HOME_PATH_PATTERN = /(?:[A-Za-z]:)?[\\/]+Users[\\/]+([^\\/:\r\n"<>
 const STRICT_UTF8_TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 const WINDOWS_1252_TEXT_DECODER = new TextDecoder("windows-1252");
 const ACCESS_TOKEN_PATTERNS = [
+    /Authorization:\s*Bearer\s+[A-Za-z0-9._~-]{16,}/iu,
     /(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])/u,
     /(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{35}(?![A-Za-z0-9])/u,
     /(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{36}(?![A-Za-z0-9])/u,
