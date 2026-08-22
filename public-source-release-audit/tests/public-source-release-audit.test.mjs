@@ -2479,6 +2479,8 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     ["make-nested-directory", "make -C payload -C nested"],
     ["awk-file", "awk -f payload/run.awk /dev/null"],
     ["timeout", "timeout 10 bash payload/run.sh"],
+    ["shell-command-string", "bash -c 'source payload/run.sh'"],
+    ["npm-prefix", "npm --prefix payload test"],
   ]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${name}.yml`, [
       `name: workflow run artifact ${name}`,
@@ -2586,6 +2588,8 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "make-nested-directory",
     "awk-file",
     "timeout",
+    "shell-command-string",
+    "npm-prefix",
     "node-options",
     "env-node-options",
     "workflow-alias",
@@ -3036,6 +3040,34 @@ test("tainted environment values cannot reach shell evaluators", () => {
     "          eval \"$VALUE\"",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-command-position-eval.yml", [
+    "name: comment command position eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + bodyExpression,
+    "        run: $CODE",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-read-eval.yml", [
+    "name: comment read eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + bodyExpression,
+    "        run: |",
+    "          read -r VALUE <<< \"$CODE\"",
+    "          eval \"$VALUE\"",
+    "",
+  ].join("\n"));
   write(repoRoot, ".github/workflows/comment-overwritten-eval.yml", [
     "name: comment overwritten eval",
     "on: issue_comment",
@@ -3069,6 +3101,7 @@ test("tainted environment values cannot reach shell evaluators", () => {
   );
   for (const form of [
     "indirect", "nameref", "positional", "command-alias", "substitution-assignment",
+    "command-position", "read",
   ]) {
     assertFinding(
       audit.result,
@@ -3095,6 +3128,7 @@ test("tainted shell values cannot hide in parameter operators or command substit
     ["backtick-substitution", "echo \"`eval \\\"$CODE\\\"`\""],
     ["nested-backtick-substitution", "echo `echo \\`eval \"$CODE\"\\``"],
     ["process-substitution", "cat <(eval \"$CODE\")"],
+    ["process-substitution-script", "bash <(printf '%s' \"$CODE\")"],
   ]) {
     write(repoRoot, `.github/workflows/comment-${form}-eval.yml`, [
       `name: comment ${form} eval`,
@@ -3126,6 +3160,7 @@ test("tainted shell values cannot hide in parameter operators or command substit
     "backtick-substitution",
     "nested-backtick-substitution",
     "process-substitution",
+    "process-substitution-script",
   ]) {
     assertFinding(
       audit.result,
@@ -3312,6 +3347,19 @@ test("tainted script text cannot be piped into shell interpreters", () => {
     "        run: printf '%s' \"$COMMAND\" | php -d display_errors=1",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-pipe-xargs-shell.yml", [
+    "name: comment pipe xargs shell",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: printf '%s' \"$COMMAND\" | xargs bash -c",
+    "",
+  ].join("\n"));
   write(safeRepo, ".github/workflows/comment-pipe-shell-script.yml", [
     "name: comment pipe shell script",
     "on: issue_comment",
@@ -3353,6 +3401,11 @@ test("tainted script text cannot be piped into shell interpreters", () => {
     audit.result,
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-pipe-php-options.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-pipe-xargs-shell.yml",
   );
   assert.equal(safeAudit.status, 0);
 });
@@ -3695,6 +3748,38 @@ test("tainted fetch state propagates through FETCH_HEAD checkouts", () => {
     "          ./verify.sh",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/fetched-head-restore.yml", [
+    "name: fetched head restore",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          PR_SHA: " + refExpression,
+    "        run: |",
+    "          git fetch origin \"$PR_SHA\"",
+    "          git restore --source FETCH_HEAD -- .",
+    "          ./verify.sh",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/fetched-head-append.yml", [
+    "name: fetched head append",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          PR_SHA: " + refExpression,
+    "        run: |",
+    "          git fetch origin \"$PR_SHA\"",
+    "          git fetch --append origin refs/heads/main",
+    "          git checkout FETCH_HEAD",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add fetched head checkout");
 
   const audit = runAudit(repoRoot);
@@ -3705,7 +3790,9 @@ test("tainted fetch state propagates through FETCH_HEAD checkouts", () => {
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/fetched-head-checkout.yml",
   );
-  for (const form of ["update-ref", "branch", "archive", "archive-get"]) {
+  for (const form of [
+    "update-ref", "branch", "archive", "archive-get", "restore", "append",
+  ]) {
     assertFinding(
       audit.result,
       "workflow-privileged-untrusted-checkout",
@@ -3731,6 +3818,37 @@ test("untrusted shell values unrelated to a fixed checkout do not block", () => 
     "          git fetch origin \"$FETCH_REF\"",
     "          git checkout main",
     "          echo \"requested ref: $FETCH_REF\"",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/trusted-fetch-overwrite.yml", [
+    "name: trusted fetch overwrite",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          FETCH_REF: " + refExpression,
+    "        run: |",
+    "          git fetch origin \"$FETCH_REF\"",
+    "          git fetch origin refs/heads/main",
+    "          git checkout FETCH_HEAD",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/trusted-fetch-cross-step-overwrite.yml", [
+    "name: trusted fetch cross-step overwrite",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          FETCH_REF: " + refExpression,
+    "        run: git fetch origin \"$FETCH_REF\"",
+    "      - run: git fetch origin refs/heads/main",
+    "      - run: git checkout FETCH_HEAD",
     "",
   ].join("\n"));
   commitAll(repoRoot, "add fixed shell checkout workflow");
