@@ -18,14 +18,14 @@ RULES = [
           root(?:(?:/|\\/)|(?![A-Za-z0-9._-]))
         )
         |
-        [A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[^\\/\r\n]+(?:[\\/]{1,2}|$)
+        [A-Za-z]:[\\/]{1,2}(?i:Users)[\\/]{1,2}[^\\/\r\n]+(?:[\\/]{1,2}|$)
       )
     }x
   ],
   ["AWS access key", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
   [
     "AWS secret access key",
-    /\b(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\b\s*(?:=|:)\s*["']?[A-Za-z0-9\/=+]{40}(?=["'\s\r\n,}\]]|\z)/i
+    /(?<![A-Za-z0-9_])(?<aws_quote>["']?)aws_secret_access_key\k<aws_quote>(?![A-Za-z0-9_])\s*(?:=|:)\s*["']?[A-Za-z0-9\/=+]{40}(?=["'\s\r\n,}\]]|\z)/i
   ],
   [
     "bearer credential",
@@ -53,6 +53,7 @@ GIT_ENVIRONMENT = {
   "GIT_NO_LAZY_FETCH" => "1",
   "GIT_NO_REPLACE_OBJECTS" => "1",
   "GIT_OBJECT_DIRECTORY" => nil,
+  "GIT_OPTIONAL_LOCKS" => "0",
   "GIT_WORK_TREE" => nil
 }.freeze
 

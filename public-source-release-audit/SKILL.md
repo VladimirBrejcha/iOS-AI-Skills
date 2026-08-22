@@ -43,7 +43,8 @@ not inspect Git history. Git LFS pointers fail the check because their external
 objects require separate review. Missing index blobs, including unavailable
 partial-clone objects, fail without network fetching. A symlink's own target
 text is scanned, while a symlinked parent component fails without reading
-outside the repository.
+outside the repository. Git's optional locks are disabled so read-only index
+operations do not freshen split-index metadata.
 
 ## Semantic Review
 

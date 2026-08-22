@@ -136,6 +136,7 @@ class CheckCurrentSourceTest < Minitest::Test
       fixtures = {
         "aws.txt" => "AK" + "IA" + ("A" * 16),
         "aws-secret.txt" => "AWS_SECRET_ACCESS_KEY=" + ("S" * 40),
+        "aws-secret-json.txt" => "{\"AWS_SECRET_ACCESS_KEY\":\"" + ("J" * 40) + "\"}",
         "bearer.txt" => "Authorization: " + "Bearer " + ("b" * 24),
         "bearer-json.txt" => "{\"Authorization\":\"" + "Bearer " + ("e" * 24) + "\"}",
         "fine-grained.txt" => "github_" + "pat_" + ("C" * 24),
@@ -154,6 +155,7 @@ class CheckCurrentSourceTest < Minitest::Test
         ].join,
         "root-home.txt" => "/" + "root/.ssh/id_ed25519",
         "windows-home.txt" => "C:" + "\\Users\\example\\private.txt",
+        "lowercase-windows-home.txt" => "c:" + "\\users\\example\\private.txt",
         "escaped-windows-home.txt" => [
           "C:",
           "\\" * 2,
@@ -292,7 +294,7 @@ class CheckCurrentSourceTest < Minitest::Test
     end
   end
 
-  def test_git_commands_disable_lazy_object_fetching
+  def test_git_commands_enforce_read_only_environment
     with_repo do |repo|
       stage(repo, "README.md", "Public documentation without credentials.\n")
       real_git = ENV.fetch("PATH").split(File::PATH_SEPARATOR).filter_map do |dir|
@@ -306,6 +308,7 @@ class CheckCurrentSourceTest < Minitest::Test
         File.write(fake_git, <<~RUBY)
           #!/usr/bin/env ruby
           abort "lazy fetching was not disabled" unless ENV["GIT_NO_LAZY_FETCH"] == "1"
+          abort "optional Git locks were not disabled" unless ENV["GIT_OPTIONAL_LOCKS"] == "0"
           exec #{real_git.dump}, *ARGV
         RUBY
         FileUtils.chmod(0o755, fake_git)
@@ -314,6 +317,7 @@ class CheckCurrentSourceTest < Minitest::Test
           repo,
           {
             "GIT_NO_LAZY_FETCH" => "0",
+            "GIT_OPTIONAL_LOCKS" => "1",
             "PATH" => [bin_dir, ENV.fetch("PATH")].join(File::PATH_SEPARATOR)
           }
         )
