@@ -799,6 +799,69 @@ function auditLocalCompositeActions(
       workflow.snapshot,
       syntax.scalarAnchors,
     );
+    function localActionArtifactExecution(
+      callScalarAnchors,
+      depth = 0,
+      active = new Set(),
+    ) {
+      return (
+        stepGroup,
+        stepTaintedBindings,
+        artifactPaths,
+        environmentValues,
+      ) => {
+        if (depth > 10) return false;
+        for (const call of localActionCallsFromStepGroup(
+          stepGroup,
+          callScalarAnchors,
+          stepTaintedBindings,
+        )) {
+          if (localActionReferenceUsesSymlink(call.reference, symlinkPaths)) continue;
+          const manifestPath = resolveManifestPath(call.reference);
+          if (!manifestPath) continue;
+          const action = actionBySnapshotPath.get(
+            `${workflow.snapshot}\0${manifestPath}`,
+          );
+          if (!action) continue;
+          const analysis = analysisFor(action);
+          const effectiveTaintedBindings = actionInputTaintedBindings(
+            analysis.inputDefaultBindings,
+            call.taintedBindings,
+            call.providedBindings,
+          );
+          const stateKey = [
+            workflow.snapshot,
+            manifestPath,
+            ...[...effectiveTaintedBindings].sort(),
+          ].join("\0");
+          if (active.has(stateKey)) continue;
+          const actionStepContexts = workflowStepTaintAnalysis(
+            analysis.stepGroups,
+            analysis.syntax.scalarAnchors,
+            effectiveTaintedBindings,
+            localActionStepOutputResolver(
+              workflow.snapshot,
+              analysis.syntax.scalarAnchors,
+              depth + 1,
+            ),
+          ).stepContexts;
+          if (stepContextsHaveUntrustedArtifactExecution(
+            actionStepContexts,
+            analysis.syntax.scalarAnchors,
+            {
+              artifactPaths,
+              environmentValues,
+              localActionExecution: localActionArtifactExecution(
+                analysis.syntax.scalarAnchors,
+                depth + 1,
+                new Set([...active, stateKey]),
+              ),
+            },
+          )) return true;
+        }
+        return false;
+      };
+    }
     if (privileged && hasUntrustedPullRequestCheckout(
       syntax.uncommented,
       syntax.scalarAnchors,
@@ -818,6 +881,7 @@ function auditLocalCompositeActions(
       syntax.scalarAnchors,
       workflowTaintedBindings,
       workflowStepOutputResolver,
+      localActionArtifactExecution(syntax.scalarAnchors),
     )) {
       findings.push(workflowFinding({
         message: "A privileged workflow must not execute untrusted artifacts returned through local action outputs.",
@@ -1620,28 +1684,33 @@ function workflowStepTaintAnalysis(
 }
 
 function githubEnvironmentWriteBindings(runSource, taintedBindings) {
-  const taintedEnvironmentVariables = new Set([...taintedBindings].flatMap((binding) => (
+  const taintedVariables = new Set([...taintedBindings].flatMap((binding) => (
     binding.startsWith("env.") && binding !== "env.*"
       ? [binding.slice("env.".length).toLowerCase()]
       : []
   )));
-  if (!isUntrustedReusableValue(runSource, taintedBindings)
-    && !shellSourceReferencesTaintedVariable(
-      runSource,
-      taintedEnvironmentVariables,
-      taintedBindings.has("env.*"),
-    )) return [];
-  const writeLines = runSource
-    .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
-    .replace(/\\\n[ \t]*/gu, " ")
-    .split("\n")
-    .filter((line) => /GITHUB_ENV/iu.test(line)
-      && /(?:>>?|\b(?:Add-Content|Out-File|Set-Content|tee)\b)/iu.test(line));
-  if (writeLines.length === 0) return [];
-  const names = new Set(writeLines.flatMap((line) => [
-    ...line.matchAll(/(?:^|[\s"'`])([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|<<)/gu),
-  ].map((match) => match[1].toLowerCase())));
-  return names.size > 0 ? [...names] : ["*"];
+  const names = new Set();
+  for (const segment of shellCommandSegments(runSource)) {
+    const segmentReferencesTaint = isUntrustedReusableValue(segment, taintedBindings)
+      || shellSourceReferencesTaintedVariable(
+        segment,
+        taintedVariables,
+        taintedBindings.has("env.*"),
+      );
+    const assignmentName = shellAssignmentName(segment);
+    if (assignmentName && segmentReferencesTaint) taintedVariables.add(assignmentName);
+    if (!segmentReferencesTaint
+      || !/GITHUB_ENV/iu.test(segment)
+      || !/(?:>>?|\b(?:Add-Content|Out-File|Set-Content|tee)\b)/iu.test(segment)) {
+      continue;
+    }
+    const writtenNames = [...segment.matchAll(
+      /(?:^|[\s"'`])([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|<<)/gu,
+    )].map((match) => match[1].toLowerCase());
+    if (writtenNames.length === 0) names.add("*");
+    for (const name of writtenNames) names.add(name);
+  }
+  return [...names];
 }
 
 function githubOutputWriteIsTainted(runSource, taintedBindings) {
@@ -1673,7 +1742,7 @@ function mergeTaintedBindings(...bindingSets) {
 }
 
 function shellAssignmentName(source) {
-  const assignment = /^\s*(?:(?:declare|export|local|readonly|typeset)(?:\s+-[^\s]+)*\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(source);
+  const assignment = /^\s*(?:(?:declare|export|local|readonly|typeset)(?:\s+-[^\s]+)*\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\+?=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*[+*/%\-]?=/iu.exec(source);
   return (assignment?.[1] ?? assignment?.[2])?.toLowerCase();
 }
 
@@ -3118,8 +3187,16 @@ function hasUntrustedWorkflowArtifactExecution(
   scalarAnchors,
   taintedBindings = new Set(),
   stepOutputResolver,
+  localActionExecution,
 ) {
   const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
+  const workflowEnvironmentValues = staticEnvironmentValues(
+    workflowRootMappingBindings(text, "env", "env", scalarAnchors),
+  );
+  const workflowWorkingDirectory = workflowRunDefaultWorkingDirectory(
+    text,
+    scalarAnchors,
+  );
   const jobTaintAnalyses = workflowJobTaintAnalyses(
     jobGroups,
     workflowRootMappingBindings(text, "env", "env", scalarAnchors),
@@ -3127,10 +3204,24 @@ function hasUntrustedWorkflowArtifactExecution(
     taintedBindings,
     stepOutputResolver,
   );
-  return jobGroups.some((jobGroup) => stepContextsHaveUntrustedArtifactExecution(
-    jobTaintAnalyses.get(jobGroup)?.stepContexts ?? [],
-    scalarAnchors,
-  ));
+  return jobGroups.some((jobGroup) => {
+    const environmentValues = staticEnvironmentValues(
+      workflowMappingBindings(jobGroup, "env", "env", scalarAnchors),
+      workflowEnvironmentValues,
+    );
+    return stepContextsHaveUntrustedArtifactExecution(
+      jobTaintAnalyses.get(jobGroup)?.stepContexts ?? [],
+      scalarAnchors,
+      {
+        defaultWorkingDirectory: jobRunDefaultWorkingDirectory(
+          jobGroup,
+          scalarAnchors,
+        ) ?? workflowWorkingDirectory,
+        environmentValues,
+        localActionExecution,
+      },
+    );
+  });
 }
 
 function hasUntrustedScriptInterpolation(
@@ -3483,51 +3574,305 @@ function shellPipelineStages(segment) {
   return stages;
 }
 
-function stepContextsHaveUntrustedArtifactExecution(stepContexts, scalarAnchors) {
-  const artifactPaths = [];
+function stepContextsHaveUntrustedArtifactExecution(
+  stepContexts,
+  scalarAnchors,
+  {
+    artifactPaths = [],
+    defaultWorkingDirectory = ".",
+    environmentValues = new Map(),
+    localActionExecution,
+  } = {},
+) {
   for (const { stepGroup, taintedBindings } of stepContexts) {
-    if (stepDownloadsUntrustedWorkflowArtifact(
+    const stepEnvironmentValues = staticEnvironmentValues(
+      workflowMappingBindings(stepGroup, "env", "env", scalarAnchors),
+      environmentValues,
+    );
+    const workingDirectory = stepRunWorkingDirectory(
+      stepGroup,
+      scalarAnchors,
+      defaultWorkingDirectory,
+      stepEnvironmentValues,
+    );
+    for (const artifactPath of downloadedUntrustedArtifactPaths(
       stepGroup,
       scalarAnchors,
       taintedBindings,
+      workingDirectory,
+      stepEnvironmentValues,
     )) {
-      artifactPaths.push(downloadedArtifactPath(stepGroup, scalarAnchors));
-      continue;
+      if (!artifactPaths.includes(artifactPath)) artifactPaths.push(artifactPath);
     }
     if (artifactPaths.some((artifactPath) => stepExecutesArtifactPath(
       stepGroup,
       scalarAnchors,
       artifactPath,
+      workingDirectory,
+      stepEnvironmentValues,
     ))) return true;
+    if (localActionExecution?.(
+      stepGroup,
+      taintedBindings,
+      artifactPaths,
+      stepEnvironmentValues,
+    )) return true;
   }
   return false;
 }
 
-function stepDownloadsUntrustedWorkflowArtifact(
+function downloadedUntrustedArtifactPaths(
   stepGroup,
   scalarAnchors,
   taintedBindings,
+  workingDirectory,
+  environmentValues,
 ) {
   const downloadsArtifact = stepGroup.properties
     .filter(({ entry }) => entry.key.toLowerCase() === "uses")
     .some(({ entry }) => /^actions\/download-artifact@/iu.test(
       resolveYamlScalarValue(entry.value, scalarAnchors),
     ));
-  if (!downloadsArtifact) return false;
-  return workflowMappingBindings(stepGroup, "with", "with", scalarAnchors)
-    .filter((binding) => binding.name === "run-id")
-    .some((binding) => isUntrustedReusableValue(binding.value, taintedBindings));
+  const paths = [];
+  if (downloadsArtifact) {
+    const inputs = workflowMappingBindings(stepGroup, "with", "with", scalarAnchors);
+    const runId = inputs.find((binding) => binding.name === "run-id")?.value;
+    if (runId && isUntrustedReusableValue(runId, taintedBindings)) {
+      paths.push(normalizedArtifactPath(
+        inputs.find((binding) => binding.name === "path")?.value ?? ".",
+        ".",
+        environmentValues,
+      ));
+    }
+  }
+  for (const runSource of stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "run")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))) {
+    paths.push(...shellGhRunDownloadPaths(
+      runSource,
+      taintedBindings,
+      workingDirectory,
+      environmentValues,
+    ));
+  }
+  return paths;
 }
 
-function downloadedArtifactPath(stepGroup, scalarAnchors) {
-  const value = workflowMappingBindings(stepGroup, "with", "with", scalarAnchors)
-    .find((binding) => binding.name === "path")?.value;
-  if (!value || /\$|%/u.test(value) || path.posix.isAbsolute(value)) return ".";
-  const normalized = path.posix.normalize(value).replace(/^\.\//u, "");
+function shellGhRunDownloadPaths(
+  runSource,
+  taintedBindings,
+  workingDirectory,
+  environmentValues,
+) {
+  const paths = [];
+  const taintedVariables = new Set([...taintedBindings].flatMap((binding) => (
+    binding.startsWith("env.") && binding !== "env.*"
+      ? [binding.slice("env.".length).toLowerCase()]
+      : []
+  )));
+  const localEnvironmentValues = new Map(environmentValues);
+  for (const segment of shellCommandSegments(runSource)) {
+    const segmentReferencesTaint = isUntrustedReusableValue(segment, taintedBindings)
+      || shellSourceReferencesTaintedVariable(
+        segment,
+        taintedVariables,
+        taintedBindings.has("env.*"),
+      );
+    const assignmentName = shellAssignmentName(segment);
+    if (assignmentName && segmentReferencesTaint) taintedVariables.add(assignmentName);
+    applyStaticShellAssignment(segment, localEnvironmentValues);
+    const download = shellGhRunDownload(segment);
+    if (!download) continue;
+    const runIdIsTainted = isUntrustedReusableValue(download.runId, taintedBindings)
+      || shellSourceReferencesTaintedVariable(
+        download.runId,
+        taintedVariables,
+        taintedBindings.has("env.*"),
+      );
+    if (!runIdIsTainted) continue;
+    paths.push(normalizedArtifactPath(
+      download.directory,
+      workingDirectory,
+      localEnvironmentValues,
+    ));
+  }
+  return paths;
+}
+
+function shellGhRunDownload(segment) {
+  const words = shellCommandWords(segment);
+  let cursor = 0;
+  while (cursor < words.length) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor])) {
+      cursor += 1;
+      continue;
+    }
+    const command = path.posix.basename(words[cursor]).toLowerCase();
+    if (["command", "exec"].includes(command)) {
+      cursor += 1;
+      while (words[cursor]?.startsWith("-")) cursor += 1;
+      continue;
+    }
+    if (command === "env") {
+      cursor += 1;
+      while (words[cursor]?.startsWith("-")
+        || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
+      continue;
+    }
+    break;
+  }
+  if (path.posix.basename(words[cursor] ?? "").toLowerCase() !== "gh"
+    || words[cursor + 1]?.toLowerCase() !== "run"
+    || words[cursor + 2]?.toLowerCase() !== "download") return undefined;
+  cursor += 3;
+  let directory = ".";
+  let runId;
+  const optionsWithValues = new Set([
+    "--dir", "--name", "--pattern", "--repo", "-d", "-n", "-p", "-r",
+  ]);
+  while (cursor < words.length) {
+    const argument = words[cursor];
+    cursor += 1;
+    const directoryAssignment = /^--dir=(.*)$/iu.exec(argument);
+    if (directoryAssignment) {
+      directory = directoryAssignment[1];
+      continue;
+    }
+    if (optionsWithValues.has(argument.toLowerCase())) {
+      const optionValue = words[cursor];
+      cursor += 1;
+      if (["--dir", "-d"].includes(argument.toLowerCase()) && optionValue) {
+        directory = optionValue;
+      }
+      continue;
+    }
+    if (argument.startsWith("-")) continue;
+    runId ??= argument;
+  }
+  return runId ? { directory, runId } : undefined;
+}
+
+function normalizedArtifactPath(value, baseDirectory, environmentValues) {
+  const resolvedValue = resolveStaticEnvironmentReferences(value, environmentValues);
+  const resolvedBase = resolveStaticEnvironmentReferences(baseDirectory, environmentValues);
+  if (resolvedValue === undefined || resolvedBase === undefined
+    || path.posix.isAbsolute(resolvedValue)
+    || path.posix.isAbsolute(resolvedBase)) return ".";
+  const normalized = path.posix.normalize(path.posix.join(
+    resolvedBase.replace(/^\.\//u, ""),
+    resolvedValue.replace(/^\.\//u, ""),
+  ));
   return normalized === ".." || normalized.startsWith("../") ? "." : normalized;
 }
 
-function stepExecutesArtifactPath(stepGroup, scalarAnchors, artifactPath) {
+function staticEnvironmentValues(bindings, inheritedValues = new Map()) {
+  const values = new Map(inheritedValues);
+  for (const binding of bindings) {
+    const value = resolveStaticEnvironmentReferences(binding.value, values);
+    if (value === undefined) values.delete(binding.name.toLowerCase());
+    else values.set(binding.name.toLowerCase(), value);
+  }
+  return values;
+}
+
+function resolveStaticEnvironmentReferences(value, environmentValues) {
+  let resolved = value.trim().replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/u, "$1$2");
+  if (/\$\{\{|\$\(|`/u.test(resolved)) return undefined;
+  let unresolved = false;
+  resolved = resolved.replace(
+    /\$env:([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%/giu,
+    (_match, powershellName, bracedName, shellName, windowsName) => {
+      const name = (powershellName ?? bracedName ?? shellName ?? windowsName).toLowerCase();
+      if (!environmentValues.has(name)) {
+        unresolved = true;
+        return "";
+      }
+      return environmentValues.get(name);
+    },
+  );
+  if (unresolved || /[$%]/u.test(resolved)) return undefined;
+  return resolved;
+}
+
+function applyStaticShellAssignment(segment, environmentValues) {
+  const shellAssignment = /^\s*(?:(?:declare|export|local|readonly|typeset)(?:\s+-[^\s]+)*\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(\+?=)\s*("[^"]*"|'[^']*'|[^\s;&|]+)/u.exec(segment);
+  const powershellAssignment = /^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*([+*/%\-]?=)\s*("[^"]*"|'[^']*'|[^\s;&|]+)/u.exec(segment);
+  const assignment = shellAssignment ?? powershellAssignment;
+  if (!assignment) return;
+  const name = assignment[1].toLowerCase();
+  const value = resolveStaticEnvironmentReferences(assignment[3], environmentValues);
+  if (value === undefined) {
+    environmentValues.delete(name);
+    return;
+  }
+  environmentValues.set(
+    name,
+    assignment[2] === "+=" ? `${environmentValues.get(name) ?? ""}${value}` : value,
+  );
+}
+
+function workflowRunDefaultWorkingDirectory(text, scalarAnchors) {
+  return workflowRootContainerGroups(text, "defaults", scalarAnchors)
+    .flatMap((group) => workflowNestedMappingValues(
+      group,
+      ["run", "working-directory"],
+      scalarAnchors,
+    ))
+    .find(Boolean) ?? ".";
+}
+
+function jobRunDefaultWorkingDirectory(jobGroup, scalarAnchors) {
+  return workflowNestedMappingValues(
+    jobGroup,
+    ["defaults", "run", "working-directory"],
+    scalarAnchors,
+  ).find(Boolean);
+}
+
+function workflowNestedMappingValues(group, keys, scalarAnchors) {
+  const [key, ...remainingKeys] = keys;
+  const matchingProperties = group.properties.filter(({ entry }) => (
+    resolveYamlScalarValue(entry.key, scalarAnchors).toLowerCase() === key
+  ));
+  if (remainingKeys.length === 0) {
+    return matchingProperties.map(({ entry }) => (
+      resolveYamlScalarValue(entry.value, scalarAnchors)
+    ));
+  }
+  return matchingProperties.flatMap((property) => {
+    const properties = workflowPropertyMappingEntries(
+      group,
+      property,
+      scalarAnchors,
+    );
+    return workflowNestedMappingValues(
+      { ...group, properties },
+      remainingKeys,
+      scalarAnchors,
+    );
+  });
+}
+
+function stepRunWorkingDirectory(
+  stepGroup,
+  scalarAnchors,
+  defaultWorkingDirectory,
+  environmentValues,
+) {
+  const requested = stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "working-directory")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+    .find(Boolean) ?? defaultWorkingDirectory;
+  return resolveStaticEnvironmentReferences(requested, environmentValues) ?? requested;
+}
+
+function stepExecutesArtifactPath(
+  stepGroup,
+  scalarAnchors,
+  artifactPath,
+  workingDirectory = ".",
+  environmentValues = new Map(),
+) {
   const localActionReference = stepGroup.properties
     .filter(({ entry }) => entry.key.toLowerCase() === "uses")
     .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
@@ -3535,10 +3880,6 @@ function stepExecutesArtifactPath(stepGroup, scalarAnchors, artifactPath) {
   if (localActionReference && artifactSourceMatchesPath(localActionReference, artifactPath)) {
     return true;
   }
-  const workingDirectory = stepGroup.properties
-    .filter(({ entry }) => entry.key.toLowerCase() === "working-directory")
-    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
-    .find(Boolean) ?? ".";
   return stepGroup.properties
     .filter(({ entry }) => entry.key.toLowerCase() === "run")
     .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
@@ -3546,22 +3887,38 @@ function stepExecutesArtifactPath(stepGroup, scalarAnchors, artifactPath) {
       runSource,
       artifactPath,
       workingDirectory,
+      environmentValues,
     ));
 }
 
-function shellRunExecutesArtifactPath(runSource, artifactPath, workingDirectory) {
+function shellRunExecutesArtifactPath(
+  runSource,
+  artifactPath,
+  workingDirectory,
+  environmentValues = new Map(),
+) {
   let effectiveWorkingDirectory = workingDirectory;
+  const localEnvironmentValues = new Map(environmentValues);
   for (const segment of shellCommandSegments(runSource)) {
     if (/^\s*#/u.test(segment)) continue;
+    applyStaticShellAssignment(segment, localEnvironmentValues);
     const directoryChange = /^\s*(?:(?:builtin|command)\s+)?(?:cd|pushd)\s+(?:--\s+)?("[^"]*"|'[^']*'|[^\s;&|]+)/iu.exec(segment);
     if (directoryChange) {
+      const target = resolveStaticEnvironmentReferences(
+        directoryChange[1],
+        localEnvironmentValues,
+      ) ?? directoryChange[1];
       effectiveWorkingDirectory = resolveShellWorkingDirectory(
         effectiveWorkingDirectory,
-        directoryChange[1],
+        target,
       );
       continue;
     }
-    const executionSource = shellArtifactExecutionSource(segment);
+    const rawExecutionSource = shellArtifactExecutionSource(segment);
+    const executionSource = rawExecutionSource
+      ? resolveStaticEnvironmentReferences(rawExecutionSource, localEnvironmentValues)
+        ?? rawExecutionSource
+      : undefined;
     if (executionSource && artifactSourceMatchesPath(
       executionSource,
       artifactPath,
@@ -3714,7 +4071,16 @@ function shellCommandSegments(runSource) {
     }
     const doubleSeparator = (character === "&" && source[index + 1] === "&")
       || (character === "|" && source[index + 1] === "|");
-    if (!quote && (character === "\n" || character === ";" || doubleSeparator)) {
+    const backgroundSeparator = character === "&"
+      && source[index + 1] !== "&"
+      && !["<", ">"].includes(source[index - 1])
+      && source[index + 1] !== ">";
+    if (!quote && (
+      character === "\n"
+      || character === ";"
+      || doubleSeparator
+      || backgroundSeparator
+    )) {
       if (current.trim().length > 0) segments.push(current.trim());
       current = "";
       if (doubleSeparator) index += 1;
@@ -3735,6 +4101,7 @@ function resolveShellWorkingDirectory(workingDirectory, target) {
 
 function artifactSourceMatchesPath(source, artifactPath, workingDirectory = ".") {
   const normalized = source.replace(/^["']|["']$/gu, "").replace(/^\.\//u, "");
+  if (/[$%`]/u.test(normalized)) return true;
   if (path.posix.isAbsolute(normalized)) {
     if (artifactPath === ".") return true;
     return normalized.endsWith(`/${artifactPath}`)

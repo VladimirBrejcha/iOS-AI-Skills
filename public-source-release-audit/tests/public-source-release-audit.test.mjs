@@ -1529,6 +1529,24 @@ test("GITHUB_ENV taint does not flow backward to earlier steps", () => {
     "          echo \"PR_REF=$SOURCE_REF\" >> \"$GITHUB_ENV\"",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/github-env-constant-write.yml", [
+    "name: GITHUB_ENV constant write",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          SOURCE_REF: " + headExpression,
+    "        run: |",
+    "          printf '%s\\n' \"$SOURCE_REF\"",
+    "          echo \"SAFE_REF=main\" >> \"$GITHUB_ENV\"",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: ${{ env.SAFE_REF }}",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add ordered environment workflow");
 
   const audit = runAudit(repoRoot);
@@ -2035,6 +2053,76 @@ test("workflow_run artifacts remain untrusted when later executed", () => {
     "      - run: bash payload/run.sh",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-gh-artifact.yml", [
+    "name: workflow run gh artifact",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          RUN_ID: " + runIdExpression,
+    "        run: gh run download \"$RUN_ID\" --dir payload",
+    "      - run: bash payload/run.sh",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-download-composite-execute.yml", [
+    "name: workflow download composite execute",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - uses: ./.github/actions/run-downloaded-artifact",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/run-downloaded-artifact/action.yml", [
+    "name: run downloaded artifact",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - shell: bash",
+    "      run: bash payload/run.sh",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/composite-download-workflow-execute.yml", [
+    "name: composite download workflow execute",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/download-untrusted-artifact",
+    "      - run: bash payload/run.sh",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/download-untrusted-artifact/action.yml", [
+    "name: download untrusted artifact",
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - uses: actions/download-artifact@" + "a".repeat(40),
+    "      with:",
+    "        run-id: " + runIdExpression,
+    "        path: payload",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add workflow artifact execution");
 
   const audit = runAudit(repoRoot);
@@ -2045,6 +2133,17 @@ test("workflow_run artifacts remain untrusted when later executed", () => {
     "workflow-privileged-untrusted-artifact-execution",
     ".github/workflows/workflow-run-artifact.yml",
   );
+  for (const workflowName of [
+    "workflow-run-gh-artifact",
+    "workflow-download-composite-execute",
+    "composite-download-workflow-execute",
+  ]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-artifact-execution",
+      `.github/workflows/${workflowName}.yml`,
+    );
+  }
 });
 
 test("artifact execution resolves step working directories", () => {
@@ -2069,6 +2168,36 @@ test("artifact execution resolves step working directories", () => {
     "        run: bash run.sh",
     "",
   ].join("\n"));
+  for (const scope of ["job", "workflow"]) {
+    write(repoRoot, `.github/workflows/workflow-run-artifact-${scope}-default.yml`, [
+      `name: workflow run artifact ${scope} default`,
+      "on:",
+      "  workflow_run:",
+      "    workflows: [verify]",
+      "    types: [completed]",
+      "permissions: read-all",
+      ...(scope === "workflow" ? [
+        "defaults:",
+        "  run:",
+        "    working-directory: payload",
+      ] : []),
+      "jobs:",
+      "  inspect:",
+      "    runs-on: ubuntu-latest",
+      ...(scope === "job" ? [
+        "    defaults:",
+        "      run:",
+        "        working-directory: payload",
+      ] : []),
+      "    steps:",
+      "      - uses: actions/download-artifact@" + "a".repeat(40),
+      "        with:",
+      "          run-id: " + runIdExpression,
+      "          path: payload",
+      "      - run: bash run.sh",
+      "",
+    ].join("\n"));
+  }
   commitAll(repoRoot, "add artifact working directory execution");
 
   const audit = runAudit(repoRoot);
@@ -2079,6 +2208,13 @@ test("artifact execution resolves step working directories", () => {
     "workflow-privileged-untrusted-artifact-execution",
     ".github/workflows/workflow-run-artifact-directory.yml",
   );
+  for (const scope of ["job", "workflow"]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-artifact-execution",
+      `.github/workflows/workflow-run-artifact-${scope}-default.yml`,
+    );
+  }
 });
 
 test("artifact execution tracks inline shell directory changes", () => {
@@ -2141,12 +2277,50 @@ test("artifact execution recognizes common command wrappers and paths", () => {
       "",
     ].join("\n"));
   }
+  for (const scope of ["workflow", "job", "step", "shell"]) {
+    write(repoRoot, `.github/workflows/workflow-run-artifact-${scope}-alias.yml`, [
+      `name: workflow run artifact ${scope} alias`,
+      "on:",
+      "  workflow_run:",
+      "    workflows: [verify]",
+      "    types: [completed]",
+      "permissions: read-all",
+      ...(scope === "workflow" ? ["env:", "  SCRIPT: payload/run.sh"] : []),
+      "jobs:",
+      "  inspect:",
+      "    runs-on: ubuntu-latest",
+      ...(scope === "job" ? ["    env:", "      SCRIPT: payload/run.sh"] : []),
+      "    steps:",
+      "      - uses: actions/download-artifact@" + "a".repeat(40),
+      "        with:",
+      "          run-id: " + runIdExpression,
+      "          path: payload",
+      ...(scope === "step" ? [
+        "      - env:",
+        "          SCRIPT: payload/run.sh",
+        "        run: bash \"$SCRIPT\"",
+      ] : scope === "shell" ? [
+        "      - run: |",
+        "          SCRIPT=payload/run.sh",
+        "          bash \"$SCRIPT\"",
+      ] : ["      - run: bash \"$SCRIPT\""]),
+      "",
+    ].join("\n"));
+  }
   commitAll(repoRoot, "add common artifact execution commands");
 
   const audit = runAudit(repoRoot);
 
   assert.equal(audit.status, 1);
-  for (const name of ["exec", "absolute-interpreter", "direct-path"]) {
+  for (const name of [
+    "exec",
+    "absolute-interpreter",
+    "direct-path",
+    "workflow-alias",
+    "job-alias",
+    "step-alias",
+    "shell-alias",
+  ]) {
     assertFinding(
       audit.result,
       "workflow-privileged-untrusted-artifact-execution",
@@ -2502,6 +2676,19 @@ test("tainted environment values cannot reach shell evaluators", () => {
     "        run: eval \"$COMMAND\"",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-background-eval.yml", [
+    "name: comment background eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: echo ready & eval \"$COMMAND\"",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add tainted shell evaluator");
 
   const audit = runAudit(repoRoot);
@@ -2511,6 +2698,11 @@ test("tainted environment values cannot reach shell evaluators", () => {
     audit.result,
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-eval.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-background-eval.yml",
   );
 });
 
@@ -2745,6 +2937,22 @@ test("privileged workflows reject shell-based untrusted checkouts", () => {
     "          ./source/verify.sh",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/shell-append-checkout.yml", [
+    "name: shell append checkout",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          PR_REF: " + refExpression,
+    "        run: |",
+    "          REF=refs/heads/",
+    "          REF+=\"$PR_REF\"",
+    "          git checkout \"$REF\"",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add shell checkout workflow");
 
   const audit = runAudit(repoRoot);
@@ -2754,6 +2962,11 @@ test("privileged workflows reject shell-based untrusted checkouts", () => {
     audit.result,
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/shell-checkout.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/shell-append-checkout.yml",
   );
 });
 
