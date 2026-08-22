@@ -22,12 +22,17 @@ the candidate. It also scans tracked and non-ignored untracked worktree files
 for early feedback. It reports only paths and finding categories, never the
 matched content.
 
-The supported categories are deliberately small:
+The supported lexical forms are deliberately small:
 
-- private-key headers;
-- GitHub, AWS, and OpenAI credential formats;
-- explicit bearer credentials; and
-- absolute macOS, Linux, and Windows user-home paths.
+- PEM, OpenSSH, PGP, and PuTTY private-key headers;
+- GitHub `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, and `github_pat_` token
+  prefixes;
+- AWS `AKIA`/`ASIA` access-key IDs and canonical named 40-character secret
+  access-key values;
+- OpenAI `sk-` and `sk-proj-` key prefixes;
+- explicit `Authorization: Bearer` header or map values; and
+- literal or commonly source-escaped absolute macOS, Linux, and Windows
+  user-home paths, including bounded environment and command-option values.
 
 The home-path rule covers literal paths and common source escaping for POSIX
 slashes and Windows backslashes. It does not decode URL-encoded content.

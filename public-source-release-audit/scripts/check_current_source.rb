@@ -9,7 +9,7 @@ RULES = [
     "machine-local home path",
     %r{
       (?:\A|[\s"'`:(,])
-      (?:[A-Za-z_][A-Za-z0-9_.-]*\s*=\s*)?
+      (?:(?:[A-Za-z_][A-Za-z0-9_.-]*|--?[A-Za-z0-9][A-Za-z0-9._-]*)\s*=\s*)?
       (?:
         (?:/|\\/)
         (?:
@@ -23,7 +23,14 @@ RULES = [
     }x
   ],
   ["AWS access key", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
-  ["bearer credential", /Authorization\s*:\s*Bearer\s+[A-Za-z0-9._~+\/=:-]{16,}/i],
+  [
+    "AWS secret access key",
+    /\b(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\b\s*(?:=|:)\s*["']?[A-Za-z0-9\/=+]{40}(?=["'\s\r\n,}\]]|\z)/i
+  ],
+  [
+    "bearer credential",
+    /["']?Authorization["']?\s*(?::|=>)\s*["']?Bearer\s+[A-Za-z0-9._~+\/=:-]{16,}/i
+  ],
   [
     "GitHub token",
     /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/
@@ -32,7 +39,8 @@ RULES = [
   [
     "private key",
     /-----BEGIN (?:[A-Z0-9][A-Z0-9 ]* )?PRIVATE KEY(?: BLOCK)?-----/
-  ]
+  ],
+  ["private key", /\APuTTY-User-Key-File-[23]:/]
 ].freeze
 
 INDEX_BLOB_MODES = %w[100644 100755 120000].freeze

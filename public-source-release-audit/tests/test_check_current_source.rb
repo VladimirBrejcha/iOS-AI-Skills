@@ -135,11 +135,14 @@ class CheckCurrentSourceTest < Minitest::Test
       escaped_slash = "\\" + "/"
       fixtures = {
         "aws.txt" => "AK" + "IA" + ("A" * 16),
+        "aws-secret.txt" => "AWS_SECRET_ACCESS_KEY=" + ("S" * 40),
         "bearer.txt" => "Authorization: " + "Bearer " + ("b" * 24),
+        "bearer-json.txt" => "{\"Authorization\":\"" + "Bearer " + ("e" * 24) + "\"}",
         "fine-grained.txt" => "github_" + "pat_" + ("C" * 24),
         "openai.txt" => "s" + "k-proj-" + ("D" * 24),
         "private-key.txt" => "-----BEGIN " + "OPENSSH PRIVATE KEY-----",
         "pgp-private-key.txt" => "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----",
+        "putty-private-key.txt" => "PuTTY" + "-User-Key-File-3: ssh-ed25519",
         "posix-home.txt" => "/" + "Users/example/private.txt",
         "escaped-posix-home.txt" => [
           escaped_slash,
@@ -172,6 +175,7 @@ class CheckCurrentSourceTest < Minitest::Test
       end
       [
         "AWS access key",
+        "AWS secret access key",
         "bearer credential",
         "GitHub token",
         "OpenAI API key",
@@ -253,6 +257,20 @@ class CheckCurrentSourceTest < Minitest::Test
 
       refute status.success?
       assert_includes stderr, "settings.env"
+      assert_includes stderr, "machine-local home path"
+      refute_includes stderr, home
+    end
+  end
+
+  def test_command_option_home_assignment_is_detected
+    with_repo do |repo|
+      home = "/" + "home/example/private.txt"
+      stage(repo, "command.txt", "tool --cache=#{home}\n")
+
+      _stdout, stderr, status = run_checker(repo)
+
+      refute status.success?
+      assert_includes stderr, "command.txt"
       assert_includes stderr, "machine-local home path"
       refute_includes stderr, home
     end
