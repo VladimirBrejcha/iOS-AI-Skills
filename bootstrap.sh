@@ -39,6 +39,7 @@ owned_skills=(
   local-model-serving
   mechanism-audit
   meeting-transcription
+  public-source-release-audit
   silent-pushes-setup
   spec-creation-updating
   swift-testing
