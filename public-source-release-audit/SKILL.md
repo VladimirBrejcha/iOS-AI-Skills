@@ -31,13 +31,15 @@ The supported lexical forms are deliberately small:
   access-key values;
 - OpenAI `sk-` and `sk-proj-` key prefixes;
 - explicit `Authorization: Bearer` header or map values; and
-- literal or commonly source-escaped rooted POSIX families `Users/<name>`,
-  `var/root`, `private/var/root`, `home/<name>`, and `root`, plus drive-letter
-  `Users\\<name>` paths, including bounded environment and command-option
-  values.
+- literal, commonly source-escaped, or `file://`-wrapped rooted POSIX families
+  `Users/<name>`, `var/root`, `private/var/root`, `home/<name>`, and `root`, plus
+  drive-letter `Users\\<name>` paths, including UTF-8 profile names and bounded
+  environment and command-option values.
 
 The home-path rule covers literal paths and common source escaping for POSIX
-slashes and Windows backslashes. It does not decode URL-encoded content.
+slashes and Windows backslashes. It does not decode URL-encoded content. The
+credential map rules inspect direct source text; they do not decode nested
+escaped documents.
 
 Stage all intended release changes before relying on the candidate result.
 Ignored files and submodule contents are outside this check. The checker does

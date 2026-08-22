@@ -165,8 +165,11 @@ class CheckCurrentSourceTest < Minitest::Test
         "root-home.txt" => "/" + "root/.ssh/id_ed25519",
         "macos-root-home.txt" => "/" + "var/root/.ssh/id_ed25519",
         "macos-private-root-home.txt" => "/" + "private/var/root/.ssh/id_ed25519",
+        "unicode-posix-home.txt" => "/" + "home/山田/private.txt",
+        "file-uri-home.txt" => "file://" + "/" + "home/example/private.txt",
         "windows-home.txt" => "C:" + "\\Users\\example\\private.txt",
         "lowercase-windows-home.txt" => "c:" + "\\users\\example\\private.txt",
+        "unicode-windows-home.txt" => "C:" + "\\Users\\山田\\private.txt",
         "escaped-windows-home.txt" => [
           "C:",
           "\\" * 2,
