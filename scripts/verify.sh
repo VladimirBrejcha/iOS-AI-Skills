@@ -60,13 +60,13 @@ if (JSON.stringify(documentedOwned) !== JSON.stringify([...owned].sort())) {
   fail("README.md owned skill list does not match bootstrap.sh");
 }
 
-if (owned.length !== 15 || standalone.length !== 1 || asc.length !== 22) {
-  fail(`Expected 15 owned, 1 standalone, and 22 ASC skills; found ${owned.length}, ${standalone.length}, and ${asc.length}`);
+if (owned.length !== 16 || standalone.length !== 1 || asc.length !== 22) {
+  fail(`Expected 16 owned, 1 standalone, and 22 ASC skills; found ${owned.length}, ${standalone.length}, and ${asc.length}`);
 }
 
 const managed = [...owned, ...standalone, ...asc];
-if (managed.length !== 38 || new Set(managed).size !== managed.length) {
-  fail("The 38-skill global baseline contains a missing or duplicate name");
+if (managed.length !== 39 || new Set(managed).size !== managed.length) {
+  fail("The 39-skill global baseline contains a missing or duplicate name");
 }
 
 console.log("validated direct package contract");
@@ -98,33 +98,8 @@ end
 puts "validated skill front matter YAML"
 RUBY
 
-ruby <<'RUBY'
-patterns = {
-  "machine-local home path" => %r{/(?:Users|home)/[A-Za-z0-9._-]+(?:/|\b)},
-  "AWS access key" => /AKIA[0-9A-Z]{16}/,
-  "bearer credential" => /Authorization:\s*Bearer\s+[A-Za-z0-9._~-]{16,}/i,
-  "GitHub token" => /gh[pousr]_[A-Za-z0-9]{20,}/,
-  "API secret" => /sk-(?:proj-)?[A-Za-z0-9_-]{20,}/,
-  "private key" => /-----BEGIN (?:RSA )?PRIVATE KEY-----/
-}
-
-files = IO.popen(["git", "ls-files", "-co", "--exclude-standard", "-z"], &:read).split("\0")
-failures = files.sort.filter_map do |file|
-  next unless File.file?(file) && !File.symlink?(file)
-
-  content = File.binread(file)
-  next if content.include?("\0")
-
-  text = content.force_encoding(Encoding::UTF_8)
-  next unless text.valid_encoding?
-
-  labels = patterns.filter_map { |label, pattern| label if text.match?(pattern) }
-  "#{file}: #{labels.join(", ")}" unless labels.empty?
-end
-
-abort "public-safety scan failed:\n#{failures.join("\n")}" unless failures.empty?
-puts "public-safety scan passed"
-RUBY
+ruby public-source-release-audit/tests/test_check_current_source.rb
+ruby public-source-release-audit/scripts/check_current_source.rb .
 
 while IFS= read -r -d '' script; do
   [[ "$script" == *.sh && -f "$script" && ! -L "$script" ]] || continue

@@ -1,6 +1,6 @@
 # 51Code Agent Skills
 
-This repository is the source package for 15 skills maintained by 51Code and
+This repository is the source package for 16 skills maintained by 51Code and
 the bootstrap for our reviewed machine-global skill baseline.
 
 The repository intentionally has no catalog, registry, generated lock, sync
@@ -9,14 +9,15 @@ package directly.
 
 ## Global baseline
 
-The global baseline supports Codex and Claude Code and contains these 38 skills:
+The global baseline supports Codex and Claude Code and contains these 39 skills:
 
 - 51Code-owned: `code-review`, `gemini-files-api`, `harness-engineering`,
   `hint-overlay-visual-verification`, `ios-xcodegen`,
   `lifecycle-and-side-effects-correctness`, `local-model-serving`,
   `mechanism-audit`,
-  `meeting-transcription`, `silent-pushes-setup`, `spec-creation-updating`,
-  `swift-testing`, `swiftui-view-refactor`, `xcode-build`, and `xcode-cloud`
+  `meeting-transcription`, `public-source-release-audit`,
+  `silent-pushes-setup`, `spec-creation-updating`, `swift-testing`,
+  `swiftui-view-refactor`, `xcode-build`, and `xcode-cloud`
 
 - Third-party: `swift-concurrency` and the 22 `asc-*` App Store Connect CLI
   skills from `rorkai/app-store-connect-cli-skills`
@@ -37,7 +38,7 @@ idempotent. The script uses `skills@1.5.14`, explicit Git tags or commits, and
 explicit skill names. In this CLI, `#ref` selects a Git branch or tag; `@name`
 selects a skill and must not be used as a version pin. Sources pinned to a raw
 commit are checked out and verified before being passed to the manager as a
-local source. Before reporting success, the script verifies all 38 entrypoints
+local source. Before reporting success, the script verifies all 39 entrypoints
 in the shared and Claude Code manager roots and bootstraps the copied
 `gemini-files-api` dependencies in both roots. The Claude Code root honors
 `CLAUDE_CONFIG_DIR` when it is set. The script also converts the pinned
