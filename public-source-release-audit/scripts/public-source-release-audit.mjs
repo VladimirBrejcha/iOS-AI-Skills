@@ -1657,9 +1657,9 @@ function githubOutputWriteIsTainted(runSource, taintedBindings) {
         taintedVariables,
         taintedBindings.has("env.*"),
       );
-    const assignment = /^\s*(?:(?:export|local|readonly)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(segment);
-    if (assignment && segmentReferencesTaint) {
-      taintedVariables.add((assignment[1] ?? assignment[2]).toLowerCase());
+    const assignmentName = shellAssignmentName(segment);
+    if (assignmentName && segmentReferencesTaint) {
+      taintedVariables.add(assignmentName);
     }
     if (/GITHUB_OUTPUT/iu.test(segment)
       && /(?:>>?|\b(?:Add-Content|Out-File|Set-Content|tee)\b)/iu.test(segment)
@@ -1670,6 +1670,11 @@ function githubOutputWriteIsTainted(runSource, taintedBindings) {
 
 function mergeTaintedBindings(...bindingSets) {
   return new Set(bindingSets.flatMap((bindings) => [...bindings]));
+}
+
+function shellAssignmentName(source) {
+  const assignment = /^\s*(?:(?:declare|export|local|readonly|typeset)(?:\s+-[^\s]+)*\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(source);
+  return (assignment?.[1] ?? assignment?.[2])?.toLowerCase();
 }
 
 function workflowLocalActionCalls(
@@ -1734,6 +1739,7 @@ function localActionCallsFromStepGroup(stepGroup, scalarAnchors, stepTaintedBind
 function isUntrustedReusableValue(value, taintedBindings) {
   return isUntrustedPullRequestRef(value)
     || isUntrustedPublicEventIdentity(value)
+    || isUntrustedPublicEventObject(value)
     || /(?:github\.event\.forkee|pull_request\.head\.repo|workflow_run\.(?:head_repository|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head\s*\.\s*repo))(?:\.|\b)/iu
       .test(normalizeExpressionPropertyAccess(value))
     || valueReferencesTaintedBinding(value, taintedBindings);
@@ -3412,20 +3418,20 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
       : []
   )));
   const anyEnvironmentVariableTainted = taintedBindings.has("env.*");
-  const evaluatorCommand = /^\s*(?:(?:builtin|command|exec)\s+)?(?:eval\b|(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s|$)|(?:(?:\/[^/\s]+)*\/)?(?:node|perl|python\d*|ruby)\b[^;&|]*\s-(?:c|e)(?:\s|$)|(?:(?:\/[^/\s]+)*\/)?php\b[^;&|]*\s-r(?:\s|$)|(?:(?:\/[^/\s]+)*\/)?deno\b[^;&|]*\beval(?:\s|$)|(?:iex|invoke-expression)\b|(?:(?:\/[^/\s]+)*\/)?(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:c|command)(?:\s|$))/iu;
+  const evaluatorCommand = /^\s*(?:(?:builtin|command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:(?:-[^\s]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]+)\s+)*)?(?:eval\b|(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?(?:node|perl|python(?:\d+(?:\.\d+)*)?|ruby)\b[^;&|]*\s-(?:c|e)(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?php\b[^;&|]*\s-r(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?deno\b[^;&|]*\beval(?:\s|$)|(?:iex|invoke-expression)\b|(?:(?:\/[^/\s]+)*\/)?(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:command|c)(?:\s+|(?=[^-\s])|$))/iu;
   const stdinInterpreterCommand = /^\s*(?:(?:command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:-[^\s]+\s+)*)?(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|powershell|pwsh|sh|zsh)(?:\.exe)?(?:\s|$)/iu;
   const hereInputInterpreterCommand = /^\s*(?:(?:command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:-[^\s]+\s+)*)?(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|powershell|pwsh|sh|zsh)(?:\.exe)?(?:\s+-[^\s]+)*\s+<<</iu;
   for (const segment of shellCommandSegments(runSource)) {
     if (/^\s*#/u.test(segment)) continue;
-    const assignment = /^\s*(?:(?:export|local|readonly)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(segment);
+    const assignmentName = shellAssignmentName(segment);
     const segmentReferencesTaint = isUntrustedReusableValue(segment, taintedBindings)
       || shellSourceReferencesTaintedVariable(
         segment,
         taintedVariables,
         anyEnvironmentVariableTainted,
       );
-    if (assignment && segmentReferencesTaint) {
-      taintedVariables.add((assignment[1] ?? assignment[2]).toLowerCase());
+    if (assignmentName && segmentReferencesTaint) {
+      taintedVariables.add(assignmentName);
     }
     let pipelineInputTainted = false;
     for (const stage of shellPipelineStages(segment)) {
@@ -3613,22 +3619,16 @@ function shellArtifactExecutionSource(segment) {
     while (cursor < words.length) {
       const argument = words[cursor];
       cursor += 1;
-      if (argument === "--") return words[cursor];
+      if (argument === "--") {
+        return words[cursor]?.startsWith("<(")
+          ? shellProcessSubstitutionArtifactSource(words.slice(cursor))
+          : words[cursor];
+      }
       if (argument.startsWith("<(")) {
-        const processSubstitution = [argument, ...words.slice(cursor)].join(" ");
-        const body = /^<\(([\s\S]*)\)$/u.exec(processSubstitution)?.[1];
-        if (body) {
-          const bodyWords = shellCommandWords(body);
-          const explicitPath = bodyWords.filter((word) => word.includes("/")).at(-1);
-          if (explicitPath) return explicitPath;
-          const reader = path.posix.basename(bodyWords[0] ?? "").toLowerCase();
-          if (["awk", "cat", "grep", "head", "sed", "tail"].includes(reader)) {
-            return bodyWords.slice(1).filter((word) => (
-              !word.startsWith("-") && !/^[<>&]/u.test(word)
-            )).at(-1);
-          }
-        }
-        return undefined;
+        return shellProcessSubstitutionArtifactSource([
+          argument,
+          ...words.slice(cursor),
+        ]);
       }
       if (/^(?:\d*)<$/u.test(argument)) return words[cursor];
       const redirectedSource = /^(?:\d*)<([^<].*)$/u.exec(argument)?.[1];
@@ -3642,6 +3642,21 @@ function shellArtifactExecutionSource(segment) {
     return undefined;
   }
   return command.includes("/") ? command : undefined;
+}
+
+function shellProcessSubstitutionArtifactSource(words) {
+  const body = /^<\(([\s\S]*)\)$/u.exec(words.join(" "))?.[1];
+  if (!body) return undefined;
+  const bodyWords = shellCommandWords(body);
+  const explicitPath = bodyWords.filter((word) => word.includes("/")).at(-1);
+  if (explicitPath) return explicitPath;
+  const reader = path.posix.basename(bodyWords[0] ?? "").toLowerCase();
+  if (!["awk", "cat", "grep", "head", "sed", "tail"].includes(reader)) {
+    return undefined;
+  }
+  return bodyWords.slice(1).filter((word) => (
+    !word.startsWith("-") && !/^[<>&]/u.test(word)
+  )).at(-1);
 }
 
 function shellCommandWords(source) {
@@ -3780,14 +3795,14 @@ function shellRunGitTaintAnalysis(runSource, taintedBindings) {
   let fetchedHeadTainted = taintedBindings.has("git.fetch_head");
   let taintsFetchHead = false;
   for (const line of lines) {
-    const assignment = /^\s*(?:(?:export|local|readonly)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(line);
-    if (assignment && (isUntrustedReusableValue(line, taintedBindings)
+    const assignmentName = shellAssignmentName(line);
+    if (assignmentName && (isUntrustedReusableValue(line, taintedBindings)
       || shellSourceReferencesTaintedVariable(
         line,
         taintedVariables,
         anyEnvironmentVariableTainted,
       ))) {
-      taintedVariables.add((assignment[1] ?? assignment[2]).toLowerCase());
+      taintedVariables.add(assignmentName);
     }
     const lineIsTainted = isUntrustedReusableValue(line, taintedBindings)
       || shellSourceReferencesTaintedVariable(
@@ -3839,6 +3854,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
   if (!["ref", "repository"].includes(key.toLowerCase())) return false;
   if (valueReferencesTaintedBinding(value, taintedBindings)) return true;
   if (isUntrustedPublicEventIdentity(value)) return true;
+  if (isUntrustedPublicEventObject(value)) return true;
   if (/github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|title))(?:\.|\b)/iu.test(
     normalizeExpressionPropertyAccess(value),
   )) return true;
@@ -3850,8 +3866,14 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:body|head|merge_commit_sha|title)|refs\/pull\/|workflow_run\.(?:head_branch|head_sha|id|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head))/iu
+  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:body|head|merge_commit_sha|title)|refs\/pull\/|workflow_run\.(?:head_branch|head_commit|head_sha|id|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head))/iu
     .test(normalizeExpressionPropertyAccess(value));
+}
+
+function isUntrustedPublicEventObject(value) {
+  const normalized = normalizeExpressionPropertyAccess(value);
+  return /(?:github\.event\b(?!\s*\.)|github\.event\.(?:comment|discussion|forkee|issue|pull_request|sender|workflow_run(?:\.head_commit)?)\b(?!\s*\.))/iu
+    .test(normalized);
 }
 
 function isUntrustedPublicEventIdentity(value) {

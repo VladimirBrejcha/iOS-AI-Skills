@@ -2397,6 +2397,10 @@ test("privileged scripts require environment indirection for untrusted values", 
   const unsafeRepo = makeRepository();
   const safeRepo = makeRepository();
   const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  const roundTripExpression = [
+    "$",
+    "{{ fromJSON(toJSON(github.event.comment)).body }}",
+  ].join("");
   write(unsafeRepo, ".github/workflows/direct-comment-script.yml", [
     "name: direct comment script",
     "on: issue_comment",
@@ -2421,6 +2425,17 @@ test("privileged scripts require environment indirection for untrusted values", 
     "        run: printf '%s\\n' \"$COMMENT_BODY\"",
     "",
   ].join("\n"));
+  write(unsafeRepo, ".github/workflows/roundtrip-comment-script.yml", [
+    "name: roundtrip comment script",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo \"comment=" + roundTripExpression + "\"",
+    "",
+  ].join("\n"));
   commitAll(unsafeRepo, "add direct comment interpolation");
   commitAll(safeRepo, "add environment comment handling");
 
@@ -2432,6 +2447,11 @@ test("privileged scripts require environment indirection for untrusted values", 
     unsafeAudit.result,
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/direct-comment-script.yml",
+  );
+  assertFinding(
+    unsafeAudit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/roundtrip-comment-script.yml",
   );
   assert.equal(safeAudit.status, 0);
 });
@@ -3358,7 +3378,8 @@ test("local composite outputs return inherited taint to callers", () => {
     "    - id: export",
     "      shell: bash",
     "      run: |",
-    "        OUTPUT_REF=$PR_REF",
+    "        declare REF=\"$PR_REF\"",
+    "        typeset OUTPUT_REF=\"$REF\"",
     "        echo \"ref=$OUTPUT_REF\" >> \"$GITHUB_OUTPUT\"",
     "",
   ].join("\n"));
@@ -3840,6 +3861,24 @@ test("artifact execution recognizes interpreter process substitution", () => {
     "      - run: bash <(printf 'echo trusted')",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-artifact-terminated-substitution.yml", [
+    "name: workflow run artifact terminated substitution",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - run: bash -- <(cat payload/run.sh)",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add artifact process substitution execution");
 
   const audit = runAudit(repoRoot);
@@ -3849,6 +3888,11 @@ test("artifact execution recognizes interpreter process substitution", () => {
     audit.result,
     "workflow-privileged-untrusted-artifact-execution",
     ".github/workflows/workflow-run-artifact-process-substitution.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-artifact-execution",
+    ".github/workflows/workflow-run-artifact-terminated-substitution.yml",
   );
   assert.equal(audit.result.findings.some((finding) => (
     finding.ruleId === "workflow-privileged-untrusted-artifact-execution"
@@ -3982,6 +4026,7 @@ test("tainted text cannot reach language runtime evaluators", () => {
   const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
   for (const [runtime, command] of [
     ["python", "python -c \"$COMMAND\""],
+    ["python-attached", "python -c\"$COMMAND\""],
     ["node", "node -e \"$COMMAND\""],
     ["perl", "perl -e \"$COMMAND\""],
     ["ruby", "ruby -e \"$COMMAND\""],
@@ -4005,7 +4050,7 @@ test("tainted text cannot reach language runtime evaluators", () => {
   const audit = runAudit(repoRoot);
 
   assert.equal(audit.status, 1);
-  for (const runtime of ["python", "node", "perl", "ruby"]) {
+  for (const runtime of ["python", "python-attached", "node", "perl", "ruby"]) {
     assertFinding(
       audit.result,
       "workflow-privileged-untrusted-script-interpolation",
@@ -4014,7 +4059,7 @@ test("tainted text cannot reach language runtime evaluators", () => {
   }
 });
 
-test("workflow_run head branches are untrusted script data", () => {
+test("workflow_run head metadata is untrusted script data", () => {
   const repoRoot = makeRepository();
   const headBranchExpression = [
     "$",
@@ -4034,6 +4079,24 @@ test("workflow_run head branches are untrusted script data", () => {
     "      - run: echo \"" + headBranchExpression + "\"",
     "",
   ].join("\n"));
+  const headCommitMessageExpression = [
+    "$",
+    "{{ github.event.workflow_run.head_commit.message }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/workflow-run-head-commit-script.yml", [
+    "name: workflow run head commit script",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo \"" + headCommitMessageExpression + "\"",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add workflow run head branch script");
 
   const audit = runAudit(repoRoot);
@@ -4043,6 +4106,11 @@ test("workflow_run head branches are untrusted script data", () => {
     audit.result,
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/workflow-run-head-branch-script.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/workflow-run-head-commit-script.yml",
   );
 });
 
