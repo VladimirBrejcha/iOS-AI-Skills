@@ -252,7 +252,7 @@ function auditWorkflowSources(repoRoot, { includeHistory = false } = {}) {
   return findings;
 }
 
-function reusableWorkflowGraph(workflowSources) {
+function reusableWorkflowGraph(workflowSources, stepOutputResolverForSource) {
   const sourceBySnapshotPath = new Map(workflowSources.map((source) => [
     `${source.snapshot}\0${source.path}`,
     source,
@@ -286,6 +286,7 @@ function reusableWorkflowGraph(workflowSources) {
     if (taintedOutputMemo.has(stateKey)) return taintedOutputMemo.get(stateKey);
     const analysis = analysisFor(source);
     if (!analysis.isReusable) return new Set();
+    const stepOutputResolver = stepOutputResolverForSource?.(source);
     const nestedReturnedBindings = new Set();
     let changed;
     let iteration = 0;
@@ -301,7 +302,11 @@ function reusableWorkflowGraph(workflowSources) {
           `${source.snapshot}\0${call.workflowPath}`,
         );
         if (!callee || !analysisFor(callee).isReusable) continue;
-        const calleeInputs = reusableCallTaintedBindings(call, callerTaintedBindings);
+        const calleeInputs = reusableCallTaintedBindings(
+          call,
+          callerTaintedBindings,
+          stepOutputResolver,
+        );
         const calleeOutputs = taintedOutputsFor(
           callee,
           calleeInputs,
@@ -326,6 +331,7 @@ function reusableWorkflowGraph(workflowSources) {
         analysis.syntax.uncommented,
         analysis.syntax.scalarAnchors,
         effectiveTaintedBindings,
+        stepOutputResolver,
       ),
     );
     const outputs = new Set(reusableWorkflowOutputBindings(
@@ -340,6 +346,7 @@ function reusableWorkflowGraph(workflowSources) {
   };
   const returnedBindingsFor = (source, inheritedTaintedBindings) => {
     const analysis = analysisFor(source);
+    const stepOutputResolver = stepOutputResolverForSource?.(source);
     const returnedBindings = new Set();
     let changed;
     let iteration = 0;
@@ -353,7 +360,11 @@ function reusableWorkflowGraph(workflowSources) {
       for (const call of analysis.localCalls) {
         const callee = sourceBySnapshotPath.get(`${source.snapshot}\0${call.workflowPath}`);
         if (!callee || !analysisFor(callee).isReusable) continue;
-        const calleeInputs = reusableCallTaintedBindings(call, callerTaintedBindings);
+        const calleeInputs = reusableCallTaintedBindings(
+          call,
+          callerTaintedBindings,
+          stepOutputResolver,
+        );
         for (const outputName of taintedOutputsFor(callee, calleeInputs)) {
           const binding = `needs.${call.jobGroup.jobName}.outputs.${outputName}`;
           if (returnedBindings.has(binding)) continue;
@@ -421,7 +432,7 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
       returnedBindings,
     )) {
       findings.push(workflowFinding({
-        message: "A privileged workflow must not let untrusted reusable-workflow output disable failure handling.",
+        message: "A privileged workflow must not let untrusted reusable-workflow output control execution conditions or disable failure handling.",
         path: caller.path,
         ruleId: "workflow-privileged-untrusted-control-flow",
         severity: "error",
@@ -532,7 +543,7 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
         effectiveTaintedBindings,
       )) {
         findings.push(workflowFinding({
-          message: "A reusable workflow called from a privileged trigger must not let untrusted input disable failure handling.",
+          message: "A reusable workflow called from a privileged trigger must not let untrusted input control execution conditions or disable failure handling.",
           path: callee.path,
           ruleId: "workflow-privileged-untrusted-control-flow",
           severity: "error",
@@ -565,9 +576,10 @@ function auditPrivilegedReusableWorkflowCalls(workflowSources) {
   return findings;
 }
 
-function workflowExecutionStates(workflowSources) {
+function workflowExecutionStates(workflowSources, stepOutputResolverForSource) {
   const { analysisFor, returnedBindingsFor, sourceBySnapshotPath } = reusableWorkflowGraph(
     workflowSources,
+    stepOutputResolverForSource,
   );
   const pending = workflowSources.map((workflow) => ({
     depth: 0,
@@ -601,7 +613,11 @@ function workflowExecutionStates(workflowSources) {
       pending.push({
         depth: state.depth + 1,
         privileged: state.privileged,
-        taintedBindings: reusableCallTaintedBindings(call, effectiveTaintedBindings),
+        taintedBindings: reusableCallTaintedBindings(
+          call,
+          effectiveTaintedBindings,
+          stepOutputResolverForSource?.(state.workflow),
+        ),
         workflow: callee,
       });
     }
@@ -689,38 +705,28 @@ function auditLocalCompositeActions(
     analysisBySource.set(source, analysis);
     return analysis;
   };
-  const findings = [];
-  for (const execution of workflowExecutionStates(workflowSources)) {
-    const { privileged, taintedBindings: workflowTaintedBindings, workflow } = execution;
-    const syntax = workflowSyntax(workflow.text);
+  const taintedActionOutputMemo = new Map();
+  function localActionStepOutputResolver(
+    snapshot,
+    scalarAnchors,
+    depth = 0,
+    active = new Set(),
+  ) {
+    const symlinkPaths = symlinkPathsBySnapshot.get(snapshot) ?? new Set();
     const resolveManifestPath = (reference) => localActionManifestPath(
       reference,
-      (manifestPath) => actionBySnapshotPath.has(`${workflow.snapshot}\0${manifestPath}`),
+      (manifestPath) => actionBySnapshotPath.has(`${snapshot}\0${manifestPath}`),
     );
-    const symlinkPaths = symlinkPathsBySnapshot.get(workflow.snapshot) ?? new Set();
-    const taintedActionOutputMemo = new Map();
-    function stepOutputResolverFor(scalarAnchors, depth = 0, active = new Set()) {
-      return (stepGroup, stepTaintedBindings) => {
-        const outputs = new Set();
-        for (const call of localActionCallsFromStepGroup(
-          stepGroup,
-          scalarAnchors,
-          stepTaintedBindings,
-        )) {
-          for (const output of taintedOutputsForCall(call, depth, active)) {
-            outputs.add(output);
-          }
-        }
-        return outputs;
-      };
-    }
-    function taintedOutputsForCall(call, depth = 0, active = new Set()) {
-      if (depth > 10 || localActionReferenceUsesSymlink(call.reference, symlinkPaths)) {
+    const taintedOutputsForCall = (call, callDepth = depth, callActive = active) => {
+      if (
+        callDepth > 10
+        || localActionReferenceUsesSymlink(call.reference, symlinkPaths)
+      ) {
         return new Set();
       }
       const manifestPath = resolveManifestPath(call.reference);
       if (!manifestPath) return new Set();
-      const action = actionBySnapshotPath.get(`${workflow.snapshot}\0${manifestPath}`);
+      const action = actionBySnapshotPath.get(`${snapshot}\0${manifestPath}`);
       if (!action) return new Set();
       const analysis = analysisFor(action);
       const effectiveTaintedBindings = actionInputTaintedBindings(
@@ -728,19 +734,24 @@ function auditLocalCompositeActions(
         call.taintedBindings,
         call.providedBindings,
       );
-      const stateKey = `${manifestPath}\0${[...effectiveTaintedBindings].sort().join("\0")}`;
-      if (active.has(stateKey)) return new Set();
+      const stateKey = [
+        snapshot,
+        manifestPath,
+        ...[...effectiveTaintedBindings].sort(),
+      ].join("\0");
+      if (callActive.has(stateKey)) return new Set();
       if (taintedActionOutputMemo.has(stateKey)) {
         return taintedActionOutputMemo.get(stateKey);
       }
-      const nestedActive = new Set([...active, stateKey]);
+      const nestedActive = new Set([...callActive, stateKey]);
       const stepAnalysis = workflowStepTaintAnalysis(
         analysis.stepGroups,
         analysis.syntax.scalarAnchors,
         effectiveTaintedBindings,
-        stepOutputResolverFor(
+        localActionStepOutputResolver(
+          snapshot,
           analysis.syntax.scalarAnchors,
-          depth + 1,
+          callDepth + 1,
           nestedActive,
         ),
       );
@@ -756,8 +767,38 @@ function auditLocalCompositeActions(
         .map((binding) => binding.name));
       taintedActionOutputMemo.set(stateKey, outputs);
       return outputs;
-    }
-    const workflowStepOutputResolver = stepOutputResolverFor(syntax.scalarAnchors);
+    };
+    return (stepGroup, stepTaintedBindings) => {
+      const outputs = new Set();
+      for (const call of localActionCallsFromStepGroup(
+        stepGroup,
+        scalarAnchors,
+        stepTaintedBindings,
+      )) {
+        for (const output of taintedOutputsForCall(call)) outputs.add(output);
+      }
+      return outputs;
+    };
+  }
+  const findings = [];
+  for (const execution of workflowExecutionStates(
+    workflowSources,
+    (source) => localActionStepOutputResolver(
+      source.snapshot,
+      workflowSyntax(source.text).scalarAnchors,
+    ),
+  )) {
+    const { privileged, taintedBindings: workflowTaintedBindings, workflow } = execution;
+    const syntax = workflowSyntax(workflow.text);
+    const resolveManifestPath = (reference) => localActionManifestPath(
+      reference,
+      (manifestPath) => actionBySnapshotPath.has(`${workflow.snapshot}\0${manifestPath}`),
+    );
+    const symlinkPaths = symlinkPathsBySnapshot.get(workflow.snapshot) ?? new Set();
+    const workflowStepOutputResolver = localActionStepOutputResolver(
+      workflow.snapshot,
+      syntax.scalarAnchors,
+    );
     if (privileged && hasUntrustedPullRequestCheckout(
       syntax.uncommented,
       syntax.scalarAnchors,
@@ -807,7 +848,7 @@ function auditLocalCompositeActions(
       workflowStepOutputResolver,
     )) {
       findings.push(workflowFinding({
-        message: "A privileged workflow must not let local action output disable failure handling.",
+        message: "A privileged workflow must not let local action output control execution conditions or disable failure handling.",
         path: workflow.path,
         ruleId: "workflow-privileged-untrusted-control-flow",
         severity: "error",
@@ -921,7 +962,11 @@ function auditLocalCompositeActions(
         analysis.stepGroups,
         analysis.syntax.scalarAnchors,
         effectiveTaintedBindings,
-        stepOutputResolverFor(analysis.syntax.scalarAnchors, depth + 1),
+        localActionStepOutputResolver(
+          workflow.snapshot,
+          analysis.syntax.scalarAnchors,
+          depth + 1,
+        ),
       )) {
         if (localActionReferenceUsesSymlink(call.reference, symlinkPaths)) {
           findings.push(workflowFinding({
@@ -944,7 +989,11 @@ function auditLocalCompositeActions(
         analysis.stepGroups,
         analysis.syntax.scalarAnchors,
         effectiveTaintedBindings,
-        stepOutputResolverFor(analysis.syntax.scalarAnchors, depth + 1),
+        localActionStepOutputResolver(
+          workflow.snapshot,
+          analysis.syntax.scalarAnchors,
+          depth + 1,
+        ),
       ).stepContexts;
       if (privileged && actionStepContexts.some(({ stepGroup, taintedBindings }) => (
         stepGroupHasUntrustedCheckout(
@@ -990,7 +1039,7 @@ function auditLocalCompositeActions(
         analysis.syntax.scalarAnchors,
       )) {
         findings.push(workflowFinding({
-          message: "A local composite action called from a privileged workflow must not let untrusted input disable failure handling.",
+          message: "A local composite action called from a privileged workflow must not let untrusted input control execution conditions or disable failure handling.",
           path: action.path,
           ruleId: "workflow-privileged-untrusted-control-flow",
           severity: "error",
@@ -1203,13 +1252,19 @@ function reusableWorkflowOutputBindings(text, scalarAnchors) {
   return bindings;
 }
 
-function workflowJobOutputTaintedBindings(text, scalarAnchors, inheritedTaintedBindings) {
+function workflowJobOutputTaintedBindings(
+  text,
+  scalarAnchors,
+  inheritedTaintedBindings,
+  stepOutputResolver,
+) {
   const jobGroups = workflowJobPropertyGroups(text, scalarAnchors);
   const contexts = workflowJobTaintContexts(
     jobGroups,
     workflowRootMappingBindings(text, "env", "env", scalarAnchors),
     scalarAnchors,
     inheritedTaintedBindings,
+    stepOutputResolver,
   );
   const taintedBindings = new Set();
   for (const group of jobGroups) {
@@ -1365,12 +1420,13 @@ function workflowRootMappingBindings(text, propertyName, namespace, scalarAnchor
   ));
 }
 
-function reusableCallTaintedBindings(call, callerTaintedBindings) {
+function reusableCallTaintedBindings(call, callerTaintedBindings, stepOutputResolver) {
   const callSiteTaintedBindings = workflowJobTaintContexts(
     call.jobGroups,
     call.workflowEnvBindings,
     call.scalarAnchors,
     callerTaintedBindings,
+    stepOutputResolver,
   ).get(call.jobGroup) ?? new Set(callerTaintedBindings);
   const taintedBindings = new Set();
   for (const binding of call.bindings) {
@@ -1538,18 +1594,8 @@ function workflowStepTaintAnalysis(
       }
     }
     if (!stepId) continue;
-    const taintedEnvironmentVariables = new Set([...stepTaintedBindings].flatMap((binding) => (
-      binding.startsWith("env.") && binding !== "env.*"
-        ? [binding.slice("env.".length).toLowerCase()]
-        : []
-    )));
     const runOutputIsTainted = runSources.some((runSource) => (
-      isUntrustedReusableValue(runSource, stepTaintedBindings)
-      || shellSourceReferencesTaintedVariable(
-        runSource,
-        taintedEnvironmentVariables,
-        stepTaintedBindings.has("env.*"),
-      )
+      githubOutputWriteIsTainted(runSource, stepTaintedBindings)
     ));
     const actionOutputIsTainted = workflowMappingBindings(
       stepGroup,
@@ -1596,6 +1642,30 @@ function githubEnvironmentWriteBindings(runSource, taintedBindings) {
     ...line.matchAll(/(?:^|[\s"'`])([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|<<)/gu),
   ].map((match) => match[1].toLowerCase())));
   return names.size > 0 ? [...names] : ["*"];
+}
+
+function githubOutputWriteIsTainted(runSource, taintedBindings) {
+  const taintedVariables = new Set([...taintedBindings].flatMap((binding) => (
+    binding.startsWith("env.") && binding !== "env.*"
+      ? [binding.slice("env.".length).toLowerCase()]
+      : []
+  )));
+  for (const segment of shellCommandSegments(runSource)) {
+    const segmentReferencesTaint = isUntrustedReusableValue(segment, taintedBindings)
+      || shellSourceReferencesTaintedVariable(
+        segment,
+        taintedVariables,
+        taintedBindings.has("env.*"),
+      );
+    const assignment = /^\s*(?:(?:export|local|readonly)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(segment);
+    if (assignment && segmentReferencesTaint) {
+      taintedVariables.add((assignment[1] ?? assignment[2]).toLowerCase());
+    }
+    if (/GITHUB_OUTPUT/iu.test(segment)
+      && /(?:>>?|\b(?:Add-Content|Out-File|Set-Content|tee)\b)/iu.test(segment)
+      && segmentReferencesTaint) return true;
+  }
+  return false;
 }
 
 function mergeTaintedBindings(...bindingSets) {
@@ -1856,7 +1926,7 @@ function auditWorkflowText(workflowPath, text, source = "tracked-file") {
   if (hasPrivilegedTrigger
     && hasUntrustedWorkflowFailureHandling(uncommented, scalarAnchors)) {
     findings.push(workflowFinding({
-      message: "A privileged workflow must not let untrusted event data disable failure handling.",
+      message: "A privileged workflow must not let untrusted event data control execution conditions or disable failure handling.",
       path: workflowPath,
       ruleId: "workflow-privileged-untrusted-control-flow",
       severity: "error",
@@ -3140,12 +3210,17 @@ function hasUntrustedWorkflowFailureHandling(
   return jobGroups.some((jobGroup) => {
     const analysis = jobTaintAnalyses.get(jobGroup);
     const jobFailureHandlingIsUntrusted = jobGroup.properties
-      .filter(({ entry }) => entry.key.toLowerCase() === "continue-on-error")
-      .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
-      .some((value) => isUntrustedReusableValue(
-        value,
-        analysis?.configurationTaintedBindings ?? taintedBindings,
-      ));
+      .filter(({ entry }) => ["continue-on-error", "if"].includes(
+        entry.key.toLowerCase(),
+      ))
+      .some(({ entry }) => {
+        const value = resolveYamlScalarValue(entry.value, scalarAnchors);
+        const effectiveTaintedBindings = analysis?.configurationTaintedBindings
+          ?? taintedBindings;
+        return entry.key.toLowerCase() === "if"
+          ? isUntrustedWorkflowCondition(value, effectiveTaintedBindings)
+          : isUntrustedReusableValue(value, effectiveTaintedBindings);
+      });
     return jobFailureHandlingIsUntrusted
       || stepContextsHaveUntrustedFailureHandling(
         analysis?.stepContexts ?? [],
@@ -3179,9 +3254,110 @@ function hasUntrustedWorkflowEnvironmentSelection(
 
 function stepContextsHaveUntrustedFailureHandling(stepContexts, scalarAnchors) {
   return stepContexts.some(({ stepGroup, taintedBindings }) => stepGroup.properties
-    .filter(({ entry }) => entry.key.toLowerCase() === "continue-on-error")
-    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
-    .some((value) => isUntrustedReusableValue(value, taintedBindings)));
+    .filter(({ entry }) => ["continue-on-error", "if"].includes(
+      entry.key.toLowerCase(),
+    ))
+    .some(({ entry }) => {
+      const value = resolveYamlScalarValue(entry.value, scalarAnchors);
+      return entry.key.toLowerCase() === "if"
+        ? isUntrustedWorkflowCondition(value, taintedBindings)
+        : isUntrustedReusableValue(value, taintedBindings);
+    }));
+}
+
+function isUntrustedWorkflowCondition(value, taintedBindings) {
+  if (!isUntrustedReusableValue(value, taintedBindings)) return false;
+  return !isAuthorizedIssueCommentCommandCondition(value, taintedBindings);
+}
+
+function isAuthorizedIssueCommentCommandCondition(value, taintedBindings) {
+  const normalized = normalizeExpressionPropertyAccess(value)
+    .replace(/^\s*\$\{\{([\s\S]*)\}\}\s*$/u, "$1")
+    .trim();
+  if (splitExpressionAtTopLevel(normalized, "||").length > 1) return false;
+  const conjuncts = splitExpressionAtTopLevel(normalized, "&&");
+  const hasTrustedAssociationGuard = conjuncts.some((conjunct) => {
+    const clauses = splitExpressionAtTopLevel(
+      stripExpressionParentheses(conjunct),
+      "||",
+    );
+    return clauses.length > 0 && clauses.every((clause) => (
+      /^github\.event\.comment\.author_association\s*==\s*(["'])(?:MEMBER|OWNER|COLLABORATOR)\1$/iu
+        .test(stripExpressionParentheses(clause))
+    ));
+  });
+  if (!hasTrustedAssociationGuard) return false;
+  const withoutCommandFilters = normalized.replace(
+    /\bstartsWith\s*\(\s*github\.event\.comment\.body\s*,\s*(["'])(?:[/@][A-Za-z0-9][^"'\\\r\n]*)\1\s*\)/giu,
+    "true",
+  );
+  return !isUntrustedReusableValue(withoutCommandFilters, taintedBindings);
+}
+
+function splitExpressionAtTopLevel(value, operator) {
+  const parts = [];
+  let current = "";
+  let depth = 0;
+  let quote;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === "\\" && quote !== "'") {
+      current += character;
+      if (index + 1 < value.length) {
+        current += value[index + 1];
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      if (quote === character) quote = undefined;
+      else if (!quote) quote = character;
+      current += character;
+      continue;
+    }
+    if (!quote && character === "(") depth += 1;
+    if (!quote && character === ")") depth -= 1;
+    if (!quote && depth === 0 && value.startsWith(operator, index)) {
+      parts.push(current.trim());
+      current = "";
+      index += operator.length - 1;
+      continue;
+    }
+    current += character;
+  }
+  parts.push(current.trim());
+  return parts.filter(Boolean);
+}
+
+function stripExpressionParentheses(value) {
+  let stripped = value.trim();
+  while (stripped.startsWith("(") && stripped.endsWith(")")) {
+    let depth = 0;
+    let quote;
+    let wrapsCompleteValue = true;
+    for (let index = 0; index < stripped.length; index += 1) {
+      const character = stripped[index];
+      if (character === "\\" && quote !== "'") {
+        index += 1;
+        continue;
+      }
+      if (character === "'" || character === '"') {
+        if (quote === character) quote = undefined;
+        else if (!quote) quote = character;
+        continue;
+      }
+      if (quote) continue;
+      if (character === "(") depth += 1;
+      if (character === ")") depth -= 1;
+      if (depth === 0 && index < stripped.length - 1) {
+        wrapsCompleteValue = false;
+        break;
+      }
+    }
+    if (!wrapsCompleteValue || depth !== 0) break;
+    stripped = stripped.slice(1, -1).trim();
+  }
+  return stripped;
 }
 
 function stepContextsHaveUntrustedScriptInterpolation(stepContexts, scalarAnchors) {
@@ -3236,9 +3412,9 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
       : []
   )));
   const anyEnvironmentVariableTainted = taintedBindings.has("env.*");
-  const evaluatorCommand = /^\s*(?:(?:builtin|command|exec)\s+)?(?:eval\b|(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s|$)|(?:iex|invoke-expression)\b|(?:(?:\/[^/\s]+)*\/)?(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:c|command)(?:\s|$))/iu;
+  const evaluatorCommand = /^\s*(?:(?:builtin|command|exec)\s+)?(?:eval\b|(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s|$)|(?:(?:\/[^/\s]+)*\/)?(?:node|perl|python\d*|ruby)\b[^;&|]*\s-(?:c|e)(?:\s|$)|(?:(?:\/[^/\s]+)*\/)?php\b[^;&|]*\s-r(?:\s|$)|(?:(?:\/[^/\s]+)*\/)?deno\b[^;&|]*\beval(?:\s|$)|(?:iex|invoke-expression)\b|(?:(?:\/[^/\s]+)*\/)?(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:c|command)(?:\s|$))/iu;
   const stdinInterpreterCommand = /^\s*(?:(?:command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:-[^\s]+\s+)*)?(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|powershell|pwsh|sh|zsh)(?:\.exe)?(?:\s|$)/iu;
-  const hereInputInterpreterCommand = /^\s*(?:(?:command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:-[^\s]+\s+)*)?(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|powershell|pwsh|sh|zsh)(?:\.exe)?(?:\s+-[^\s]+)*\s+<<<(?:\s|$)/iu;
+  const hereInputInterpreterCommand = /^\s*(?:(?:command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:-[^\s]+\s+)*)?(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|powershell|pwsh|sh|zsh)(?:\.exe)?(?:\s+-[^\s]+)*\s+<<</iu;
   for (const segment of shellCommandSegments(runSource)) {
     if (/^\s*#/u.test(segment)) continue;
     const assignment = /^\s*(?:(?:export|local|readonly)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=/iu.exec(segment);
@@ -3438,6 +3614,22 @@ function shellArtifactExecutionSource(segment) {
       const argument = words[cursor];
       cursor += 1;
       if (argument === "--") return words[cursor];
+      if (argument.startsWith("<(")) {
+        const processSubstitution = [argument, ...words.slice(cursor)].join(" ");
+        const body = /^<\(([\s\S]*)\)$/u.exec(processSubstitution)?.[1];
+        if (body) {
+          const bodyWords = shellCommandWords(body);
+          const explicitPath = bodyWords.filter((word) => word.includes("/")).at(-1);
+          if (explicitPath) return explicitPath;
+          const reader = path.posix.basename(bodyWords[0] ?? "").toLowerCase();
+          if (["awk", "cat", "grep", "head", "sed", "tail"].includes(reader)) {
+            return bodyWords.slice(1).filter((word) => (
+              !word.startsWith("-") && !/^[<>&]/u.test(word)
+            )).at(-1);
+          }
+        }
+        return undefined;
+      }
       if (/^(?:\d*)<$/u.test(argument)) return words[cursor];
       const redirectedSource = /^(?:\d*)<([^<].*)$/u.exec(argument)?.[1];
       if (redirectedSource) return redirectedSource;
@@ -3658,7 +3850,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:body|head|merge_commit_sha|title)|refs\/pull\/|workflow_run\.(?:head_sha|id|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head))/iu
+  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:body|head|merge_commit_sha|title)|refs\/pull\/|workflow_run\.(?:head_branch|head_sha|id|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head))/iu
     .test(normalizeExpressionPropertyAccess(value));
 }
 
