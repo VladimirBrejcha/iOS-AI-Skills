@@ -45,6 +45,7 @@ RULES = [
 
 INDEX_BLOB_MODES = %w[100644 100755 120000].freeze
 LFS_POINTER = %r{\Aversion https://git-lfs\.github\.com/spec/v1(?:\r?\n|\z)}.freeze
+UTF16_BOMS = ["\xFF\xFE".b, "\xFE\xFF".b].freeze
 GIT_ENVIRONMENT = {
   "GIT_ALTERNATE_OBJECT_DIRECTORIES" => nil,
   "GIT_COMMON_DIR" => nil,
@@ -129,7 +130,8 @@ def read_blob_results(repo, object_ids)
 
         results[object_id] = {
           labels: matching_labels(content),
-          lfs_pointer: LFS_POINTER.match?(content.b)
+          lfs_pointer: LFS_POINTER.match?(content.b),
+          utf16_bom: utf16_bom?(content)
         }
       end
     rescue IOError, SystemCallError
@@ -149,6 +151,11 @@ end
 def matching_labels(content)
   source = content.b
   RULES.filter_map { |label, pattern| label if pattern.match?(source) }
+end
+
+def utf16_bom?(content)
+  source = content.b
+  UTF16_BOMS.any? { |bom| source.start_with?(bom) }
 end
 
 def record_findings(labels, relative_path, findings, sensitive_paths = nil)
@@ -247,6 +254,9 @@ blob_paths.each do |object_id, relative_paths|
     if result.fetch(:lfs_pointer)
       errors.add([relative_path, "Git LFS object requires separate review"])
     end
+    if result.fetch(:utf16_bom)
+      errors.add([relative_path, "BOM-marked UTF-16 source requires separate review"])
+    end
     record_findings(result.fetch(:labels), relative_path, findings)
   end
 end
@@ -274,7 +284,12 @@ worktree_paths.each do |relative_path|
     elsif File.file?(absolute_path)
       File.binread(absolute_path)
     end
-    scan_source(content, relative_path, findings) if content
+    if content
+      if utf16_bom?(content)
+        errors.add([relative_path, "BOM-marked UTF-16 source requires separate review"])
+      end
+      scan_source(content, relative_path, findings)
+    end
   rescue SystemCallError
     errors.add([relative_path, "unable to read worktree source"])
   end

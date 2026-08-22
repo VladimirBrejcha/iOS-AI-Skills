@@ -483,6 +483,21 @@ class CheckCurrentSourceTest < Minitest::Test
     end
   end
 
+  def test_bom_marked_utf16_source_requires_separate_review
+    with_repo do |repo|
+      token = github_token
+      content = "\xFF\xFE".b + token.encode("UTF-16LE").b
+      stage(repo, "script.ps1", content)
+
+      _stdout, stderr, status = run_checker(repo)
+
+      refute status.success?
+      assert_includes stderr, "script.ps1"
+      assert_includes stderr, "BOM-marked UTF-16 source requires separate review"
+      refute_includes stderr, token
+    end
+  end
+
   def test_unresolved_index_entries_fail_closed
     with_repo do |repo|
       object_ids = %w[base ours theirs].map do |content|
