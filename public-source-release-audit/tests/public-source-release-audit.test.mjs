@@ -1494,6 +1494,25 @@ test("untrusted refs persisted through GITHUB_ENV reach later steps", () => {
     "          ref: " + envExpression,
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/github-env-heredoc-ref.yml", [
+    "name: GITHUB_ENV heredoc ref",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          SOURCE_REF: " + headExpression,
+    "        run: |",
+    "          cat >> \"$GITHUB_ENV\" <<EOF",
+    "          PR_REF=$SOURCE_REF",
+    "          EOF",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + envExpression,
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add persisted environment checkout workflow");
 
   const audit = runAudit(repoRoot);
@@ -1503,6 +1522,11 @@ test("untrusted refs persisted through GITHUB_ENV reach later steps", () => {
     audit.result,
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/github-env-ref.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/github-env-heredoc-ref.yml",
   );
 });
 
@@ -2070,6 +2094,38 @@ test("workflow_run artifacts remain untrusted when later executed", () => {
     "      - run: bash payload/run.sh",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-gh-global-artifact.yml", [
+    "name: workflow run gh global artifact",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          RUN_ID: " + runIdExpression,
+    "        run: gh -R example/public run download \"$RUN_ID\" --dir payload",
+    "      - run: bash payload/run.sh",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-gh-repository-artifact.yml", [
+    "name: workflow run gh repository artifact",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: gh run download -n payload --dir payload",
+    "      - run: bash payload/run.sh",
+    "",
+  ].join("\n"));
   write(repoRoot, ".github/workflows/workflow-download-composite-execute.yml", [
     "name: workflow download composite execute",
     "on:",
@@ -2135,6 +2191,8 @@ test("workflow_run artifacts remain untrusted when later executed", () => {
   );
   for (const workflowName of [
     "workflow-run-gh-artifact",
+    "workflow-run-gh-global-artifact",
+    "workflow-run-gh-repository-artifact",
     "workflow-download-composite-execute",
     "composite-download-workflow-execute",
   ]) {
@@ -2257,6 +2315,9 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     ["exec", "cd payload && exec bash run.sh"],
     ["absolute-interpreter", "cd payload && /bin/bash run.sh"],
     ["direct-path", "payload/run.sh"],
+    ["shell-group", "(bash payload/run.sh)"],
+    ["shell-group-chain", "(cd payload && bash run.sh)"],
+    ["python-option", "python -W ignore payload/run.py"],
   ]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${name}.yml`, [
       `name: workflow run artifact ${name}`,
@@ -2316,6 +2377,9 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "exec",
     "absolute-interpreter",
     "direct-path",
+    "shell-group",
+    "shell-group-chain",
+    "python-option",
     "workflow-alias",
     "job-alias",
     "step-alias",
@@ -2689,6 +2753,36 @@ test("tainted environment values cannot reach shell evaluators", () => {
     "        run: echo ready & eval \"$COMMAND\"",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-indirect-eval.yml", [
+    "name: comment indirect eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + bodyExpression,
+    "        run: |",
+    "          NAME=CODE",
+    "          eval \"${!NAME}\"",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-nameref-eval.yml", [
+    "name: comment nameref eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + bodyExpression,
+    "        run: |",
+    "          declare -n REF=CODE",
+    "          eval \"$REF\"",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add tainted shell evaluator");
 
   const audit = runAudit(repoRoot);
@@ -2704,6 +2798,13 @@ test("tainted environment values cannot reach shell evaluators", () => {
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-background-eval.yml",
   );
+  for (const form of ["indirect", "nameref"]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-script-interpolation",
+      `.github/workflows/comment-${form}-eval.yml`,
+    );
+  }
 });
 
 test("tainted script text cannot be piped into shell interpreters", () => {
@@ -2722,6 +2823,19 @@ test("tainted script text cannot be piped into shell interpreters", () => {
     "        run: printf '%s' \"$COMMAND\" | bash",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-combined-pipe-shell.yml", [
+    "name: comment combined pipe shell",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: printf '%s' \"$COMMAND\" |& bash",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add tainted shell pipeline");
 
   const audit = runAudit(repoRoot);
@@ -2731,6 +2845,11 @@ test("tainted script text cannot be piped into shell interpreters", () => {
     audit.result,
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-pipe-shell.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-combined-pipe-shell.yml",
   );
 });
 
@@ -2987,6 +3106,38 @@ test("tainted fetch state propagates through FETCH_HEAD checkouts", () => {
     "          ./verify.sh",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/fetched-head-update-ref.yml", [
+    "name: fetched head update ref",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          PR_SHA: " + refExpression,
+    "        run: |",
+    "          git fetch origin \"$PR_SHA\"",
+    "          git update-ref HEAD FETCH_HEAD",
+    "          git reset --hard",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/fetched-head-branch.yml", [
+    "name: fetched head branch",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          PR_SHA: " + refExpression,
+    "        run: |",
+    "          git fetch origin \"$PR_SHA\"",
+    "          git branch review-head FETCH_HEAD",
+    "          git checkout review-head",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add fetched head checkout");
 
   const audit = runAudit(repoRoot);
@@ -2997,6 +3148,13 @@ test("tainted fetch state propagates through FETCH_HEAD checkouts", () => {
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/fetched-head-checkout.yml",
   );
+  for (const form of ["update-ref", "branch"]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-checkout",
+      `.github/workflows/fetched-head-${form}.yml`,
+    );
+  }
 });
 
 test("untrusted shell values unrelated to a fixed checkout do not block", () => {
