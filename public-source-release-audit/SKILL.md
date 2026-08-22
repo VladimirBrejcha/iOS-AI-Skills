@@ -48,8 +48,9 @@ objects require separate review. Missing index blobs, including unavailable
 partial-clone objects, fail without network fetching. A symlink's own target
 text is scanned, while a symlinked parent component fails without reading
 outside the repository. Git's optional locks are disabled so read-only index
-operations do not freshen split-index metadata. BOM-marked UTF-16 source also
-requires separate review; the checker does not transcode or unpack content.
+operations do not freshen split-index metadata, and inherited Git trace-file
+destinations are cleared. BOM-marked UTF-16 source also requires separate
+review; the checker does not transcode or unpack content.
 
 ## Semantic Review
 

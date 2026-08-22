@@ -171,6 +171,7 @@ class CheckCurrentSourceTest < Minitest::Test
         "windows-home.txt" => "C:" + "\\Users\\example\\private.txt",
         "lowercase-windows-home.txt" => "c:" + "\\users\\example\\private.txt",
         "unicode-windows-home.txt" => "C:" + "\\Users\\山田\\private.txt",
+        "terminal-markup-windows-home.txt" => "<string>" + "C:" + "\\Users\\example" + "</string>",
         "escaped-windows-home.txt" => [
           "C:",
           "\\" * 2,
@@ -333,11 +334,13 @@ class CheckCurrentSourceTest < Minitest::Test
       refute_nil real_git
 
       Dir.mktmpdir("public-source-check-bin-") do |bin_dir|
+        trace_path = File.join(bin_dir, "git-trace.log")
         fake_git = File.join(bin_dir, "git")
         File.write(fake_git, <<~RUBY)
           #!/usr/bin/env ruby
           abort "lazy fetching was not disabled" unless ENV["GIT_NO_LAZY_FETCH"] == "1"
           abort "optional Git locks were not disabled" unless ENV["GIT_OPTIONAL_LOCKS"] == "0"
+          abort "Git tracing was not disabled" if ENV.key?("GIT_TRACE")
           exec #{real_git.dump}, *ARGV
         RUBY
         FileUtils.chmod(0o755, fake_git)
@@ -347,13 +350,38 @@ class CheckCurrentSourceTest < Minitest::Test
           {
             "GIT_NO_LAZY_FETCH" => "0",
             "GIT_OPTIONAL_LOCKS" => "1",
+            "GIT_TRACE" => trace_path,
             "PATH" => [bin_dir, ENV.fetch("PATH")].join(File::PATH_SEPARATOR)
           }
         )
 
         assert status.success?, stderr
         assert_includes stdout, "current public-source check passed"
+        refute File.exist?(trace_path), "checker wrote inherited Git trace output"
       end
+    end
+  end
+
+  def test_inaccessible_worktree_source_fails_closed
+    skip "permission test requires a non-root user" if Process.uid.zero?
+
+    with_repo do |repo|
+      token = github_token
+      stage(repo, "private/file.txt", "safe candidate\n")
+      write(repo, "private/file.txt", token)
+      directory = File.join(repo, "private")
+      FileUtils.chmod(0o000, directory)
+
+      begin
+        _stdout, stderr, status = run_checker(repo)
+      ensure
+        FileUtils.chmod(0o755, directory)
+      end
+
+      refute status.success?
+      assert_includes stderr, "private/file.txt"
+      assert_includes stderr, "unable to read worktree source"
+      refute_includes stderr, token
     end
   end
 

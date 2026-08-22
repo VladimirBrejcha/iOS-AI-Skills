@@ -20,7 +20,7 @@ RULES = [
           (?:private(?:/|\\/))?var(?:/|\\/)root(?:(?:/|\\/)|(?![A-Za-z0-9._-]))
         )
         |
-        [A-Za-z]:[\\/]{1,2}(?i:Users)[\\/]{1,2}[A-Za-z0-9._\x80-\xFF-]+(?:[\\/]{1,2}|(?=["'\s,;:)\]\}]|\z))
+        [A-Za-z]:[\\/]{1,2}(?i:Users)[\\/]{1,2}[A-Za-z0-9._\x80-\xFF-]+(?:[\\/]{1,2}|(?=[<>"'\s,;:)\]\}]|\z))
       )
     }xn
   ],
@@ -57,6 +57,16 @@ GIT_ENVIRONMENT = {
   "GIT_NO_REPLACE_OBJECTS" => "1",
   "GIT_OBJECT_DIRECTORY" => nil,
   "GIT_OPTIONAL_LOCKS" => "0",
+  "GIT_TRACE" => nil,
+  "GIT_TRACE2" => nil,
+  "GIT_TRACE2_EVENT" => nil,
+  "GIT_TRACE2_PERF" => nil,
+  "GIT_TRACE_CURL" => nil,
+  "GIT_TRACE_PACK_ACCESS" => nil,
+  "GIT_TRACE_PACKET" => nil,
+  "GIT_TRACE_PERFORMANCE" => nil,
+  "GIT_TRACE_SETUP" => nil,
+  "GIT_TRACE_SHALLOW" => nil,
   "GIT_WORK_TREE" => nil
 }.freeze
 
@@ -281,10 +291,14 @@ worktree_paths.each do |relative_path|
       next
     end
     absolute_path = File.join(repo.b, relative_path)
-    content = if File.symlink?(absolute_path)
+    stat = File.lstat(absolute_path)
+    content = if stat.symlink?
       File.readlink(absolute_path)
-    elsif File.file?(absolute_path)
+    elsif stat.file?
       File.binread(absolute_path)
+    else
+      errors.add([relative_path, "unsupported worktree source type"])
+      next
     end
     if content
       if LFS_POINTER.match?(content.b)
@@ -295,6 +309,8 @@ worktree_paths.each do |relative_path|
       end
       scan_source(content, relative_path, findings)
     end
+  rescue Errno::ENOENT
+    next
   rescue SystemCallError
     errors.add([relative_path, "unable to read worktree source"])
   end
