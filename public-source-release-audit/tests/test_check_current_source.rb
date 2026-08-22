@@ -152,6 +152,7 @@ class CheckCurrentSourceTest < Minitest::Test
         "private-key.txt" => "-----BEGIN " + "OPENSSH PRIVATE KEY-----",
         "pgp-private-key.txt" => "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----",
         "putty-private-key.txt" => "PuTTY" + "-User-Key-File-3: ssh-ed25519",
+        "markup-home.txt" => "<string>" + "/" + "Users/example/private.txt</string>",
         "posix-home.txt" => "/" + "Users/example/private.txt",
         "escaped-posix-home.txt" => [
           escaped_slash,
