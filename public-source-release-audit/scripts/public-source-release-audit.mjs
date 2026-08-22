@@ -2827,6 +2827,11 @@ function workflowRunnerLabels(value, scalarAnchors) {
   const resolved = resolveYamlScalarValue(value, scalarAnchors);
   const constantExpression = githubConstantExpressionValue(resolved);
   if (typeof constantExpression === "string") return [constantExpression];
+  if (Array.isArray(constantExpression)) {
+    const labels = constantExpression.flat(Infinity)
+      .filter((label) => typeof label === "string");
+    return labels.length > 0 ? labels : [resolved];
+  }
   const sequenceValues = yamlFlowSequenceValues(resolved);
   return sequenceValues
     ? sequenceValues.flatMap((item) => workflowRunnerLabels(item, scalarAnchors))
@@ -3708,10 +3713,17 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
     inheritedTaintedVariables,
     inheritedStaticValues,
     depth,
+    inheritedFunctions,
   ) => {
     const localTaintedVariables = new Set(inheritedTaintedVariables);
     const localStaticValues = new Map(inheritedStaticValues);
-    for (const segment of shellCommandSegments(source)) {
+    const localFunctions = new Map(inheritedFunctions);
+    for (const unit of shellEvaluationUnits(source)) {
+      if (unit.definition) {
+        localFunctions.set(unit.definition.name, unit.definition.body);
+        continue;
+      }
+      const segment = unit.source;
       if (/^\s*#/u.test(segment)) continue;
       const executableSegment = stripShellCommandGrouping(segment);
       updateShellVariableTaint(
@@ -3743,6 +3755,7 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
           localTaintedVariables,
           localStaticValues,
           depth + 1,
+          localFunctions,
         )) return true;
       }
       let pipelineInputTainted = false;
@@ -3779,21 +3792,52 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
           localTaintedVariables,
           anyEnvironmentVariableTainted,
         );
-        for (const childCommand of shellFindExecutedCommands(stage)) {
+        for (const childCommand of [
+          ...shellFindExecutedCommands(stage),
+          ...shellEnvSplitCommands(stage),
+        ]) {
+          const resolvedChildCommand = resolveStaticEnvironmentReferences(
+            childCommand,
+            localStaticValues,
+          ) ?? childCommand;
           if (depth >= 32) {
-            if (isUntrustedReusableValue(childCommand, taintedBindings)
+            if (isUntrustedReusableValue(resolvedChildCommand, taintedBindings)
               || shellSourceReferencesTaintedVariable(
-                childCommand,
+                resolvedChildCommand,
                 localTaintedVariables,
                 anyEnvironmentVariableTainted,
               )) return true;
             continue;
           }
           if (sourceEvaluatesTaint(
-            childCommand,
+            resolvedChildCommand,
             localTaintedVariables,
             localStaticValues,
             depth + 1,
+            localFunctions,
+          )) return true;
+        }
+        const functionInvocation = shellFunctionInvocation(stage, localFunctions);
+        if (functionInvocation) {
+          const invokedTaintedVariables = shellFunctionInvocationTaintedVariables(
+            functionInvocation.arguments,
+            taintedBindings,
+            localTaintedVariables,
+            anyEnvironmentVariableTainted,
+          );
+          if (depth >= 32) {
+            if (isUntrustedReusableValue(functionInvocation.body, taintedBindings)
+              || shellSourceReferencesTaintedVariable(
+                functionInvocation.body,
+                invokedTaintedVariables,
+                anyEnvironmentVariableTainted,
+              )) return true;
+          } else if (sourceEvaluatesTaint(
+            functionInvocation.body,
+            invokedTaintedVariables,
+            localStaticValues,
+            depth + 1,
+            localFunctions,
           )) return true;
         }
         if (evaluatorCommand.test(sinkStage)
@@ -3843,7 +3887,106 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
     }
     return false;
   };
-  return sourceEvaluatesTaint(runSource, taintedVariables, new Map(), 0);
+  return sourceEvaluatesTaint(runSource, taintedVariables, new Map(), 0, new Map());
+}
+
+function shellEvaluationUnits(source) {
+  const definitions = shellFunctionDefinitions(source);
+  const units = [];
+  let cursor = 0;
+  for (const definition of definitions) {
+    for (const segment of shellCommandSegments(source.slice(cursor, definition.start))) {
+      units.push({ source: segment });
+    }
+    units.push({ definition });
+    cursor = definition.end;
+  }
+  for (const segment of shellCommandSegments(source.slice(cursor))) {
+    units.push({ source: segment });
+  }
+  return units;
+}
+
+function shellFunctionDefinitions(source) {
+  const definitions = [];
+  const pattern = /(^|[;\n])\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{/gu;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    const openingBrace = match.index + match[0].lastIndexOf("{");
+    const closingBrace = shellFunctionBodyEnd(source, openingBrace);
+    if (closingBrace === undefined) continue;
+    const start = match.index + match[1].length;
+    definitions.push({
+      body: source.slice(openingBrace + 1, closingBrace),
+      end: closingBrace + 1,
+      name: (match[2] ?? match[3]).toLowerCase(),
+      start,
+    });
+    pattern.lastIndex = closingBrace + 1;
+  }
+  return definitions;
+}
+
+function shellFunctionBodyEnd(source, openingBrace) {
+  let depth = 1;
+  let quote;
+  for (let index = openingBrace + 1; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === "\\" && quote !== "'") {
+      index += 1;
+      continue;
+    }
+    if (["'", '"'].includes(character)) {
+      if (quote === character) quote = undefined;
+      else if (!quote) quote = character;
+      continue;
+    }
+    if (quote) continue;
+    if (character === "{") depth += 1;
+    if (character !== "}") continue;
+    depth -= 1;
+    if (depth === 0) return index;
+  }
+  return undefined;
+}
+
+function shellFunctionInvocation(stage, functions) {
+  const words = shellCommandWords(stripShellCommandGrouping(stage));
+  let cursor = 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
+  const name = words[cursor]?.toLowerCase();
+  const body = name ? functions.get(name) : undefined;
+  return body === undefined ? undefined : {
+    arguments: words.slice(cursor + 1),
+    body,
+  };
+}
+
+function shellFunctionInvocationTaintedVariables(
+  arguments_,
+  taintedBindings,
+  inheritedTaintedVariables,
+  anyEnvironmentVariableTainted,
+) {
+  const taintedVariables = new Set([...inheritedTaintedVariables].filter((name) => (
+    !/^\d+$/u.test(name) && !["*", "@"].includes(name)
+  )));
+  const argumentTaint = arguments_.map((argument) => (
+    isUntrustedReusableValue(argument, taintedBindings)
+    || shellSourceReferencesTaintedVariable(
+      argument,
+      inheritedTaintedVariables,
+      anyEnvironmentVariableTainted,
+    )
+  ));
+  argumentTaint.forEach((isTainted, index) => {
+    if (isTainted) taintedVariables.add(String(index + 1));
+  });
+  if (argumentTaint.some(Boolean)) {
+    taintedVariables.add("*");
+    taintedVariables.add("@");
+  }
+  return taintedVariables;
 }
 
 function shellStageHasTaintedCommandPosition(
@@ -3972,6 +4115,40 @@ function shellFindExecutedCommands(stage) {
     }
     if (childWords.length > 0) commands.push(childWords.join(" "));
     cursor += 1;
+  }
+  return commands;
+}
+
+function shellEnvSplitCommands(stage) {
+  const words = shellCommandWords(stripShellCommandGrouping(stage));
+  let cursor = shellCommandWrapperCursor(words, {
+    allowSudo: true,
+    stopAtEnv: true,
+  });
+  if (path.posix.basename(words[cursor] ?? "").toLowerCase() !== "env") return [];
+  cursor += 1;
+  const commands = [];
+  while (cursor < words.length) {
+    const argument = words[cursor];
+    cursor += 1;
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(argument)) continue;
+    if (["-S", "--split-string"].includes(argument)) {
+      if (words[cursor]) commands.push(words[cursor]);
+      cursor += 1;
+      continue;
+    }
+    const inlineSplit = /^(?:-S|--split-string=)(.+)$/u.exec(argument)?.[1];
+    if (inlineSplit) {
+      commands.push(inlineSplit);
+      continue;
+    }
+    if (argument === "--") break;
+    if (["-C", "-u", "--chdir", "--unset"].includes(argument)) {
+      cursor += 1;
+      continue;
+    }
+    if (argument.startsWith("-")) continue;
+    break;
   }
   return commands;
 }
@@ -4298,7 +4475,10 @@ function shellStageWithoutCommandWrappers(stage) {
   return words.slice(shellCommandWrapperCursor(words)).join(" ");
 }
 
-function shellCommandWrapperCursor(words, { allowSudo = false } = {}) {
+function shellCommandWrapperCursor(
+  words,
+  { allowSudo = false, stopAtEnv = false } = {},
+) {
   let cursor = 0;
   while (cursor < words.length) {
     while (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
@@ -4319,6 +4499,7 @@ function shellCommandWrapperCursor(words, { allowSudo = false } = {}) {
       continue;
     }
     if (command === "env") {
+      if (stopAtEnv) break;
       cursor += 1;
       while (cursor < words.length) {
         const argument = words[cursor] ?? "";
@@ -4998,6 +5179,16 @@ function stepArtifactExecutionAnalysis(
   ))) {
     return { derivedArtifactPaths: [], executes: true };
   }
+  const shellExecutionSources = stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "shell")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+    .flatMap((shellTemplate) => shellArtifactExecutionSources(
+      shellTemplate,
+      environmentValues,
+    ));
+  if (shellExecutionSources.some((source) => artifactPaths.some((artifactPath) => (
+    artifactSourceMatchesPath(source, artifactPath, workingDirectory)
+  )))) return { derivedArtifactPaths: [], executes: true };
   const bashEnvironmentSource = environmentValues.get("bash_env");
   if (bashEnvironmentSource && artifactPaths.some((artifactPath) => (
     artifactSourceMatchesPath(
@@ -5064,7 +5255,7 @@ function shellRunArtifactExecutionAnalysis(
     if (executionSources.some((source) => knownArtifactPaths.some((artifactPath) => (
       artifactSourceMatchesPath(source, artifactPath, effectiveWorkingDirectory)
     )))) return { derivedArtifactPaths, executes: true };
-    const extraction = shellTarExtraction(executableSegment);
+    const extraction = shellArchiveExtraction(executableSegment);
     if (!extraction || !knownArtifactPaths.some((artifactPath) => (
       artifactSourceMatchesPath(
         extraction.archive,
@@ -5083,6 +5274,10 @@ function shellRunArtifactExecutionAnalysis(
     }
   }
   return { derivedArtifactPaths, executes: false };
+}
+
+function shellArchiveExtraction(segment) {
+  return shellTarExtraction(segment) ?? shellZipExtraction(segment);
 }
 
 function shellTarExtraction(segment) {
@@ -5131,6 +5326,49 @@ function shellTarExtraction(segment) {
       archive = words[cursor];
       cursor += 1;
     }
+  }
+  return extracts && archive ? { archive, destination } : undefined;
+}
+
+function shellZipExtraction(segment) {
+  const words = shellCommandWords(stripShellCommandGrouping(segment));
+  let cursor = shellCommandWrapperCursor(words, { allowSudo: true });
+  if (path.posix.basename(words[cursor] ?? "").toLowerCase() !== "unzip") {
+    return undefined;
+  }
+  cursor += 1;
+  let archive;
+  let destination = ".";
+  let extracts = true;
+  let optionsEnded = false;
+  while (cursor < words.length) {
+    const argument = words[cursor];
+    cursor += 1;
+    if (!optionsEnded && argument === "--") {
+      optionsEnded = true;
+      continue;
+    }
+    if (!optionsEnded && argument === "-d") {
+      destination = words[cursor] ?? "${dynamic-zip-directory}";
+      cursor += 1;
+      continue;
+    }
+    const inlineDirectory = !optionsEnded
+      ? /^-d(.+)$/u.exec(argument)?.[1]
+      : undefined;
+    if (inlineDirectory) {
+      destination = inlineDirectory;
+      continue;
+    }
+    if (!optionsEnded && argument === "-P") {
+      cursor += 1;
+      continue;
+    }
+    if (!optionsEnded && /^-[^-]/u.test(argument)) {
+      if (/[clptvZz]/u.test(argument.slice(1))) extracts = false;
+      continue;
+    }
+    archive ??= argument;
   }
   return extracts && archive ? { archive, destination } : undefined;
 }

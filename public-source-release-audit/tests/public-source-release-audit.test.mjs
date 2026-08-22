@@ -1883,6 +1883,21 @@ test("constructed constant runner expressions preserve blocking labels", () => {
     "      - run: echo inspect",
     "",
   ].join("\n"));
+  const arrayExpression = [
+    "$",
+    "{{ fromJSON('[\"self-hosted\", \"linux\"]') }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/array-runner-expression.yml", [
+    "name: array runner expression",
+    "on: pull_request",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: " + arrayExpression,
+    "    steps:",
+    "      - run: echo inspect",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add formatted runner expression");
 
   const audit = runAudit(repoRoot);
@@ -1892,6 +1907,11 @@ test("constructed constant runner expressions preserve blocking labels", () => {
     audit.result,
     "workflow-self-hosted-runner",
     ".github/workflows/formatted-runner-expression.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-self-hosted-runner",
+    ".github/workflows/array-runner-expression.yml",
   );
 });
 
@@ -2576,6 +2596,25 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "        run: echo fixed",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-artifact-custom-shell-template.yml", [
+    "name: workflow run artifact custom shell template",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - shell: bash payload/wrapper.sh {0}",
+    "        run: echo fixed",
+    "",
+  ].join("\n"));
   for (const scope of ["workflow", "job", "step", "shell"]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${scope}-alias.yml`, [
       `name: workflow run artifact ${scope} alias`,
@@ -2632,6 +2671,7 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "node-options",
     "env-node-options",
     "bash-env",
+    "custom-shell-template",
     "workflow-alias",
     "job-alias",
     "step-alias",
@@ -2720,17 +2760,58 @@ test("artifact execution follows archive extraction destinations", () => {
     "      - run: bash extracted/run.sh",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-artifact-zip-same-step.yml", [
+    "name: workflow run artifact zip same step",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - run: |",
+    "          unzip payload/code.zip -d extracted",
+    "          bash extracted/run.sh",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-artifact-zip-cross-step.yml", [
+    "name: workflow run artifact zip cross step",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - run: unzip -q payload/code.zip -d extracted",
+    "      - run: bash extracted/run.sh",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add extracted artifact execution");
 
   const audit = runAudit(repoRoot);
 
   assert.equal(audit.status, 1);
-  for (const name of ["same-step", "cross-step"]) {
-    assertFinding(
-      audit.result,
-      "workflow-privileged-untrusted-artifact-execution",
-      `.github/workflows/workflow-run-artifact-tar-${name}.yml`,
-    );
+  for (const archive of ["tar", "zip"]) {
+    for (const scope of ["same-step", "cross-step"]) {
+      assertFinding(
+        audit.result,
+        "workflow-privileged-untrusted-artifact-execution",
+        `.github/workflows/workflow-run-artifact-${archive}-${scope}.yml`,
+      );
+    }
   }
 });
 
@@ -5343,6 +5424,7 @@ test("tainted text cannot reach language runtime evaluators", () => {
     ["sed", "printf x | sed \"$COMMAND\""],
     ["sed-e", "printf x | sed -e \"$COMMAND\""],
     ["find-exec-shell", "find . -maxdepth 0 -exec bash -c \"$COMMAND\" \\;"],
+    ["env-split-shell", "env -S 'bash -c \"$COMMAND\"'"],
   ]) {
     write(repoRoot, `.github/workflows/comment-${runtime}-eval.yml`, [
       `name: comment ${runtime} eval`,
@@ -5373,6 +5455,21 @@ test("tainted text cannot reach language runtime evaluators", () => {
     "          eval \"$VALUE\"",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-function-eval.yml", [
+    "name: comment function eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: |",
+    "          function execute { eval \"$COMMAND\"; }",
+    "          execute",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add tainted language runtime evaluators");
 
   const audit = runAudit(repoRoot);
@@ -5382,6 +5479,7 @@ test("tainted text cannot reach language runtime evaluators", () => {
     "python", "python-attached", "node", "node-long-eval", "node-print",
     "node-long-print", "perl", "ruby", "nohup-shell",
     "timeout-shell", "awk", "awk-e", "sed", "sed-e", "find-exec-shell",
+    "env-split-shell",
   ]) {
     assertFinding(
       audit.result,
@@ -5393,6 +5491,11 @@ test("tainted text cannot reach language runtime evaluators", () => {
     audit.result,
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-printf-assignment-eval.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-function-eval.yml",
   );
 });
 
