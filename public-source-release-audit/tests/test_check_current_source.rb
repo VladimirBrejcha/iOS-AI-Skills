@@ -237,11 +237,25 @@ class CheckCurrentSourceTest < Minitest::Test
 
   def test_unrelated_home_directory_and_web_route_do_not_match_user_homes
     with_repo do |repo|
+      windows_profiles = "C:" + "\\Users\\"
       stage(repo, "paths.txt", [
         "/tmp/home/.local/bin/tool",
         "https://example.invalid/home/user/profile",
-        "https://example.invalid/login?next=/home/user/profile"
+        "https://example.invalid/login?next=/home/user/profile",
+        "Windows stores profiles under #{windows_profiles} by default."
       ].join("\n"))
+
+      stdout, stderr, status = run_checker(repo)
+
+      assert status.success?, stderr
+      assert_includes stdout, "current public-source check passed"
+    end
+  end
+
+  def test_similar_bearer_map_key_is_not_authorization
+    with_repo do |repo|
+      value = "Bearer " + ("a" * 24)
+      stage(repo, "map.json", "{\"NotAuthorization\":\"#{value}\"}\n")
 
       stdout, stderr, status = run_checker(repo)
 

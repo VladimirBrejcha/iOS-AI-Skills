@@ -18,7 +18,7 @@ RULES = [
           root(?:(?:/|\\/)|(?![A-Za-z0-9._-]))
         )
         |
-        [A-Za-z]:[\\/]{1,2}(?i:Users)[\\/]{1,2}[^\\/\r\n]+(?:[\\/]{1,2}|$)
+        [A-Za-z]:[\\/]{1,2}(?i:Users)[\\/]{1,2}[A-Za-z0-9._-]+(?:[\\/]{1,2}|(?=["'\s,;:)\]\}]|\z))
       )
     }x
   ],
@@ -29,7 +29,7 @@ RULES = [
   ],
   [
     "bearer credential",
-    /["']?Authorization["']?\s*(?::|=>)\s*["']?Bearer\s+[A-Za-z0-9._~+\/=:-]{16,}/i
+    /(?<![A-Za-z0-9_.-])(?<authorization_quote>["']?)Authorization\k<authorization_quote>(?![A-Za-z0-9_.-])\s*(?::|=>)\s*["']?Bearer\s+[A-Za-z0-9._~+\/=:-]{16,}/i
   ],
   [
     "GitHub token",
