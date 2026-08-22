@@ -3512,38 +3512,185 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
   const evaluatorCommand = /^\s*(?:(?:builtin|command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:(?:-[^\s]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]+)\s+)*)?(?:eval\b|(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?(?:node|perl|python(?:\d+(?:\.\d+)*)?|ruby)\b[^;&|]*\s-(?:c|e)(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?php\b[^;&|]*\s-r(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?deno\b[^;&|]*\beval(?:\s|$)|(?:iex|invoke-expression)\b|(?:(?:\/[^/\s]+)*\/)?(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:command|c)(?:\s+|(?=[^-\s])|$))/iu;
   const stdinInterpreterCommand = /^\s*(?:(?:command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:-[^\s]+\s+)*)?(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|powershell|pwsh|sh|zsh)(?:\.exe)?(?:\s|$)/iu;
   const hereInputInterpreterCommand = /^\s*(?:(?:command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:-[^\s]+\s+)*)?(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|powershell|pwsh|sh|zsh)(?:\.exe)?(?:\s+-[^\s]+)*\s+<<</iu;
-  for (const segment of shellCommandSegments(runSource)) {
-    if (/^\s*#/u.test(segment)) continue;
-    const executableSegment = stripShellCommandGrouping(segment);
-    const assignmentName = shellAssignmentName(executableSegment);
-    const segmentReferencesTaint = isUntrustedReusableValue(
-      executableSegment,
-      taintedBindings,
-    )
-      || shellSourceReferencesTaintedVariable(
+  const sourceEvaluatesTaint = (source, inheritedTaintedVariables, depth) => {
+    const localTaintedVariables = new Set(inheritedTaintedVariables);
+    for (const segment of shellCommandSegments(source)) {
+      if (/^\s*#/u.test(segment)) continue;
+      const executableSegment = stripShellCommandGrouping(segment);
+      const assignmentName = shellAssignmentName(executableSegment);
+      const segmentReferencesTaint = isUntrustedReusableValue(
         executableSegment,
-        taintedVariables,
-        anyEnvironmentVariableTainted,
-      );
-    if (assignmentName && segmentReferencesTaint) {
-      taintedVariables.add(assignmentName);
-    }
-    let pipelineInputTainted = false;
-    for (const stage of shellPipelineStages(executableSegment)) {
-      const stageReferencesTaint = isUntrustedReusableValue(stage, taintedBindings)
+        taintedBindings,
+      )
         || shellSourceReferencesTaintedVariable(
-          stage,
-          taintedVariables,
+          executableSegment,
+          localTaintedVariables,
           anyEnvironmentVariableTainted,
         );
-      if (evaluatorCommand.test(stage) && (stageReferencesTaint || pipelineInputTainted)) {
-        return true;
+      if (assignmentName && segmentReferencesTaint) {
+        localTaintedVariables.add(assignmentName);
       }
-      if (hereInputInterpreterCommand.test(stage) && stageReferencesTaint) return true;
-      if (stdinInterpreterCommand.test(stage) && pipelineInputTainted) return true;
-      pipelineInputTainted ||= stageReferencesTaint;
+      for (const substitution of shellCommandSubstitutions(segment)) {
+        if (depth >= 32) {
+          if (isUntrustedReusableValue(substitution, taintedBindings)
+            || shellSourceReferencesTaintedVariable(
+              substitution,
+              localTaintedVariables,
+              anyEnvironmentVariableTainted,
+            )) return true;
+          continue;
+        }
+        if (sourceEvaluatesTaint(
+          substitution,
+          localTaintedVariables,
+          depth + 1,
+        )) return true;
+      }
+      let pipelineInputTainted = false;
+      for (const stage of shellPipelineStages(executableSegment)) {
+        const stageReferencesTaint = isUntrustedReusableValue(stage, taintedBindings)
+          || shellSourceReferencesTaintedVariable(
+            stage,
+            localTaintedVariables,
+            anyEnvironmentVariableTainted,
+          );
+        if (evaluatorCommand.test(stage) && (stageReferencesTaint || pipelineInputTainted)) {
+          return true;
+        }
+        if ((anyEnvironmentVariableTainted
+          || localTaintedVariables.has("git_ssh_command"))
+          && shellStageMayInvokeGitSsh(stage)) return true;
+        if (hereInputInterpreterCommand.test(stage) && stageReferencesTaint) return true;
+        if (stdinInterpreterCommand.test(stage) && pipelineInputTainted) return true;
+        pipelineInputTainted ||= stageReferencesTaint;
+      }
+    }
+    return false;
+  };
+  return sourceEvaluatesTaint(runSource, taintedVariables, 0);
+}
+
+function shellCommandSubstitutions(source) {
+  const substitutions = [];
+  let quote;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === "\\" && quote !== "'") {
+      index += 1;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      if (quote === character) quote = undefined;
+      else if (!quote) quote = character;
+      continue;
+    }
+    if (quote === "'") continue;
+    const parenthesizedSubstitution = ["$", "<", ">"].includes(character)
+      && source[index + 1] === "("
+      && !(character === "$" && source[index + 2] === "(");
+    if (parenthesizedSubstitution) {
+      const end = shellParenthesizedSubstitutionEnd(source, index);
+      if (end === undefined) continue;
+      substitutions.push(source.slice(index + 2, end));
+      index = end;
+      continue;
+    }
+    if (character === "`") {
+      const end = shellBacktickSubstitutionEnd(source, index);
+      if (end === undefined) continue;
+      substitutions.push(source.slice(index + 1, end));
+      index = end;
     }
   }
+  return substitutions;
+}
+
+function shellParenthesizedSubstitutionEnd(source, openingIndex) {
+  let depth = 1;
+  let quote;
+  for (let index = openingIndex + 2; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === "\\" && quote !== "'") {
+      index += 1;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      if (quote === character) quote = undefined;
+      else if (!quote) quote = character;
+      continue;
+    }
+    if (quote === "'") continue;
+    const nestedSubstitution = ["$", "<", ">"].includes(character)
+      && source[index + 1] === "("
+      && !(character === "$" && source[index + 2] === "(");
+    if (nestedSubstitution) {
+      const nestedEnd = shellParenthesizedSubstitutionEnd(source, index);
+      if (nestedEnd === undefined) return undefined;
+      index = nestedEnd;
+      continue;
+    }
+    if (!quote && character === "(") depth += 1;
+    if (!quote && character === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return undefined;
+}
+
+function shellBacktickSubstitutionEnd(source, openingIndex) {
+  for (let index = openingIndex + 1; index < source.length; index += 1) {
+    if (source[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (source[index] === "`") return index;
+  }
+  return undefined;
+}
+
+function shellStageMayInvokeGitSsh(stage) {
+  const words = shellCommandWords(stripShellCommandGrouping(stage));
+  let cursor = 0;
+  while (cursor < words.length) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor])) {
+      cursor += 1;
+      continue;
+    }
+    const command = path.posix.basename(words[cursor]).toLowerCase();
+    if (["builtin", "command", "exec", "nohup", "time"].includes(command)) {
+      cursor += 1;
+      while (words[cursor]?.startsWith("-")) cursor += 1;
+      continue;
+    }
+    if (command === "env") {
+      cursor += 1;
+      while (words[cursor]?.startsWith("-")
+        || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
+      continue;
+    }
+    break;
+  }
+  if (path.posix.basename(words[cursor] ?? "").toLowerCase() !== "git") return false;
+  cursor += 1;
+  const globalOptionsWithValues = new Set([
+    "-c", "-C", "--config-env", "--exec-path", "--git-dir", "--namespace",
+    "--super-prefix", "--work-tree",
+  ]);
+  while (words[cursor]?.startsWith("-")) {
+    const option = words[cursor];
+    cursor += 1;
+    if (globalOptionsWithValues.has(option)) cursor += 1;
+  }
+  const command = words[cursor]?.toLowerCase();
+  if ([
+    "clone", "fetch", "ls-remote", "pull", "push", "receive-pack",
+    "send-pack", "upload-archive", "upload-pack",
+  ].includes(command)) return true;
+  const remaining = words.slice(cursor + 1).map((word) => word.toLowerCase());
+  if (command === "archive") return remaining.some((word) => word.startsWith("--remote"));
+  if (command === "remote") return remaining.some((word) => ["update"].includes(word));
+  if (command === "submodule") return remaining.some((word) => ["add", "update"].includes(word));
   return false;
 }
 
@@ -3932,21 +4079,20 @@ function shellRunExecutesArtifactPath(
       );
       continue;
     }
-    const rawExecutionSource = shellArtifactExecutionSource(executableSegment);
-    const executionSource = rawExecutionSource
-      ? resolveStaticEnvironmentReferences(rawExecutionSource, localEnvironmentValues)
-        ?? rawExecutionSource
-      : undefined;
-    if (executionSource && artifactSourceMatchesPath(
-      executionSource,
+    const executionSources = shellArtifactExecutionSources(executableSegment)
+      .map((source) => (
+        resolveStaticEnvironmentReferences(source, localEnvironmentValues) ?? source
+      ));
+    if (executionSources.some((source) => artifactSourceMatchesPath(
+      source,
       artifactPath,
       effectiveWorkingDirectory,
-    )) return true;
+    ))) return true;
   }
   return false;
 }
 
-function shellArtifactExecutionSource(segment) {
+function shellArtifactExecutionSources(segment) {
   const words = shellCommandWords(segment);
   let cursor = 0;
   while (cursor < words.length) {
@@ -3980,47 +4126,85 @@ function shellArtifactExecutionSource(segment) {
     break;
   }
   const command = words[cursor];
-  if (!command) return undefined;
+  if (!command) return [];
   cursor += 1;
   const commandName = path.posix.basename(command).toLowerCase();
-  if ([".", "source"].includes(commandName)) return words[cursor];
+  if ([".", "source"].includes(commandName)) return words[cursor] ? [words[cursor]] : [];
   const interpreters = new Set([
     "bash", "dash", "deno", "fish", "ksh", "node", "perl", "php",
     "powershell", "powershell.exe", "pwsh", "pwsh.exe", "python", "python2",
     "python3", "ruby", "sh", "zsh",
   ]);
   if (interpreters.has(commandName) || /^python\d+(?:\.\d+)*$/u.test(commandName)) {
+    const executionSources = [];
     if (commandName === "deno" && words[cursor]?.toLowerCase() === "run") cursor += 1;
     while (cursor < words.length) {
       const argument = words[cursor];
       cursor += 1;
       if (argument === "--") {
-        return words[cursor]?.startsWith("<(")
+        const source = words[cursor]?.startsWith("<(")
           ? shellProcessSubstitutionArtifactSource(words.slice(cursor))
           : words[cursor];
+        if (source) executionSources.push(source);
+        return executionSources;
       }
       if (argument.startsWith("<(")) {
-        return shellProcessSubstitutionArtifactSource([
+        const source = shellProcessSubstitutionArtifactSource([
           argument,
           ...words.slice(cursor),
         ]);
+        if (source) executionSources.push(source);
+        return executionSources;
       }
-      if (/^(?:\d*)<$/u.test(argument)) return words[cursor];
+      if (/^(?:\d*)<$/u.test(argument)) {
+        if (words[cursor]) executionSources.push(words[cursor]);
+        return executionSources;
+      }
       const redirectedSource = /^(?:\d*)<([^<].*)$/u.exec(argument)?.[1];
-      if (redirectedSource) return redirectedSource;
+      if (redirectedSource) {
+        executionSources.push(redirectedSource);
+        return executionSources;
+      }
       if (interpreterOptionIsExecutionMode(commandName, argument)) {
-        return undefined;
+        return executionSources;
+      }
+      const loadedSource = interpreterOptionLoadedSource(
+        commandName,
+        argument,
+        words[cursor],
+      );
+      if (loadedSource) {
+        if (loadedSource.source) executionSources.push(loadedSource.source);
+        if (loadedSource.consumesNext) cursor += 1;
+        continue;
       }
       if (interpreterOptionConsumesValue(commandName, argument)) {
         cursor += 1;
         continue;
       }
       if (argument.startsWith("-")) continue;
-      return argument;
+      executionSources.push(argument);
+      return executionSources;
     }
-    return undefined;
+    return executionSources;
   }
-  return command.includes("/") ? command : undefined;
+  return command.includes("/") ? [command] : [];
+}
+
+function interpreterOptionLoadedSource(commandName, argument, nextArgument) {
+  if (commandName !== "node") return undefined;
+  const option = argument.toLowerCase();
+  const options = new Set([
+    "-r", "--experimental-loader", "--import", "--loader", "--require",
+  ]);
+  if (options.has(option)) return { consumesNext: true, source: nextArgument };
+  const longAssignment = /^--(?:experimental-loader|import|loader|require)=(.+)$/iu.exec(
+    argument,
+  );
+  if (longAssignment) return { consumesNext: false, source: longAssignment[1] };
+  const shortAssignment = /^-r=?(.+)$/u.exec(argument);
+  if (shortAssignment) return { consumesNext: false, source: shortAssignment[1] };
+  return undefined;
 }
 
 function interpreterOptionIsExecutionMode(commandName, argument) {
@@ -4038,7 +4222,10 @@ function interpreterOptionConsumesValue(commandName, argument) {
   }
   const options = new Map([
     ["bash", new Set(["-o", "-O", "--init-file", "--rcfile"])],
-    ["node", new Set(["-r", "--conditions", "--import", "--loader", "--require"])],
+    ["node", new Set([
+      "-r", "--conditions", "--experimental-loader", "--import", "--loader",
+      "--require",
+    ])],
     ["perl", new Set(["-f", "-i", "-m", "-M"])],
     ["ruby", new Set(["-e", "-i", "-I", "-r", "--encoding", "--external-encoding", "--internal-encoding"])],
   ]);
@@ -4320,9 +4507,9 @@ function shellSourceReferencesTaintedVariable(source, taintedVariables, anyTaint
   if (/\$\{![A-Za-z_][A-Za-z0-9_]*(?:[*@])?\}/u.test(source)
     && (anyTainted || taintedVariables.size > 0)) return true;
   const references = [
-    ...source.matchAll(/\$(?:env:)?(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/giu),
+    ...source.matchAll(/\$(?:env:([A-Za-z_][A-Za-z0-9_]*)|\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*))/giu),
     ...source.matchAll(/%([A-Za-z_][A-Za-z0-9_]*)%/gu),
-  ].map((match) => (match[1] ?? match[2]).toLowerCase());
+  ].map((match) => (match[1] ?? match[2] ?? match[3]).toLowerCase());
   return references.some((name) => anyTainted || taintedVariables.has(name));
 }
 
@@ -4362,7 +4549,7 @@ function isUntrustedCheckoutInput(key, value, taintedBindings = new Set()) {
 }
 
 function isUntrustedPullRequestRef(value) {
-  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:body|head|merge_commit_sha|title)|refs\/pull\/|workflow_run\.(?:head_branch|head_commit|head_sha|id|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head))/iu
+  return /(?:github\.head_ref|github\.event\.(?:comment\.body|discussion\.(?:body|title)|issue\.(?:body|number|title))|pull_request\.(?:body|head|merge_commit_sha|title)|refs\/pull\/|workflow_run\.(?:display_title|head_branch|head_commit|head_sha|id|pull_requests\s*\[\s*\d+\s*\]\s*\.\s*head))/iu
     .test(normalizeExpressionPropertyAccess(value));
 }
 

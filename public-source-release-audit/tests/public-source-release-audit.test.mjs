@@ -2318,6 +2318,9 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     ["shell-group", "(bash payload/run.sh)"],
     ["shell-group-chain", "(cd payload && bash run.sh)"],
     ["python-option", "python -W ignore payload/run.py"],
+    ["node-require", "node --require payload/hook.js trusted.js"],
+    ["node-import", "node --import=payload/hook.mjs trusted.js"],
+    ["node-loader", "node --loader payload/loader.mjs trusted.js"],
   ]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${name}.yml`, [
       `name: workflow run artifact ${name}`,
@@ -2380,6 +2383,9 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "shell-group",
     "shell-group-chain",
     "python-option",
+    "node-require",
+    "node-import",
+    "node-loader",
     "workflow-alias",
     "job-alias",
     "step-alias",
@@ -2805,6 +2811,117 @@ test("tainted environment values cannot reach shell evaluators", () => {
       `.github/workflows/comment-${form}-eval.yml`,
     );
   }
+});
+
+test("tainted shell values cannot hide in parameter operators or command substitutions", () => {
+  const repoRoot = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  for (const [form, command] of [
+    ["parameter-operator", "eval \"${CODE:-}\""],
+    ["parameter-substring", "eval \"${CODE:1}\""],
+    ["parameter-replacement", "eval \"${CODE//x/}\""],
+    ["command-substitution", "echo \"$(eval \"$CODE\")\""],
+    ["unquoted-command-substitution", "echo $(eval \"$CODE\")"],
+    ["nested-command-substitution", "echo \"$(printf '%s' \"$(eval \"$CODE\")\")\""],
+    ["backtick-substitution", "echo \"`eval \\\"$CODE\\\"`\""],
+    ["process-substitution", "cat <(eval \"$CODE\")"],
+  ]) {
+    write(repoRoot, `.github/workflows/comment-${form}-eval.yml`, [
+      `name: comment ${form} eval`,
+      "on: issue_comment",
+      "permissions: read-all",
+      "jobs:",
+      "  inspect:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - env:",
+      "          CODE: " + bodyExpression,
+      "        run: |",
+      "          " + command,
+      "",
+    ].join("\n"));
+  }
+  commitAll(repoRoot, "add hidden tainted shell evaluators");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  for (const form of [
+    "parameter-operator",
+    "parameter-substring",
+    "parameter-replacement",
+    "command-substitution",
+    "unquoted-command-substitution",
+    "nested-command-substitution",
+    "backtick-substitution",
+    "process-substitution",
+  ]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-script-interpolation",
+      `.github/workflows/comment-${form}-eval.yml`,
+    );
+  }
+});
+
+test("tainted Git SSH command templates are implicit shell evaluators", () => {
+  const unsafeRepo = makeRepository();
+  const safeRepo = makeRepository();
+  const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
+  write(unsafeRepo, ".github/workflows/comment-git-ssh-command.yml", [
+    "name: comment Git SSH command",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          GIT_SSH_COMMAND: " + bodyExpression,
+    "        run: git ls-remote ssh://example.invalid/repository",
+    "",
+  ].join("\n"));
+  write(unsafeRepo, ".github/workflows/comment-inline-git-ssh-command.yml", [
+    "name: comment inline Git SSH command",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: GIT_SSH_COMMAND=\"$COMMAND\" git fetch origin",
+    "",
+  ].join("\n"));
+  write(safeRepo, ".github/workflows/comment-git-message.yml", [
+    "name: comment Git message",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          MESSAGE: " + bodyExpression,
+    "        run: git ls-remote https://example.invalid/repository",
+    "",
+  ].join("\n"));
+  commitAll(unsafeRepo, "add tainted Git SSH commands");
+  commitAll(safeRepo, "add safe Git command");
+
+  const unsafeAudit = runAudit(unsafeRepo);
+  const safeAudit = runAudit(safeRepo);
+
+  assert.equal(unsafeAudit.status, 1);
+  for (const form of ["comment-git-ssh-command", "comment-inline-git-ssh-command"]) {
+    assertFinding(
+      unsafeAudit.result,
+      "workflow-privileged-untrusted-script-interpolation",
+      `.github/workflows/${form}.yml`,
+    );
+  }
+  assert.equal(safeAudit.status, 0);
 });
 
 test("tainted script text cannot be piped into shell interpreters", () => {
@@ -4468,6 +4585,40 @@ test("workflow_run head metadata is untrusted script data", () => {
     "      - run: echo \"" + headCommitMessageExpression + "\"",
     "",
   ].join("\n"));
+  const displayTitleExpression = [
+    "$",
+    "{{ github.event.workflow_run.display_title }}",
+  ].join("");
+  const pullRequestTitleExpression = [
+    "$",
+    "{{ github.event.pull_request.title }}",
+  ].join("");
+  write(repoRoot, ".github/workflows/verify-pull-request-title.yml", [
+    "name: verify pull request title",
+    "run-name: " + pullRequestTitleExpression,
+    "on: pull_request",
+    "permissions: read-all",
+    "jobs:",
+    "  verify:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo verified",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-display-title-script.yml", [
+    "name: workflow run display title script",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify pull request title]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo \"" + displayTitleExpression + "\"",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add workflow run head branch script");
 
   const audit = runAudit(repoRoot);
@@ -4482,6 +4633,11 @@ test("workflow_run head metadata is untrusted script data", () => {
     audit.result,
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/workflow-run-head-commit-script.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/workflow-run-display-title-script.yml",
   );
 });
 
