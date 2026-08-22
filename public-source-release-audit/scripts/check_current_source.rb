@@ -7,7 +7,20 @@ require "set"
 RULES = [
   [
     "machine-local home path",
-    %r{(?:\A|[\s"'`=:(,])(?:/(?:Users|home)/[A-Za-z0-9._-]+(?:/|\b)|/root(?:/|(?![A-Za-z0-9._-])))|\b[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[^\\/\r\n]+(?:[\\/]{1,2}|$)}
+    %r{
+      (?:\A|[\s"'`:(,])
+      (?:[A-Za-z_][A-Za-z0-9_.-]*\s*=\s*)?
+      (?:
+        (?:/|\\/)
+        (?:
+          (?:Users|home)(?:/|\\/)[A-Za-z0-9._-]+(?:(?:/|\\/)|\b)
+          |
+          root(?:(?:/|\\/)|(?![A-Za-z0-9._-]))
+        )
+        |
+        [A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[^\\/\r\n]+(?:[\\/]{1,2}|$)
+      )
+    }x
   ],
   ["AWS access key", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
   ["bearer credential", /Authorization\s*:\s*Bearer\s+[A-Za-z0-9._~+\/=:-]{16,}/i],
@@ -41,16 +54,87 @@ def usage(message = nil)
   exit 64
 end
 
-def git_capture(repo, *arguments)
-  Open3.capture3(
-    GIT_ENVIRONMENT,
+def git_command(repo, *arguments)
+  [
     "git",
     "-C",
     repo,
     "-c",
     "core.fsmonitor=false",
     *arguments
-  )
+  ]
+end
+
+def git_capture(repo, *arguments)
+  Open3.capture3(GIT_ENVIRONMENT, *git_command(repo, *arguments))
+end
+
+def read_blob_results(repo, object_ids)
+  return [{}, true] if object_ids.empty?
+
+  results = {}
+  protocol_failed = false
+  Open3.popen3(
+    GIT_ENVIRONMENT,
+    *git_command(repo, "cat-file", "--batch")
+  ) do |input, output, error, wait_thread|
+    input.binmode
+    output.binmode
+    error_reader = Thread.new { error.read }
+
+    begin
+      object_ids.each do |object_id|
+        input.write(object_id)
+        input.write("\n")
+        input.flush
+
+        header = output.gets
+        unless header
+          protocol_failed = true
+          break
+        end
+
+        fields = header.delete_suffix("\n".b).split(" ".b)
+        if fields.length == 2 && fields[0] == object_id && fields[1] == "missing".b
+          next
+        end
+
+        returned_id, type, size_text = fields
+        size = begin
+          Integer(size_text, 10)
+        rescue ArgumentError, TypeError
+          nil
+        end
+        unless fields.length == 3 && returned_id == object_id && size && size >= 0
+          protocol_failed = true
+          break
+        end
+
+        content = output.read(size)
+        terminator = output.read(1)
+        unless content&.bytesize == size && terminator == "\n".b
+          protocol_failed = true
+          break
+        end
+        next unless type == "blob".b
+
+        results[object_id] = {
+          labels: matching_labels(content),
+          lfs_pointer: LFS_POINTER.match?(content.b)
+        }
+      end
+    rescue IOError, SystemCallError
+      protocol_failed = true
+    ensure
+      input.close unless input.closed?
+      output.close if protocol_failed && !output.closed?
+    end
+
+    error_reader.value
+    protocol_failed = true unless wait_thread.value.success?
+  end
+
+  [results, !protocol_failed]
 end
 
 def matching_labels(content)
@@ -110,7 +194,6 @@ usage("Unable to enumerate Git index") unless index_status.success?
 errors = Set.new
 findings = Set.new
 sensitive_paths = Set.new
-blob_result_cache = {}
 index_entries = index_output.b.split("\0".b).reject(&:empty?).filter_map do |record|
   metadata, relative_path = record.split("\t".b, 2)
   mode, object_id, stage = metadata&.split(" ".b, 3)
@@ -127,6 +210,7 @@ index_entries = index_output.b.split("\0".b).reject(&:empty?).filter_map do |rec
   { mode: mode, object_id: object_id, path: relative_path }
 end
 
+blob_paths = Hash.new { |paths, object_id| paths[object_id] = [] }
 index_entries.each do |entry|
   relative_path = entry.fetch(:path)
   scan_source(relative_path, relative_path, findings, sensitive_paths)
@@ -137,29 +221,25 @@ index_entries.each do |entry|
     next
   end
 
-  object_id = entry.fetch(:object_id)
-  result = blob_result_cache[object_id]
-  unless result
-    content, _blob_error, blob_status = git_capture(
-      repo,
-      "cat-file",
-      "blob",
-      object_id
-    )
-    unless blob_status.success?
+  blob_paths[entry.fetch(:object_id)] << relative_path
+end
+
+blob_results, blob_reader_success = read_blob_results(repo, blob_paths.keys)
+unless blob_reader_success
+  errors.add(["<repository>", "Git index blob reader failed"])
+end
+blob_paths.each do |object_id, relative_paths|
+  result = blob_results[object_id]
+  relative_paths.each do |relative_path|
+    unless result
       errors.add([relative_path, "unable to read Git index blob"])
       next
     end
-    result = {
-      labels: matching_labels(content),
-      lfs_pointer: LFS_POINTER.match?(content.b)
-    }
-    blob_result_cache[object_id] = result
+    if result.fetch(:lfs_pointer)
+      errors.add([relative_path, "Git LFS object requires separate review"])
+    end
+    record_findings(result.fetch(:labels), relative_path, findings)
   end
-  if result.fetch(:lfs_pointer)
-    errors.add([relative_path, "Git LFS object requires separate review"])
-  end
-  record_findings(result.fetch(:labels), relative_path, findings)
 end
 
 worktree_output, _worktree_error, worktree_status = git_capture(

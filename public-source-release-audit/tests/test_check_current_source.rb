@@ -132,6 +132,7 @@ class CheckCurrentSourceTest < Minitest::Test
 
   def test_supported_high_confidence_formats_are_detected_and_redacted
     with_repo do |repo|
+      escaped_slash = "\\" + "/"
       fixtures = {
         "aws.txt" => "AK" + "IA" + ("A" * 16),
         "bearer.txt" => "Authorization: " + "Bearer " + ("b" * 24),
@@ -140,6 +141,14 @@ class CheckCurrentSourceTest < Minitest::Test
         "private-key.txt" => "-----BEGIN " + "OPENSSH PRIVATE KEY-----",
         "pgp-private-key.txt" => "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----",
         "posix-home.txt" => "/" + "Users/example/private.txt",
+        "escaped-posix-home.txt" => [
+          escaped_slash,
+          "home",
+          escaped_slash,
+          "example",
+          escaped_slash,
+          "private.txt"
+        ].join,
         "root-home.txt" => "/" + "root/.ssh/id_ed25519",
         "windows-home.txt" => "C:" + "\\Users\\example\\private.txt",
         "escaped-windows-home.txt" => [
@@ -224,13 +233,28 @@ class CheckCurrentSourceTest < Minitest::Test
     with_repo do |repo|
       stage(repo, "paths.txt", [
         "/tmp/home/.local/bin/tool",
-        "https://example.invalid/home/user/profile"
+        "https://example.invalid/home/user/profile",
+        "https://example.invalid/login?next=/home/user/profile"
       ].join("\n"))
 
       stdout, stderr, status = run_checker(repo)
 
       assert status.success?, stderr
       assert_includes stdout, "current public-source check passed"
+    end
+  end
+
+  def test_home_assignment_is_still_detected
+    with_repo do |repo|
+      home = "/" + "home/example/private.txt"
+      stage(repo, "settings.env", "HOME=#{home}\n")
+
+      _stdout, stderr, status = run_checker(repo)
+
+      refute status.success?
+      assert_includes stderr, "settings.env"
+      assert_includes stderr, "machine-local home path"
+      refute_includes stderr, home
     end
   end
 
@@ -324,6 +348,43 @@ class CheckCurrentSourceTest < Minitest::Test
     end
   end
 
+  def test_unique_blobs_use_one_cat_file_process
+    with_repo do |repo|
+      stage(repo, "first.txt", "first safe blob\n")
+      stage(repo, "second.txt", "second safe blob\n")
+      real_git = ENV.fetch("PATH").split(File::PATH_SEPARATOR).filter_map do |dir|
+        candidate = File.join(dir, "git")
+        candidate if File.executable?(candidate)
+      end.first
+      refute_nil real_git
+
+      Dir.mktmpdir("public-source-check-bin-") do |bin_dir|
+        marker = File.join(bin_dir, "cat-file-processes")
+        fake_git = File.join(bin_dir, "git")
+        File.write(fake_git, <<~RUBY)
+          #!/usr/bin/env ruby
+          if ARGV.include?("cat-file")
+            File.open(ENV.fetch("CAT_FILE_MARKER"), "a") { |file| file.puts("started") }
+          end
+          exec #{real_git.dump}, *ARGV
+        RUBY
+        FileUtils.chmod(0o755, fake_git)
+
+        stdout, stderr, status = run_checker(
+          repo,
+          {
+            "CAT_FILE_MARKER" => marker,
+            "PATH" => [bin_dir, ENV.fetch("PATH")].join(File::PATH_SEPARATOR)
+          }
+        )
+
+        assert status.success?, stderr
+        assert_includes stdout, "current public-source check passed"
+        assert_equal ["started\n"], File.readlines(marker)
+      end
+    end
+  end
+
   def test_non_utf8_git_paths_are_scanned_without_crashing
     with_repo do |repo|
       token = github_token
@@ -339,7 +400,13 @@ class CheckCurrentSourceTest < Minitest::Test
           elsif ARGV.include?("--stage")
             STDOUT.write("100644 #{'a' * 40} 0\t".b + path + "\0".b)
           elsif ARGV.include?("cat-file")
-            STDOUT.write("gh" + "p_" + ("A" * 24))
+            STDOUT.sync = true
+            content = "gh" + "p_" + ("A" * 24)
+            while (object_id = STDIN.gets&.chomp)
+              STDOUT.write("#{object_id} blob #{content.bytesize}\n")
+              STDOUT.write(content)
+              STDOUT.write("\n")
+            end
           elsif ARGV.include?("-co")
             STDOUT.write(path + "\0".b)
           else

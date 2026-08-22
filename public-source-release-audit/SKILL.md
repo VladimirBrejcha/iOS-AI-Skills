@@ -29,6 +29,9 @@ The supported categories are deliberately small:
 - explicit bearer credentials; and
 - absolute macOS, Linux, and Windows user-home paths.
 
+The home-path rule covers literal paths and common source escaping for POSIX
+slashes and Windows backslashes. It does not decode URL-encoded content.
+
 Stage all intended release changes before relying on the candidate result.
 Ignored files and submodule contents are outside this check. The checker does
 not inspect Git history. Git LFS pointers fail the check because their external
