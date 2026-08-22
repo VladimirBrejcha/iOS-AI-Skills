@@ -1665,8 +1665,18 @@ function workflowStepTaintAnalysis(
       .filter(({ entry }) => entry.key.toLowerCase() === "run")
       .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors));
     for (const runSource of runSources) {
-      for (const binding of githubEnvironmentWriteBindings(runSource, stepTaintedBindings)) {
-        derivedTaintedBindings.add(`env.${binding}`);
+      for (const [binding, isTainted] of githubEnvironmentWriteUpdates(
+        runSource,
+        stepTaintedBindings,
+      )) {
+        const environmentBinding = `env.${binding}`;
+        if (isTainted) {
+          derivedTaintedBindings.add(environmentBinding);
+          clearedTaintedBindings.delete(environmentBinding);
+        } else {
+          derivedTaintedBindings.delete(environmentBinding);
+          clearedTaintedBindings.add(environmentBinding);
+        }
       }
       const fetchHeadTaintUpdate = shellRunFetchHeadTaintUpdate(
         runSource,
@@ -1681,9 +1691,16 @@ function workflowStepTaintAnalysis(
       }
     }
     if (!stepId) continue;
-    const runOutputIsTainted = runSources.some((runSource) => (
-      githubOutputWriteIsTainted(runSource, stepTaintedBindings)
-    ));
+    const outputUpdates = new Map();
+    for (const runSource of runSources) {
+      for (const [name, isTainted] of githubOutputWriteUpdates(
+        runSource,
+        stepTaintedBindings,
+      )) outputUpdates.set(name, isTainted);
+    }
+    for (const [name, isTainted] of outputUpdates) {
+      if (isTainted) derivedTaintedBindings.add(`steps.${stepId}.outputs.${name}`);
+    }
     const actionOutputIsTainted = workflowMappingBindings(
       stepGroup,
       "with",
@@ -1693,7 +1710,7 @@ function workflowStepTaintAnalysis(
       binding.value,
       stepTaintedBindings,
     ));
-    if (runOutputIsTainted || actionOutputIsTainted) {
+    if (actionOutputIsTainted) {
       derivedTaintedBindings.add(`steps.${stepId}.outputs.*`);
     }
     for (const outputName of stepOutputResolver?.(
@@ -1716,14 +1733,30 @@ function workflowStepTaintAnalysis(
   };
 }
 
-function githubEnvironmentWriteBindings(runSource, taintedBindings) {
+function githubEnvironmentWriteUpdates(runSource, taintedBindings) {
+  return githubEnvironmentFileWriteUpdates(runSource, taintedBindings, "github_env");
+}
+
+function githubOutputWriteUpdates(runSource, taintedBindings) {
+  return githubEnvironmentFileWriteUpdates(
+    runSource,
+    taintedBindings,
+    "github_output",
+  );
+}
+
+function githubEnvironmentFileWriteUpdates(
+  runSource,
+  taintedBindings,
+  initialAlias,
+) {
   const taintedVariables = new Set([...taintedBindings].flatMap((binding) => (
     binding.startsWith("env.") && binding !== "env.*"
       ? [binding.slice("env.".length).toLowerCase()]
       : []
   )));
-  const environmentFileAliases = new Set(["github_env"]);
-  const names = new Set();
+  const environmentFileAliases = new Set([initialAlias]);
+  const updates = new Map();
   for (const segment of shellCommandSegmentsPreservingGroupRedirections(runSource)) {
     const segmentReferencesTaint = isUntrustedReusableValue(segment, taintedBindings)
       || shellSourceReferencesTaintedVariable(
@@ -1731,11 +1764,13 @@ function githubEnvironmentWriteBindings(runSource, taintedBindings) {
         taintedVariables,
         taintedBindings.has("env.*"),
       );
-    const assignmentName = shellAssignmentName(segment);
-    if (assignmentName && segmentReferencesTaint) taintedVariables.add(assignmentName);
+    const assignment = shellAssignmentBinding(segment);
+    if (assignment && segmentReferencesTaint) taintedVariables.add(assignment.name);
+    else if (assignment && assignment.operator !== "+=") {
+      taintedVariables.delete(assignment.name);
+    }
     updateShellEnvironmentFileAliases(segment, environmentFileAliases);
-    if (!segmentReferencesTaint
-      || !shellSourceReferencesTaintedVariable(
+    if (!shellSourceReferencesTaintedVariable(
         segment,
         environmentFileAliases,
         false,
@@ -1746,40 +1781,12 @@ function githubEnvironmentWriteBindings(runSource, taintedBindings) {
     const writtenNames = [...segment.matchAll(
       /(?:^|[\s"'`])([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|<<)/gu,
     )].map((match) => match[1].toLowerCase());
-    if (writtenNames.length === 0) names.add("*");
-    for (const name of writtenNames) names.add(name);
-  }
-  return [...names];
-}
-
-function githubOutputWriteIsTainted(runSource, taintedBindings) {
-  const taintedVariables = new Set([...taintedBindings].flatMap((binding) => (
-    binding.startsWith("env.") && binding !== "env.*"
-      ? [binding.slice("env.".length).toLowerCase()]
-      : []
-  )));
-  const environmentFileAliases = new Set(["github_output"]);
-  for (const segment of shellCommandSegmentsPreservingGroupRedirections(runSource)) {
-    const segmentReferencesTaint = isUntrustedReusableValue(segment, taintedBindings)
-      || shellSourceReferencesTaintedVariable(
-        segment,
-        taintedVariables,
-        taintedBindings.has("env.*"),
-      );
-    const assignmentName = shellAssignmentName(segment);
-    if (assignmentName && segmentReferencesTaint) {
-      taintedVariables.add(assignmentName);
+    if (writtenNames.length === 0 && segmentReferencesTaint) {
+      updates.set("*", true);
     }
-    updateShellEnvironmentFileAliases(segment, environmentFileAliases);
-    if (shellSourceReferencesTaintedVariable(
-      segment,
-      environmentFileAliases,
-      false,
-    )
-      && /(?:>>?|\b(?:Add-Content|Out-File|Set-Content|tee)\b)/iu.test(segment)
-      && segmentReferencesTaint) return true;
+    for (const name of writtenNames) updates.set(name, segmentReferencesTaint);
   }
-  return false;
+  return updates;
 }
 
 function mergeTaintedBindings(...bindingSets) {
@@ -3766,6 +3773,29 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
           localTaintedVariables,
           pipelineInputTainted || redirectedInputTainted,
         );
+        updateShellPrintfTaint(
+          stage,
+          taintedBindings,
+          localTaintedVariables,
+          anyEnvironmentVariableTainted,
+        );
+        for (const childCommand of shellFindExecutedCommands(stage)) {
+          if (depth >= 32) {
+            if (isUntrustedReusableValue(childCommand, taintedBindings)
+              || shellSourceReferencesTaintedVariable(
+                childCommand,
+                localTaintedVariables,
+                anyEnvironmentVariableTainted,
+              )) return true;
+            continue;
+          }
+          if (sourceEvaluatesTaint(
+            childCommand,
+            localTaintedVariables,
+            localStaticValues,
+            depth + 1,
+          )) return true;
+        }
         if (evaluatorCommand.test(sinkStage)
           && (stageReferencesTaint || pipelineInputTainted)) {
           return true;
@@ -3882,6 +3912,68 @@ function updateShellReadTaint(stage, taintedVariables, inputTainted) {
   for (const target of targets.length > 0 ? targets : ["reply"]) {
     taintedVariables.add(target);
   }
+}
+
+function updateShellPrintfTaint(
+  stage,
+  taintedBindings,
+  taintedVariables,
+  anyEnvironmentVariableTainted,
+) {
+  const words = shellCommandWords(stripShellCommandGrouping(stage));
+  let cursor = shellCommandWrapperCursor(words);
+  if (path.posix.basename(words[cursor] ?? "").toLowerCase() !== "printf") return;
+  cursor += 1;
+  let target;
+  while (cursor < words.length) {
+    const argument = words[cursor];
+    if (argument === "-v") {
+      target = words[cursor + 1]?.toLowerCase();
+      cursor += 2;
+      continue;
+    }
+    const attachedTarget = /^-v([A-Za-z_][A-Za-z0-9_]*)$/u.exec(argument)?.[1];
+    if (attachedTarget) {
+      target = attachedTarget.toLowerCase();
+      cursor += 1;
+      continue;
+    }
+    if (argument === "--") cursor += 1;
+    break;
+  }
+  if (!target || !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(target)
+    || cursor >= words.length) return;
+  const assignedValue = words.slice(cursor).join(" ");
+  const valueIsTainted = isUntrustedReusableValue(assignedValue, taintedBindings)
+    || shellSourceReferencesTaintedVariable(
+      assignedValue,
+      taintedVariables,
+      anyEnvironmentVariableTainted,
+    );
+  if (valueIsTainted) taintedVariables.add(target);
+  else taintedVariables.delete(target);
+}
+
+function shellFindExecutedCommands(stage) {
+  const words = shellCommandWords(stripShellCommandGrouping(stage));
+  let cursor = shellCommandWrapperCursor(words, { allowSudo: true });
+  if (path.posix.basename(words[cursor] ?? "").toLowerCase() !== "find") return [];
+  cursor += 1;
+  const commands = [];
+  const executionPredicates = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
+  while (cursor < words.length) {
+    const argument = words[cursor];
+    cursor += 1;
+    if (!executionPredicates.has(argument.toLowerCase())) continue;
+    const childWords = [];
+    while (cursor < words.length && ![";", "+"].includes(words[cursor])) {
+      childWords.push(words[cursor]);
+      cursor += 1;
+    }
+    if (childWords.length > 0) commands.push(childWords.join(" "));
+    cursor += 1;
+  }
+  return commands;
 }
 
 function shellStageExecutesTaintedProcessSubstitution(
@@ -4271,6 +4363,12 @@ function shellStageHasProgramHereInput(stage) {
 function shellStageExecutesStdinAsProgram(stage) {
   const words = shellCommandWords(stage);
   const commandName = path.posix.basename(words[0] ?? "").toLowerCase();
+  if ([".", "source"].includes(commandName)) {
+    let cursor = 1;
+    if (words[cursor] === "--") cursor += 1;
+    return new Set(["/dev/fd/0", "/dev/stdin", "/proc/self/fd/0"])
+      .has(words[cursor]);
+  }
   if (["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(
     commandName,
   )) return true;
@@ -4575,13 +4673,17 @@ function stepContextsHaveUntrustedArtifactExecution(
     )) {
       if (!artifactPaths.includes(artifactPath)) artifactPaths.push(artifactPath);
     }
-    if (artifactPaths.some((artifactPath) => stepExecutesArtifactPath(
+    const artifactAnalysis = stepArtifactExecutionAnalysis(
       stepGroup,
       scalarAnchors,
-      artifactPath,
+      artifactPaths,
       workingDirectory,
       stepEnvironmentValues,
-    ))) return true;
+    );
+    if (artifactAnalysis.executes) return true;
+    for (const artifactPath of artifactAnalysis.derivedArtifactPaths) {
+      if (!artifactPaths.includes(artifactPath)) artifactPaths.push(artifactPath);
+    }
     if (localActionExecution?.(
       stepGroup,
       taintedBindings,
@@ -4880,10 +4982,10 @@ function stepRunWorkingDirectory(
   return resolveStaticEnvironmentReferences(requested, environmentValues) ?? requested;
 }
 
-function stepExecutesArtifactPath(
+function stepArtifactExecutionAnalysis(
   stepGroup,
   scalarAnchors,
-  artifactPath,
+  artifactPaths,
   workingDirectory = ".",
   environmentValues = new Map(),
 ) {
@@ -4891,28 +4993,51 @@ function stepExecutesArtifactPath(
     .filter(({ entry }) => entry.key.toLowerCase() === "uses")
     .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
     .find((reference) => reference.startsWith("./"));
-  if (localActionReference && artifactSourceMatchesPath(localActionReference, artifactPath)) {
-    return true;
+  if (localActionReference && artifactPaths.some((artifactPath) => (
+    artifactSourceMatchesPath(localActionReference, artifactPath)
+  ))) {
+    return { derivedArtifactPaths: [], executes: true };
   }
-  return stepGroup.properties
-    .filter(({ entry }) => entry.key.toLowerCase() === "run")
-    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
-    .some((runSource) => shellRunExecutesArtifactPath(
-      runSource,
+  const bashEnvironmentSource = environmentValues.get("bash_env");
+  if (bashEnvironmentSource && artifactPaths.some((artifactPath) => (
+    artifactSourceMatchesPath(
+      bashEnvironmentSource,
       artifactPath,
       workingDirectory,
+    )
+  ))) return { derivedArtifactPaths: [], executes: true };
+  const knownArtifactPaths = [...artifactPaths];
+  const derivedArtifactPaths = [];
+  for (const runSource of stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "run")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))) {
+    const analysis = shellRunArtifactExecutionAnalysis(
+      runSource,
+      knownArtifactPaths,
+      workingDirectory,
       environmentValues,
-    ));
+    );
+    if (analysis.executes) return { derivedArtifactPaths, executes: true };
+    for (const artifactPath of analysis.derivedArtifactPaths) {
+      if (!knownArtifactPaths.includes(artifactPath)) knownArtifactPaths.push(artifactPath);
+      if (!derivedArtifactPaths.includes(artifactPath)) {
+        derivedArtifactPaths.push(artifactPath);
+      }
+    }
+  }
+  return { derivedArtifactPaths, executes: false };
 }
 
-function shellRunExecutesArtifactPath(
+function shellRunArtifactExecutionAnalysis(
   runSource,
-  artifactPath,
+  artifactPaths,
   workingDirectory,
   environmentValues = new Map(),
 ) {
   let effectiveWorkingDirectory = workingDirectory;
   const localEnvironmentValues = new Map(environmentValues);
+  const knownArtifactPaths = [...artifactPaths];
+  const derivedArtifactPaths = [];
   for (const segment of shellCommandSegments(runSource)) {
     if (/^\s*#/u.test(segment)) continue;
     const executableSegment = stripShellCommandGrouping(segment);
@@ -4936,13 +5061,78 @@ function shellRunExecutesArtifactPath(
       .map((source) => (
         resolveStaticEnvironmentReferences(source, localEnvironmentValues) ?? source
       ));
-    if (executionSources.some((source) => artifactSourceMatchesPath(
-      source,
-      artifactPath,
+    if (executionSources.some((source) => knownArtifactPaths.some((artifactPath) => (
+      artifactSourceMatchesPath(source, artifactPath, effectiveWorkingDirectory)
+    )))) return { derivedArtifactPaths, executes: true };
+    const extraction = shellTarExtraction(executableSegment);
+    if (!extraction || !knownArtifactPaths.some((artifactPath) => (
+      artifactSourceMatchesPath(
+        extraction.archive,
+        artifactPath,
+        effectiveWorkingDirectory,
+      )
+    ))) continue;
+    const destination = normalizedArtifactPath(
+      extraction.destination,
       effectiveWorkingDirectory,
-    ))) return true;
+      localEnvironmentValues,
+    );
+    if (!knownArtifactPaths.includes(destination)) knownArtifactPaths.push(destination);
+    if (!derivedArtifactPaths.includes(destination)) {
+      derivedArtifactPaths.push(destination);
+    }
   }
-  return false;
+  return { derivedArtifactPaths, executes: false };
+}
+
+function shellTarExtraction(segment) {
+  const words = shellCommandWords(stripShellCommandGrouping(segment));
+  let cursor = shellCommandWrapperCursor(words, { allowSudo: true });
+  if (!new Set(["bsdtar", "gtar", "tar"]).has(
+    path.posix.basename(words[cursor] ?? "").toLowerCase(),
+  )) return undefined;
+  cursor += 1;
+  let archive;
+  let destination = ".";
+  let extracts = false;
+  while (cursor < words.length) {
+    const argument = words[cursor];
+    cursor += 1;
+    const option = argument.toLowerCase();
+    if (["--extract", "--get"].includes(option)) {
+      extracts = true;
+      continue;
+    }
+    if (argument === "-C" || option === "--directory") {
+      destination = words[cursor] ?? "${dynamic-tar-directory}";
+      cursor += 1;
+      continue;
+    }
+    const inlineDirectory = /^--directory=(.*)$/iu.exec(argument)?.[1];
+    if (inlineDirectory !== undefined) {
+      destination = inlineDirectory || "${dynamic-tar-directory}";
+      continue;
+    }
+    if (["-f", "--file"].includes(option)) {
+      archive = words[cursor];
+      cursor += 1;
+      continue;
+    }
+    const inlineArchive = /^--file=(.*)$/iu.exec(argument)?.[1]
+      ?? /^-f(.+)$/u.exec(argument)?.[1];
+    if (inlineArchive !== undefined) {
+      archive = inlineArchive || "${dynamic-tar-archive}";
+      continue;
+    }
+    const shortOptions = /^-?([A-Za-z]+)$/u.exec(argument)?.[1];
+    if (!shortOptions) continue;
+    if (shortOptions.includes("x")) extracts = true;
+    if (shortOptions.includes("f")) {
+      archive = words[cursor];
+      cursor += 1;
+    }
+  }
+  return extracts && archive ? { archive, destination } : undefined;
 }
 
 function shellArtifactExecutionSources(
@@ -4978,15 +5168,31 @@ function shellArtifactExecutionSources(
   if (commandName === "npm") {
     return npmPackageExecutionSources(words.slice(cursor));
   }
+  if (/^pip\d*(?:\.\d+)*$/u.test(commandName)) {
+    return pipLocalProjectExecutionSources(words.slice(cursor));
+  }
   const interpreters = new Set([
     "bash", "dash", "deno", "fish", "ksh", "node", "perl", "php",
     "powershell", "powershell.exe", "pwsh", "pwsh.exe", "python", "python2",
     "python3", "ruby", "sh", "zsh",
   ]);
   if (interpreters.has(commandName) || /^python\d+(?:\.\d+)*$/u.test(commandName)) {
-    const executionSources = commandName === "node"
-      ? nodeOptionsLoadedSources(commandEnvironmentValues.get("node_options"))
-      : [];
+    const executionSources = [];
+    if (commandName === "node") {
+      executionSources.push(...nodeOptionsLoadedSources(
+        commandEnvironmentValues.get("node_options"),
+      ));
+    }
+    if (commandName === "bash" && commandEnvironmentValues.get("bash_env")) {
+      executionSources.push(commandEnvironmentValues.get("bash_env"));
+    }
+    const pipArguments = /^python/u.test(commandName)
+      ? pythonPipArguments(words, cursor)
+      : undefined;
+    if (pipArguments) {
+      executionSources.push(...pipLocalProjectExecutionSources(pipArguments));
+      return executionSources;
+    }
     if (commandName === "deno" && words[cursor]?.toLowerCase() === "run") cursor += 1;
     while (cursor < words.length) {
       const argument = words[cursor];
@@ -5134,6 +5340,79 @@ function npmPackageExecutionSources(arguments_) {
     if (inlinePrefix !== undefined) prefix = inlinePrefix || "${dynamic-npm-prefix}";
   }
   return [prefix === "." ? "package.json" : path.posix.join(prefix, "package.json")];
+}
+
+function pythonPipArguments(words, initialCursor) {
+  let cursor = initialCursor;
+  while (cursor < words.length) {
+    const argument = words[cursor];
+    if (argument === "-m") {
+      return /^pip\d*(?:\.\d+)*$/u.test(
+        path.posix.basename(words[cursor + 1] ?? "").toLowerCase(),
+      ) ? words.slice(cursor + 2) : undefined;
+    }
+    if (interpreterOptionConsumesValue("python", argument)) {
+      cursor += 2;
+      continue;
+    }
+    if (argument.startsWith("-")) {
+      cursor += 1;
+      continue;
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+function pipLocalProjectExecutionSources(arguments_) {
+  const lifecycleCommands = new Set(["build", "install", "wheel"]);
+  const commandIndex = arguments_.findIndex((argument) => (
+    lifecycleCommands.has(argument.toLowerCase())
+  ));
+  if (commandIndex < 0) return [];
+  const sources = [];
+  const sourceFileOptions = new Set(["-c", "--constraint", "-e", "--editable", "-r", "--requirement"]);
+  const optionsWithValues = new Set([
+    "--abi", "--cache-dir", "--cert", "--client-cert", "--config-settings",
+    "--extra-index-url", "--find-links", "--implementation", "--index-url",
+    "--keyring-provider", "--log", "--platform", "--prefix", "--proxy",
+    "--python", "--python-version", "--report", "--root", "--src",
+    "--target", "--timeout", "--trusted-host", "--upgrade-strategy",
+  ]);
+  for (let cursor = commandIndex + 1; cursor < arguments_.length;) {
+    const argument = arguments_[cursor];
+    cursor += 1;
+    if (sourceFileOptions.has(argument.toLowerCase())) {
+      const source = arguments_[cursor];
+      cursor += 1;
+      if (source) sources.push(source);
+      continue;
+    }
+    const inlineSource = /^(?:--(?:constraint|editable|requirement))=(.*)$/iu.exec(
+      argument,
+    )?.[1];
+    if (inlineSource !== undefined) {
+      if (inlineSource) sources.push(inlineSource);
+      continue;
+    }
+    if (optionsWithValues.has(argument.toLowerCase())) {
+      cursor += 1;
+      continue;
+    }
+    if (argument.startsWith("-")) continue;
+    if (isLocalPipProjectReference(argument)) sources.push(argument);
+  }
+  return sources;
+}
+
+function isLocalPipProjectReference(reference) {
+  const normalized = reference.replace(/^(["'])(.*)\1$/u, "$2");
+  return normalized === "."
+    || normalized === ".."
+    || normalized.startsWith("./")
+    || normalized.startsWith("../")
+    || normalized.startsWith("/")
+    || /^file:/iu.test(normalized);
 }
 
 function programFileExecutionSources(arguments_, options) {
