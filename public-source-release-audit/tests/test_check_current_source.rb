@@ -251,6 +251,37 @@ class CheckCurrentSourceTest < Minitest::Test
     end
   end
 
+  def test_initialized_submodule_directory_is_outside_the_check
+    with_repo do |repo|
+      object_id, error, status = Open3.capture3(
+        "git",
+        "-C",
+        repo,
+        "hash-object",
+        "-w",
+        "--stdin",
+        stdin_data: "placeholder"
+      )
+      assert status.success?, error
+      system(
+        "git",
+        "-C",
+        repo,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        "160000,#{object_id.strip},module",
+        exception: true
+      )
+      FileUtils.mkdir_p(File.join(repo, "module"))
+
+      stdout, stderr, checker_status = run_checker(repo)
+
+      assert checker_status.success?, stderr
+      assert_includes stdout, "current public-source check passed"
+    end
+  end
+
   def test_unrelated_home_directory_and_web_route_do_not_match_user_homes
     with_repo do |repo|
       windows_profiles = "C:" + "\\Users\\"

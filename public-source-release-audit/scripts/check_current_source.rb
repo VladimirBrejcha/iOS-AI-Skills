@@ -239,10 +239,14 @@ index_entries = index_output.b.split("\0".b).reject(&:empty?).filter_map do |rec
 end
 
 blob_paths = Hash.new { |paths, object_id| paths[object_id] = [] }
+submodule_paths = Set.new
 index_entries.each do |entry|
   relative_path = entry.fetch(:path)
   scan_source(relative_path, relative_path, findings, sensitive_paths)
-  next if entry.fetch(:mode) == "160000"
+  if entry.fetch(:mode) == "160000"
+    submodule_paths.add(relative_path)
+    next
+  end
 
   unless INDEX_BLOB_MODES.include?(entry.fetch(:mode))
     errors.add([relative_path, "unsupported Git index mode"])
@@ -285,6 +289,8 @@ usage("Unable to enumerate repository worktree source") unless worktree_status.s
 worktree_paths = worktree_output.b.split("\0".b).reject(&:empty?).uniq
 worktree_paths.each do |relative_path|
   scan_source(relative_path, relative_path, findings, sensitive_paths)
+  next if submodule_paths.include?(relative_path)
+
   begin
     if symlinked_parent?(repo, relative_path)
       errors.add([relative_path, "symlinked parent component"])
