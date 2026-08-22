@@ -33,7 +33,9 @@ Stage all intended release changes before relying on the candidate result.
 Ignored files and submodule contents are outside this check. The checker does
 not inspect Git history. Git LFS pointers fail the check because their external
 objects require separate review. Missing index blobs, including unavailable
-partial-clone objects, fail without network fetching.
+partial-clone objects, fail without network fetching. A symlink's own target
+text is scanned, while a symlinked parent component fails without reading
+outside the repository.
 
 ## Semantic Review
 

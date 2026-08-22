@@ -122,9 +122,19 @@ class CheckCurrentSourceTest < Minitest::Test
         "fine-grained.txt" => "github_" + "pat_" + ("C" * 24),
         "openai.txt" => "s" + "k-proj-" + ("D" * 24),
         "private-key.txt" => "-----BEGIN " + "OPENSSH PRIVATE KEY-----",
+        "pgp-private-key.txt" => "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----",
         "posix-home.txt" => "/" + "Users/example/private.txt",
         "root-home.txt" => "/" + "root/.ssh/id_ed25519",
-        "windows-home.txt" => "C:" + "\\Users\\example\\private.txt"
+        "windows-home.txt" => "C:" + "\\Users\\example\\private.txt",
+        "escaped-windows-home.txt" => [
+          "C:",
+          "\\" * 2,
+          "Users",
+          "\\" * 2,
+          "example",
+          "\\" * 2,
+          "private.txt"
+        ].join
       }
       fixtures.each { |path, content| stage(repo, path, content) }
 
@@ -158,6 +168,27 @@ class CheckCurrentSourceTest < Minitest::Test
       assert_includes stderr, "local-link"
       assert_includes stderr, "machine-local home path"
       refute_includes stderr, target
+    end
+  end
+
+  def test_symlinked_parent_is_rejected_without_reading_outside_repo
+    with_repo do |repo|
+      stage(repo, "dir/file.txt", "safe candidate\n")
+      FileUtils.mv(File.join(repo, "dir"), File.join(repo, "original-dir"))
+
+      Dir.mktmpdir("public-source-check-outside-") do |outside|
+        token = github_token
+        write(outside, "file.txt", token)
+        File.symlink(outside, File.join(repo, "dir"))
+
+        _stdout, stderr, status = run_checker(repo)
+
+        refute status.success?
+        assert_includes stderr, "dir/file.txt"
+        assert_includes stderr, "symlinked parent component"
+        refute_includes stderr, "GitHub token"
+        refute_includes stderr, token
+      end
     end
   end
 
@@ -231,6 +262,41 @@ class CheckCurrentSourceTest < Minitest::Test
 
         assert status.success?, stderr
         assert_includes stdout, "current public-source check passed"
+      end
+    end
+  end
+
+  def test_non_utf8_git_paths_are_scanned_without_crashing
+    with_repo do |repo|
+      token = github_token
+      Dir.mktmpdir("public-source-check-bin-") do |bin_dir|
+        fake_git = File.join(bin_dir, "git")
+        File.write(fake_git, <<~'RUBY')
+          #!/usr/bin/env ruby
+          STDOUT.binmode
+          path = "raw-\xFF.txt".b
+          if ARGV.include?("--stage")
+            STDOUT.write("100644 #{'a' * 40} 0\t".b + path + "\0".b)
+          elsif ARGV.include?("cat-file")
+            STDOUT.write("gh" + "p_" + ("A" * 24))
+          elsif ARGV.include?("-co")
+            STDOUT.write(path + "\0".b)
+          else
+            abort "unexpected git invocation: #{ARGV.join(' ')}"
+          end
+        RUBY
+        FileUtils.chmod(0o755, fake_git)
+
+        _stdout, stderr, status = run_checker(
+          repo,
+          { "PATH" => [bin_dir, ENV.fetch("PATH")].join(File::PATH_SEPARATOR) }
+        )
+
+        refute status.success?
+        assert_includes stderr, "GitHub token"
+        assert_includes stderr, "\\xFF"
+        refute_includes stderr, "invalid byte sequence"
+        refute_includes stderr, token
       end
     end
   end

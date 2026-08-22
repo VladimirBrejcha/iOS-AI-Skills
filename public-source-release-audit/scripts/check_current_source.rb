@@ -7,7 +7,7 @@ require "set"
 RULES = [
   [
     "machine-local home path",
-    %r{(?:\A|[\s"'`=:(,])(?:/(?:Users|home)/[A-Za-z0-9._-]+(?:/|\b)|/root(?:/|(?![A-Za-z0-9._-])))|\b[A-Za-z]:[\\/]Users[\\/][^\\/\r\n]+(?:[\\/]|$)}
+    %r{(?:\A|[\s"'`=:(,])(?:/(?:Users|home)/[A-Za-z0-9._-]+(?:/|\b)|/root(?:/|(?![A-Za-z0-9._-])))|\b[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[^\\/\r\n]+(?:[\\/]{1,2}|$)}
   ],
   ["AWS access key", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
   ["bearer credential", /Authorization\s*:\s*Bearer\s+[A-Za-z0-9._~+\/=:-]{16,}/i],
@@ -18,7 +18,7 @@ RULES = [
   ["OpenAI API key", /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/],
   [
     "private key",
-    /-----BEGIN (?:[A-Z0-9][A-Z0-9 ]* )?PRIVATE KEY-----/
+    /-----BEGIN (?:[A-Z0-9][A-Z0-9 ]* )?PRIVATE KEY(?: BLOCK)?-----/
   ]
 ].freeze
 
@@ -70,6 +70,14 @@ def display_path(relative_path, sensitive_paths)
   sensitive_paths.include?(relative_path) ? "<redacted path>" : relative_path.dump
 end
 
+def symlinked_parent?(repo, relative_path)
+  current = repo.b
+  relative_path.b.split("/".b)[0...-1].any? do |component|
+    current = File.join(current, component)
+    File.symlink?(current)
+  end
+end
+
 usage("Too many arguments") if ARGV.length > 1
 repo = File.expand_path(ARGV.first || ".")
 usage("Repository must be a directory") unless File.directory?(repo)
@@ -86,9 +94,9 @@ errors = Set.new
 findings = Set.new
 sensitive_paths = Set.new
 blob_result_cache = {}
-index_entries = index_output.split("\0").reject(&:empty?).filter_map do |record|
-  metadata, relative_path = record.split("\t", 2)
-  mode, object_id, stage = metadata&.split(" ", 3)
+index_entries = index_output.b.split("\0".b).reject(&:empty?).filter_map do |record|
+  metadata, relative_path = record.split("\t".b, 2)
+  mode, object_id, stage = metadata&.split(" ".b, 3)
   unless mode && object_id && stage && relative_path
     errors.add([relative_path || "<unknown>", "unreadable Git index entry"])
     next
@@ -146,11 +154,15 @@ worktree_output, _worktree_error, worktree_status = git_capture(
 )
 usage("Unable to enumerate repository worktree source") unless worktree_status.success?
 
-worktree_paths = worktree_output.split("\0").reject(&:empty?).uniq
+worktree_paths = worktree_output.b.split("\0".b).reject(&:empty?).uniq
 worktree_paths.each do |relative_path|
-  absolute_path = File.join(repo, relative_path)
   scan_source(relative_path, relative_path, findings, sensitive_paths)
   begin
+    if symlinked_parent?(repo, relative_path)
+      errors.add([relative_path, "symlinked parent component"])
+      next
+    end
+    absolute_path = File.join(repo.b, relative_path)
     content = if File.symlink?(absolute_path)
       File.readlink(absolute_path)
     elsif File.file?(absolute_path)
@@ -164,10 +176,10 @@ end
 
 unless errors.empty? && findings.empty?
   warn "current public-source check failed:"
-  errors.to_a.sort.each do |relative_path, label|
+  errors.to_a.sort_by { |relative_path, label| [relative_path.b, label] }.each do |relative_path, label|
     warn "- #{display_path(relative_path, sensitive_paths)}: #{label}"
   end
-  findings.to_a.sort.each do |relative_path, label|
+  findings.to_a.sort_by { |relative_path, label| [relative_path.b, label] }.each do |relative_path, label|
     warn "- #{display_path(relative_path, sensitive_paths)}: #{label}"
   end
   warn "Matched content is intentionally omitted." unless findings.empty?
