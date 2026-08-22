@@ -3839,6 +3839,8 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
             depth + 1,
             localFunctions,
           )) return true;
+          pipelineInputTainted ||= stageReferencesTaint;
+          continue;
         }
         if (evaluatorCommand.test(sinkStage)
           && (stageReferencesTaint || pipelineInputTainted)) {
@@ -3919,7 +3921,7 @@ function shellFunctionDefinitions(source) {
     definitions.push({
       body: source.slice(openingBrace + 1, closingBrace),
       end: closingBrace + 1,
-      name: (match[2] ?? match[3]).toLowerCase(),
+      name: match[2] ?? match[3],
       start,
     });
     pattern.lastIndex = closingBrace + 1;
@@ -3954,7 +3956,18 @@ function shellFunctionInvocation(stage, functions) {
   const words = shellCommandWords(stripShellCommandGrouping(stage));
   let cursor = 0;
   while (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
-  const name = words[cursor]?.toLowerCase();
+  const controlWords = new Set([
+    "!", "coproc", "do", "elif", "else", "if", "then", "time", "until",
+    "while",
+  ]);
+  while (controlWords.has(words[cursor] ?? "")) {
+    cursor += 1;
+    while (words[cursor]?.startsWith("-") && words[cursor - 1] === "time") {
+      cursor += 1;
+    }
+    while (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
+  }
+  const name = words[cursor];
   const body = name ? functions.get(name) : undefined;
   return body === undefined ? undefined : {
     arguments: words.slice(cursor + 1),
@@ -5224,15 +5237,68 @@ function shellRunArtifactExecutionAnalysis(
   artifactPaths,
   workingDirectory,
   environmentValues = new Map(),
+  depth = 0,
+  inheritedFunctions = new Map(),
 ) {
   let effectiveWorkingDirectory = workingDirectory;
-  const localEnvironmentValues = new Map(environmentValues);
+  let localEnvironmentValues = new Map(environmentValues);
+  let localFunctions = new Map(inheritedFunctions);
   const knownArtifactPaths = [...artifactPaths];
   const derivedArtifactPaths = [];
-  for (const segment of shellCommandSegments(runSource)) {
+  for (const unit of shellEvaluationUnits(runSource)) {
+    if (unit.definition) {
+      localFunctions.set(unit.definition.name, unit.definition.body);
+      continue;
+    }
+    const segment = unit.source;
     if (/^\s*#/u.test(segment)) continue;
     const executableSegment = stripShellCommandGrouping(segment);
     applyStaticShellAssignment(executableSegment, localEnvironmentValues);
+    const functionInvocation = shellFunctionInvocation(
+      executableSegment,
+      localFunctions,
+    );
+    if (functionInvocation) {
+      if (depth >= 32) {
+        if (knownArtifactPaths.some((artifactPath) => artifactSourceMatchesPath(
+          functionInvocation.body,
+          artifactPath,
+          effectiveWorkingDirectory,
+        ))) return {
+          derivedArtifactPaths,
+          environmentValues: localEnvironmentValues,
+          executes: true,
+          functions: localFunctions,
+          workingDirectory: effectiveWorkingDirectory,
+        };
+      } else {
+        const functionAnalysis = shellRunArtifactExecutionAnalysis(
+          functionInvocation.body,
+          knownArtifactPaths,
+          effectiveWorkingDirectory,
+          localEnvironmentValues,
+          depth + 1,
+          localFunctions,
+        );
+        for (const artifactPath of functionAnalysis.derivedArtifactPaths) {
+          if (!knownArtifactPaths.includes(artifactPath)) {
+            knownArtifactPaths.push(artifactPath);
+          }
+          if (!derivedArtifactPaths.includes(artifactPath)) {
+            derivedArtifactPaths.push(artifactPath);
+          }
+        }
+        if (functionAnalysis.executes) return {
+          ...functionAnalysis,
+          derivedArtifactPaths,
+          executes: true,
+        };
+        effectiveWorkingDirectory = functionAnalysis.workingDirectory;
+        localEnvironmentValues = functionAnalysis.environmentValues;
+        localFunctions = functionAnalysis.functions;
+      }
+      continue;
+    }
     const directoryChange = /^\s*(?:(?:builtin|command)\s+)?(?:cd|pushd)\s+(?:--\s+)?("[^"]*"|'[^']*'|[^\s;&|]+)/iu.exec(executableSegment);
     if (directoryChange) {
       const target = resolveStaticEnvironmentReferences(
@@ -5254,7 +5320,13 @@ function shellRunArtifactExecutionAnalysis(
       ));
     if (executionSources.some((source) => knownArtifactPaths.some((artifactPath) => (
       artifactSourceMatchesPath(source, artifactPath, effectiveWorkingDirectory)
-    )))) return { derivedArtifactPaths, executes: true };
+    )))) return {
+      derivedArtifactPaths,
+      environmentValues: localEnvironmentValues,
+      executes: true,
+      functions: localFunctions,
+      workingDirectory: effectiveWorkingDirectory,
+    };
     const extraction = shellArchiveExtraction(executableSegment);
     if (!extraction || !knownArtifactPaths.some((artifactPath) => (
       artifactSourceMatchesPath(
@@ -5273,7 +5345,13 @@ function shellRunArtifactExecutionAnalysis(
       derivedArtifactPaths.push(destination);
     }
   }
-  return { derivedArtifactPaths, executes: false };
+  return {
+    derivedArtifactPaths,
+    environmentValues: localEnvironmentValues,
+    executes: false,
+    functions: localFunctions,
+    workingDirectory: effectiveWorkingDirectory,
+  };
 }
 
 function shellArchiveExtraction(segment) {
@@ -5365,7 +5443,7 @@ function shellZipExtraction(segment) {
       continue;
     }
     if (!optionsEnded && /^-[^-]/u.test(argument)) {
-      if (/[clptvZz]/u.test(argument.slice(1))) extracts = false;
+      if (/[clptTvZz]/u.test(argument.slice(1))) extracts = false;
       continue;
     }
     archive ??= argument;
@@ -5386,6 +5464,21 @@ function shellArtifactExecutionSources(
     );
     if (value === undefined) commandEnvironmentValues.delete(binding.name);
     else commandEnvironmentValues.set(binding.name, value);
+  }
+  const envSplitCommands = shellEnvSplitCommands(segment);
+  if (envSplitCommands.length > 0) {
+    if (depth >= 16) return ["${dynamic-env-split-command}"];
+    return envSplitCommands.flatMap((command) => {
+      const resolvedCommand = resolveStaticEnvironmentReferences(
+        command,
+        commandEnvironmentValues,
+      ) ?? command;
+      return shellCommandStringArtifactExecutionSources(
+        resolvedCommand,
+        commandEnvironmentValues,
+        depth + 1,
+      );
+    });
   }
   const words = shellCommandWords(segment);
   let cursor = shellCommandWrapperCursor(words, { allowSudo: true });
@@ -5509,12 +5602,19 @@ function shellCommandStringArtifactExecutionSources(
   commandString,
   environmentValues,
   depth,
+  inheritedFunctions = new Map(),
 ) {
   if (/[$%`]/u.test(commandString)) return [commandString];
   let workingDirectory = ".";
   const localEnvironmentValues = new Map(environmentValues);
+  const localFunctions = new Map(inheritedFunctions);
   const sources = [];
-  for (const segment of shellCommandSegments(commandString)) {
+  for (const unit of shellEvaluationUnits(commandString)) {
+    if (unit.definition) {
+      localFunctions.set(unit.definition.name, unit.definition.body);
+      continue;
+    }
+    const segment = unit.source;
     const executableSegment = stripShellCommandGrouping(segment);
     applyStaticShellAssignment(executableSegment, localEnvironmentValues);
     const directoryChange = /^\s*(?:(?:builtin|command)\s+)?(?:cd|pushd)\s+(?:--\s+)?("[^"]*"|'[^']*'|[^\s;&|]+)/iu.exec(
@@ -5532,6 +5632,25 @@ function shellCommandStringArtifactExecutionSources(
       executableSegment,
       localEnvironmentValues,
       depth,
+    )) {
+      sources.push(workingDirectory === "." || path.posix.isAbsolute(source)
+        ? source
+        : path.posix.join(workingDirectory, source));
+    }
+    const functionInvocation = shellFunctionInvocation(
+      executableSegment,
+      localFunctions,
+    );
+    if (!functionInvocation) continue;
+    if (depth >= 16) {
+      sources.push("${dynamic-shell-function}");
+      continue;
+    }
+    for (const source of shellCommandStringArtifactExecutionSources(
+      functionInvocation.body,
+      localEnvironmentValues,
+      depth + 1,
+      localFunctions,
     )) {
       sources.push(workingDirectory === "." || path.posix.isAbsolute(source)
         ? source
