@@ -60,6 +60,22 @@ class CheckCurrentSourceTest < Minitest::Test
     end
   end
 
+  def test_subdirectory_argument_still_scans_the_complete_worktree
+    with_repo do |repo|
+      token = github_token
+      stage(repo, "root-secret.txt", token)
+      child = File.join(repo, "child")
+      FileUtils.mkdir_p(child)
+
+      _stdout, stderr, status = run_checker(child)
+
+      refute status.success?
+      assert_includes stderr, "root-secret.txt"
+      assert_includes stderr, "GitHub token"
+      refute_includes stderr, token
+    end
+  end
+
   def test_unstaged_credential_is_checked_before_it_can_be_added
     with_repo do |repo|
       token = github_token
@@ -266,6 +282,48 @@ class CheckCurrentSourceTest < Minitest::Test
     end
   end
 
+  def test_repository_fsmonitor_hook_is_disabled
+    with_repo do |repo|
+      stage(repo, "README.md", "Public documentation without credentials.\n")
+      hook = File.join(repo, "fsmonitor-hook")
+      marker = File.join(repo, "fsmonitor-ran")
+      File.write(hook, <<~'SH')
+        #!/bin/sh
+        printf 'ran\n' > "$FSMONITOR_MARKER"
+      SH
+      FileUtils.chmod(0o755, hook)
+      system(
+        "git",
+        "-C",
+        repo,
+        "config",
+        "core.fsmonitor",
+        hook,
+        exception: true
+      )
+
+      _output, error, status = Open3.capture3(
+        { "FSMONITOR_MARKER" => marker },
+        "git",
+        "-C",
+        repo,
+        "ls-files"
+      )
+      assert status.success?, error
+      assert File.exist?(marker), "fsmonitor fixture did not execute"
+      FileUtils.rm(marker)
+
+      stdout, stderr, checker_status = run_checker(
+        repo,
+        { "FSMONITOR_MARKER" => marker }
+      )
+
+      assert checker_status.success?, stderr
+      assert_includes stdout, "current public-source check passed"
+      refute File.exist?(marker), "checker executed the repository fsmonitor hook"
+    end
+  end
+
   def test_non_utf8_git_paths_are_scanned_without_crashing
     with_repo do |repo|
       token = github_token
@@ -275,7 +333,10 @@ class CheckCurrentSourceTest < Minitest::Test
           #!/usr/bin/env ruby
           STDOUT.binmode
           path = "raw-\xFF.txt".b
-          if ARGV.include?("--stage")
+          if ARGV.include?("rev-parse")
+            repo_index = ARGV.index("-C") + 1
+            STDOUT.write(ARGV.fetch(repo_index) + "\n")
+          elsif ARGV.include?("--stage")
             STDOUT.write("100644 #{'a' * 40} 0\t".b + path + "\0".b)
           elsif ARGV.include?("cat-file")
             STDOUT.write("gh" + "p_" + ("A" * 24))

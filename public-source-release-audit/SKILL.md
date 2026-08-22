@@ -56,7 +56,11 @@ gh api repos/OWNER/REPO --jq '{visibility,security_and_analysis}'
 gh ruleset check --default --repo OWNER/REPO
 gh ruleset list --repo OWNER/REPO --parents --limit 100
 gh ruleset view RULESET-ID --repo OWNER/REPO
-gh api repos/OWNER/REPO/branches/DEFAULT-BRANCH/protection
+default_branch="$(gh repo view OWNER/REPO --json defaultBranchRef \
+  --jq '.defaultBranchRef.name')"
+encoded_branch="$(ruby -rerb -e \
+  'print ERB::Util.url_encode(ARGV.fetch(0))' "$default_branch")"
+gh api "repos/OWNER/REPO/branches/${encoded_branch}/protection"
 gh api 'repos/OWNER/REPO/actions/runners?per_page=100' \
   --jq '{total_count,runners:[.runners[] | {name,status,busy}]}'
 ```

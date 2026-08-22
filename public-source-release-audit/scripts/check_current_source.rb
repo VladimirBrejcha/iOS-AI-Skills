@@ -42,7 +42,15 @@ def usage(message = nil)
 end
 
 def git_capture(repo, *arguments)
-  Open3.capture3(GIT_ENVIRONMENT, "git", "-C", repo, *arguments)
+  Open3.capture3(
+    GIT_ENVIRONMENT,
+    "git",
+    "-C",
+    repo,
+    "-c",
+    "core.fsmonitor=false",
+    *arguments
+  )
 end
 
 def matching_labels(content)
@@ -82,13 +90,22 @@ usage("Too many arguments") if ARGV.length > 1
 repo = File.expand_path(ARGV.first || ".")
 usage("Repository must be a directory") unless File.directory?(repo)
 
+toplevel_output, _toplevel_error, toplevel_status = git_capture(
+  repo,
+  "rev-parse",
+  "--show-toplevel"
+)
+usage("Repository must be a Git worktree") unless toplevel_status.success?
+repo = toplevel_output.b.sub(/\r?\n\z/, "".b)
+usage("Unable to resolve Git worktree root") unless File.directory?(repo)
+
 index_output, _index_error, index_status = git_capture(
   repo,
   "ls-files",
   "--stage",
   "-z"
 )
-usage("Repository must be a Git worktree") unless index_status.success?
+usage("Unable to enumerate Git index") unless index_status.success?
 
 errors = Set.new
 findings = Set.new
