@@ -7,7 +7,7 @@ require "set"
 RULES = [
   [
     "machine-local home path",
-    %r{(?:\A|[\s"'`=:(,])/(?:Users|home)/[A-Za-z0-9._-]+(?:/|\b)|\b[A-Za-z]:[\\/]Users[\\/][^\\/\r\n]+(?:[\\/]|$)}
+    %r{(?:\A|[\s"'`=:(,])(?:/(?:Users|home)/[A-Za-z0-9._-]+(?:/|\b)|/root(?:/|(?![A-Za-z0-9._-])))|\b[A-Za-z]:[\\/]Users[\\/][^\\/\r\n]+(?:[\\/]|$)}
   ],
   ["AWS access key", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
   ["bearer credential", /Authorization\s*:\s*Bearer\s+[A-Za-z0-9._~+\/=:-]{16,}/i],
@@ -23,11 +23,13 @@ RULES = [
 ].freeze
 
 INDEX_BLOB_MODES = %w[100644 100755 120000].freeze
+LFS_POINTER = %r{\Aversion https://git-lfs\.github\.com/spec/v1(?:\r?\n|\z)}.freeze
 GIT_ENVIRONMENT = {
   "GIT_ALTERNATE_OBJECT_DIRECTORIES" => nil,
   "GIT_COMMON_DIR" => nil,
   "GIT_DIR" => nil,
   "GIT_INDEX_FILE" => nil,
+  "GIT_NO_LAZY_FETCH" => "1",
   "GIT_NO_REPLACE_OBJECTS" => "1",
   "GIT_OBJECT_DIRECTORY" => nil,
   "GIT_WORK_TREE" => nil
@@ -43,14 +45,25 @@ def git_capture(repo, *arguments)
   Open3.capture3(GIT_ENVIRONMENT, "git", "-C", repo, *arguments)
 end
 
-def scan_source(content, relative_path, findings, sensitive_paths = nil)
+def matching_labels(content)
   source = content.b
-  RULES.each do |label, pattern|
-    next unless pattern.match?(source)
+  RULES.filter_map { |label, pattern| label if pattern.match?(source) }
+end
 
+def record_findings(labels, relative_path, findings, sensitive_paths = nil)
+  labels.each do |label|
     findings.add([relative_path, label])
     sensitive_paths&.add(relative_path)
   end
+end
+
+def scan_source(content, relative_path, findings, sensitive_paths = nil)
+  record_findings(
+    matching_labels(content),
+    relative_path,
+    findings,
+    sensitive_paths
+  )
 end
 
 def display_path(relative_path, sensitive_paths)
@@ -72,7 +85,7 @@ usage("Repository must be a Git worktree") unless index_status.success?
 errors = Set.new
 findings = Set.new
 sensitive_paths = Set.new
-blob_cache = {}
+blob_result_cache = {}
 index_entries = index_output.split("\0").reject(&:empty?).filter_map do |record|
   metadata, relative_path = record.split("\t", 2)
   mode, object_id, stage = metadata&.split(" ", 3)
@@ -100,8 +113,8 @@ index_entries.each do |entry|
   end
 
   object_id = entry.fetch(:object_id)
-  content = blob_cache[object_id]
-  unless content
+  result = blob_result_cache[object_id]
+  unless result
     content, _blob_error, blob_status = git_capture(
       repo,
       "cat-file",
@@ -112,9 +125,16 @@ index_entries.each do |entry|
       errors.add([relative_path, "unable to read Git index blob"])
       next
     end
-    blob_cache[object_id] = content
+    result = {
+      labels: matching_labels(content),
+      lfs_pointer: LFS_POINTER.match?(content.b)
+    }
+    blob_result_cache[object_id] = result
   end
-  scan_source(content, relative_path, findings)
+  if result.fetch(:lfs_pointer)
+    errors.add([relative_path, "Git LFS object requires separate review"])
+  end
+  record_findings(result.fetch(:labels), relative_path, findings)
 end
 
 worktree_output, _worktree_error, worktree_status = git_capture(

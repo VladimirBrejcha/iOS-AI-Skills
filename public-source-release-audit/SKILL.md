@@ -31,7 +31,9 @@ The supported categories are deliberately small:
 
 Stage all intended release changes before relying on the candidate result.
 Ignored files and submodule contents are outside this check. The checker does
-not inspect Git history.
+not inspect Git history. Git LFS pointers fail the check because their external
+objects require separate review. Missing index blobs, including unavailable
+partial-clone objects, fail without network fetching.
 
 ## Semantic Review
 
@@ -52,14 +54,17 @@ gh api repos/OWNER/REPO --jq '{visibility,security_and_analysis}'
 gh ruleset check --default --repo OWNER/REPO
 gh ruleset list --repo OWNER/REPO --parents --limit 100
 gh ruleset view RULESET-ID --repo OWNER/REPO
+gh api repos/OWNER/REPO/branches/DEFAULT-BRANCH/protection
 gh api 'repos/OWNER/REPO/actions/runners?per_page=100' \
   --jq '{total_count,runners:[.runners[] | {name,status,busy}]}'
 ```
 
-Inspect applicable rulesets when necessary to confirm the required hosted
-check, update strictness, and bypass actors. If authorization cannot expose a
-setting, report it as unconfirmed. Do not weaken or mutate settings unless the
-user separately authorizes that action.
+Inspect applicable rulesets and classic branch protection when necessary to
+confirm the required hosted check, update strictness, and bypass actors. A 404
+from the classic endpoint means no classic rule is configured; it does not
+invalidate an applicable ruleset. If authorization cannot expose a setting,
+report it as unconfirmed. Do not weaken or mutate settings unless the user
+separately authorizes that action.
 
 ## Result
 
