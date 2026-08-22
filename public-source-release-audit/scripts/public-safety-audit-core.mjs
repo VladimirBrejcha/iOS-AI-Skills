@@ -124,6 +124,7 @@ const PUBLIC_SAFETY_AUDIT_RULES = [
 // -------------------------------------------------------------------------- //
 export function auditPublicSafety(options) {
     const repoRoot = path.resolve(options.repoRoot);
+    assertNoGitPartialClone(repoRoot);
     const trackedTreeResult = auditTrackedTree(repoRoot);
     const additionalSourceFindings = auditAdditionalSources(options.additionalSources ?? []);
     const historyResult = options.includeHistory === true
@@ -211,6 +212,34 @@ function assertNoGitShallowBoundary(repoRoot) {
     const shallowPath = path.resolve(repoRoot, gitCommonDirectory, "shallow");
     if (existsSync(shallowPath)) {
         throw new Error("Public safety audit cannot safely scan history while .git/shallow is present.");
+    }
+}
+function assertNoGitPartialClone(repoRoot) {
+    let output;
+    try {
+        output = execFileSync("git", ["config", "--local", "--null", "--list"], {
+            cwd: repoRoot,
+            encoding: "utf8",
+            env: auditGitEnvironment(),
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+    }
+    catch {
+        throw new Error("Public safety audit could not inspect the local Git configuration.");
+    }
+    const entries = output.split("\0").filter(Boolean).map((entry) => {
+        const separator = entry.indexOf("\n");
+        return {
+            name: (separator < 0 ? entry : entry.slice(0, separator)).toLowerCase(),
+            value: separator < 0 ? "" : entry.slice(separator + 1),
+        };
+    });
+    const isPartialClone = entries.some(({ name, value }) => name === "extensions.partialclone"
+        || /^remote\..*\.partialclonefilter$/u.test(name)
+        || (/^remote\..*\.promisor$/u.test(name)
+            && !["0", "false", "no", "off"].includes(value.trim().toLowerCase())));
+    if (isPartialClone) {
+        throw new Error("Public safety audit cannot safely scan a partial clone without risking lazy object fetches.");
     }
 }
 function auditRawCommitObjects(repoRoot) {
@@ -3297,6 +3326,7 @@ function auditGitEnvironment() {
             delete environment[name];
     }
     environment.GIT_NO_REPLACE_OBJECTS = "1";
+    environment.GIT_NO_LAZY_FETCH = "1";
     return environment;
 }
 function scanLargeDecodedAuditTextFile(filePath, createScanner) {

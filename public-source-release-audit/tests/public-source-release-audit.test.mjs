@@ -317,6 +317,35 @@ test("history mode rejects shallow evidence", () => {
   assert.match(audit.result.error.message, /shallow/u);
 });
 
+test("partial clones fail before the audit can lazily fetch objects", () => {
+  const sourceRoot = makeRepository();
+  write(sourceRoot, "source-only.txt", "source-only fixture\n");
+  commitAll(sourceRoot, "add source-only fixture");
+  git(sourceRoot, ["config", "uploadpack.allowFilter", "true"]);
+  git(sourceRoot, ["config", "uploadpack.allowAnySHA1InWant", "true"]);
+  const cloneParent = mkdtempSync(path.join(os.tmpdir(), "public-source-partial-clone-"));
+  temporaryRoots.add(cloneParent);
+  const cloneRoot = path.join(cloneParent, "clone");
+  const clone = spawnSync("git", [
+    "clone", "--quiet", "--filter=blob:none", "--no-checkout",
+    `file://${sourceRoot}`, cloneRoot,
+  ], {
+    encoding: "utf8",
+    env: process.env,
+  });
+  assert.equal(clone.status, 0, clone.stderr);
+  const missingBefore = missingGitObjectIds(cloneRoot);
+  assert.ok(missingBefore.length > 0, "fixture partial clone must omit at least one object");
+
+  const audit = runAudit(cloneRoot);
+
+  assert.equal(audit.status, 2);
+  assert.equal(audit.result.passed, false);
+  assert.equal(audit.result.error.code, "audit-error");
+  assert.match(audit.result.error.message, /partial clone/u);
+  assert.deepEqual(missingGitObjectIds(cloneRoot), missingBefore);
+});
+
 test("workflow advisories can be promoted to failures", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/advisory.yml", [
@@ -1531,6 +1560,21 @@ test("untrusted refs persisted through GITHUB_ENV reach later steps", () => {
     "          ref: " + envExpression,
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/github-env-group-eval.yml", [
+    "name: GITHUB_ENV grouped evaluator",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + ["$", "{{ github.event.comment.body }}"].join(""),
+    "        run: |",
+    "          { echo \"PAYLOAD=$CODE\"; } >> \"$GITHUB_ENV\"",
+    "      - run: eval \"$PAYLOAD\"",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add persisted environment checkout workflow");
 
   const audit = runAudit(repoRoot);
@@ -1550,6 +1594,11 @@ test("untrusted refs persisted through GITHUB_ENV reach later steps", () => {
     audit.result,
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/github-env-alias-ref.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/github-env-group-eval.yml",
   );
 });
 
@@ -2260,6 +2309,38 @@ test("workflow_run artifact provenance survives current-run reuploads", () => {
     "      - run: bash payload/run.sh",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-multiline-reuploaded-artifact.yml", [
+    "name: workflow run multiline reuploaded artifact",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  relay:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: inbound",
+    "      - uses: actions/upload-artifact@" + "b".repeat(40),
+    "        with:",
+    "          name: forwarded-multiline-payload",
+    "          path: |",
+    "            trusted",
+    "            inbound",
+    "  execute:",
+    "    needs: relay",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          name: forwarded-multiline-payload",
+    "          path: payload",
+    "      - run: bash payload/run.sh",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add reuploaded workflow artifact execution");
 
   const audit = runAudit(repoRoot);
@@ -2269,6 +2350,11 @@ test("workflow_run artifact provenance survives current-run reuploads", () => {
     audit.result,
     "workflow-privileged-untrusted-artifact-execution",
     ".github/workflows/workflow-run-reuploaded-artifact.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-artifact-execution",
+    ".github/workflows/workflow-run-multiline-reuploaded-artifact.yml",
   );
 });
 
@@ -2392,6 +2478,7 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     ["make-file", "make -f payload/Makefile"],
     ["make-nested-directory", "make -C payload -C nested"],
     ["awk-file", "awk -f payload/run.awk /dev/null"],
+    ["timeout", "timeout 10 bash payload/run.sh"],
   ]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${name}.yml`, [
       `name: workflow run artifact ${name}`,
@@ -2498,6 +2585,7 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "make-file",
     "make-nested-directory",
     "awk-file",
+    "timeout",
     "node-options",
     "env-node-options",
     "workflow-alias",
@@ -2933,6 +3021,21 @@ test("tainted environment values cannot reach shell evaluators", () => {
     "          \"$RUNNER\" \"$CODE\"",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-substitution-assignment-eval.yml", [
+    "name: comment substitution assignment eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + bodyExpression,
+    "        run: |",
+    "          VALUE=$(printf '%s' \"$CODE\")",
+    "          eval \"$VALUE\"",
+    "",
+  ].join("\n"));
   write(repoRoot, ".github/workflows/comment-overwritten-eval.yml", [
     "name: comment overwritten eval",
     "on: issue_comment",
@@ -2964,7 +3067,9 @@ test("tainted environment values cannot reach shell evaluators", () => {
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-background-eval.yml",
   );
-  for (const form of ["indirect", "nameref", "positional", "command-alias"]) {
+  for (const form of [
+    "indirect", "nameref", "positional", "command-alias", "substitution-assignment",
+  ]) {
     assertFinding(
       audit.result,
       "workflow-privileged-untrusted-script-interpolation",
@@ -3099,6 +3204,19 @@ test("tainted Git SSH command templates are implicit shell evaluators", () => {
     "        run: git --config-env=core.sshCommand=SSH_COMMAND ls-remote ssh://example.invalid/repository",
     "",
   ].join("\n"));
+  write(unsafeRepo, ".github/workflows/comment-timeout-git-ssh-command.yml", [
+    "name: comment timeout Git SSH command",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          GIT_SSH_COMMAND: " + bodyExpression,
+    "        run: timeout 10 git ls-remote ssh://example.invalid/repository",
+    "",
+  ].join("\n"));
   write(safeRepo, ".github/workflows/comment-git-message.yml", [
     "name: comment Git message",
     "on: issue_comment",
@@ -3125,6 +3243,7 @@ test("tainted Git SSH command templates are implicit shell evaluators", () => {
     "comment-env-git-ssh-command",
     "comment-git-core-ssh-command",
     "comment-git-config-env-ssh-command",
+    "comment-timeout-git-ssh-command",
   ]) {
     assertFinding(
       unsafeAudit.result,
@@ -3137,6 +3256,7 @@ test("tainted Git SSH command templates are implicit shell evaluators", () => {
 
 test("tainted script text cannot be piped into shell interpreters", () => {
   const repoRoot = makeRepository();
+  const safeRepo = makeRepository();
   const bodyExpression = ["$", "{{ github.event.comment.body }}"].join("");
   write(repoRoot, ".github/workflows/comment-pipe-shell.yml", [
     "name: comment pipe shell",
@@ -3192,9 +3312,24 @@ test("tainted script text cannot be piped into shell interpreters", () => {
     "        run: printf '%s' \"$COMMAND\" | php -d display_errors=1",
     "",
   ].join("\n"));
+  write(safeRepo, ".github/workflows/comment-pipe-shell-script.yml", [
+    "name: comment pipe shell script",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          DATA: " + bodyExpression,
+    "        run: printf '%s' \"$DATA\" | bash trusted.sh",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add tainted shell pipeline");
+  commitAll(safeRepo, "add shell script data pipeline");
 
   const audit = runAudit(repoRoot);
+  const safeAudit = runAudit(safeRepo);
 
   assert.equal(audit.status, 1);
   assertFinding(
@@ -3219,6 +3354,7 @@ test("tainted script text cannot be piped into shell interpreters", () => {
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-pipe-php-options.yml",
   );
+  assert.equal(safeAudit.status, 0);
 });
 
 test("tainted here-strings cannot feed shell interpreters", () => {
@@ -4930,6 +5066,9 @@ test("tainted text cannot reach language runtime evaluators", () => {
     ["python", "python -c \"$COMMAND\""],
     ["python-attached", "python -c\"$COMMAND\""],
     ["node", "node -e \"$COMMAND\""],
+    ["node-long-eval", "node --eval \"$COMMAND\""],
+    ["node-print", "node -p \"$COMMAND\""],
+    ["node-long-print", "node --print \"$COMMAND\""],
     ["perl", "perl -e \"$COMMAND\""],
     ["ruby", "ruby -e \"$COMMAND\""],
     ["nohup-shell", "nohup bash -c \"$COMMAND\""],
@@ -4959,7 +5098,8 @@ test("tainted text cannot reach language runtime evaluators", () => {
 
   assert.equal(audit.status, 1);
   for (const runtime of [
-    "python", "python-attached", "node", "perl", "ruby", "nohup-shell",
+    "python", "python-attached", "node", "node-long-eval", "node-print",
+    "node-long-print", "perl", "ruby", "nohup-shell",
     "timeout-shell", "awk", "awk-e", "sed", "sed-e",
   ]) {
     assertFinding(
@@ -5498,6 +5638,21 @@ function git(repoRoot, args) {
   });
   assert.equal(result.status, 0, `git ${args[0]} failed: ${result.stderr}`);
   return result;
+}
+
+function missingGitObjectIds(repoRoot) {
+  const result = spawnSync("git", [
+    "rev-list", "--objects", "--missing=print", "HEAD",
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, GIT_NO_LAZY_FETCH: "1" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout
+    .split("\n")
+    .filter((line) => line.startsWith("?"))
+    .sort();
 }
 
 function runAudit(repoRoot, args = [], { appendJsonFormat = true, env = process.env } = {}) {

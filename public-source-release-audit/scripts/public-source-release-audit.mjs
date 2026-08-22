@@ -1708,7 +1708,7 @@ function githubEnvironmentWriteBindings(runSource, taintedBindings) {
   )));
   const environmentFileAliases = new Set(["github_env"]);
   const names = new Set();
-  for (const segment of shellCommandSegments(runSource)) {
+  for (const segment of shellCommandSegmentsPreservingGroupRedirections(runSource)) {
     const segmentReferencesTaint = isUntrustedReusableValue(segment, taintedBindings)
       || shellSourceReferencesTaintedVariable(
         segment,
@@ -1743,7 +1743,7 @@ function githubOutputWriteIsTainted(runSource, taintedBindings) {
       : []
   )));
   const environmentFileAliases = new Set(["github_output"]);
-  for (const segment of shellCommandSegments(runSource)) {
+  for (const segment of shellCommandSegmentsPreservingGroupRedirections(runSource)) {
     const segmentReferencesTaint = isUntrustedReusableValue(segment, taintedBindings)
       || shellSourceReferencesTaintedVariable(
         segment,
@@ -3335,7 +3335,10 @@ function currentRunTaintedArtifactNames(
           stepEnvironmentValues,
         );
         if (!upload || !artifactPaths.some((artifactPath) => (
-          artifactPathsOverlap(artifactPath, upload.path)
+          upload.paths.some((uploadPath) => artifactPathsOverlap(
+            artifactPath,
+            uploadPath,
+          ))
         ))) continue;
         if (!names.has(upload.name)) {
           names.add(upload.name);
@@ -3363,9 +3366,23 @@ function uploadedArtifact(
   const rawName = inputs.find((binding) => binding.name === "name")?.value ?? "artifact";
   const name = resolveStaticEnvironmentReferences(rawName, environmentValues) ?? "*";
   const rawPath = inputs.find((binding) => binding.name === "path")?.value ?? ".";
+  const paths = rawPath
+    .replace(/\r\n?|\u0085|\u2028|\u2029/gu, "\n")
+    .split("\n")
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => candidate.length > 0 && !candidate.startsWith("!"))
+    .map((candidate) => normalizedArtifactPath(
+      candidate,
+      workingDirectory,
+      environmentValues,
+    ));
   return {
     name,
-    path: normalizedArtifactPath(rawPath, workingDirectory, environmentValues),
+    paths: paths.length > 0 ? paths : [normalizedArtifactPath(
+      ".",
+      workingDirectory,
+      environmentValues,
+    )],
   };
 }
 
@@ -3662,7 +3679,7 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
       : []
   )));
   const anyEnvironmentVariableTainted = taintedBindings.has("env.*");
-  const evaluatorCommand = /^\s*(?:(?:builtin|command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:(?:-[^\s]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]+)\s+)*)?(?:eval\b|(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?(?:node|perl|python(?:\d+(?:\.\d+)*)?|ruby)\b[^;&|]*\s-(?:c|e)(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?php\b[^;&|]*\s-r(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?deno\b[^;&|]*\beval(?:\s|$)|(?:iex|invoke-expression)\b|(?:(?:\/[^/\s]+)*\/)?(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:command|c)(?:\s+|(?=[^-\s])|$))/iu;
+  const evaluatorCommand = /^\s*(?:(?:builtin|command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:(?:-[^\s]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]+)\s+)*)?(?:eval\b|(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?node\b[^;&|]*\s(?:-e|--eval|-p|--print)(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?(?:perl|python(?:\d+(?:\.\d+)*)?|ruby)\b[^;&|]*\s-(?:c|e)(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?php\b[^;&|]*\s-r(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?deno\b[^;&|]*\beval(?:\s|$)|(?:iex|invoke-expression)\b|(?:(?:\/[^/\s]+)*\/)?(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:command|c)(?:\s+|(?=[^-\s])|$))/iu;
   const sourceEvaluatesTaint = (
     source,
     inheritedTaintedVariables,
@@ -3679,6 +3696,7 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
         taintedBindings,
         localTaintedVariables,
         anyEnvironmentVariableTainted,
+        segment,
       );
       updateShellPositionalTaint(
         executableSegment,
@@ -3792,6 +3810,31 @@ function shellCommandSubstitutions(source) {
   return substitutions;
 }
 
+function shellSubstitutionsReferenceTaint(
+  source,
+  taintedBindings,
+  taintedVariables,
+  anyEnvironmentVariableTainted,
+  depth = 0,
+) {
+  if (depth > 32) return false;
+  return shellCommandSubstitutions(source).some((body) => (
+    isUntrustedReusableValue(body, taintedBindings)
+    || shellSourceReferencesTaintedVariable(
+      body,
+      taintedVariables,
+      anyEnvironmentVariableTainted,
+    )
+    || shellSubstitutionsReferenceTaint(
+      body,
+      taintedBindings,
+      taintedVariables,
+      anyEnvironmentVariableTainted,
+      depth + 1,
+    )
+  ));
+}
+
 function shellParenthesizedSubstitutionEnd(source, openingIndex) {
   let depth = 1;
   let quote;
@@ -3841,6 +3884,7 @@ function updateShellVariableTaint(
   taintedBindings,
   taintedVariables,
   anyEnvironmentVariableTainted,
+  completeSource = source,
 ) {
   const assignment = shellAssignmentBinding(source);
   if (!assignment) return;
@@ -3852,6 +3896,12 @@ function updateShellVariableTaint(
     || isUntrustedReusableValue(assignment.value, taintedBindings)
     || shellSourceReferencesTaintedVariable(
       assignment.value,
+      taintedVariables,
+      anyEnvironmentVariableTainted,
+    )
+    || shellSubstitutionsReferenceTaint(
+      completeSource,
+      taintedBindings,
       taintedVariables,
       anyEnvironmentVariableTainted,
     );
@@ -3956,6 +4006,10 @@ function shellStageHasTaintedEnvironmentBinding(
 
 function shellStageWithoutCommandWrappers(stage) {
   const words = shellCommandWords(stripShellCommandGrouping(stage));
+  return words.slice(shellCommandWrapperCursor(words)).join(" ");
+}
+
+function shellCommandWrapperCursor(words, { allowSudo = false } = {}) {
   let cursor = 0;
   while (cursor < words.length) {
     while (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
@@ -3977,13 +4031,38 @@ function shellStageWithoutCommandWrappers(stage) {
     }
     if (command === "env") {
       cursor += 1;
-      while (words[cursor]?.startsWith("-")
-        || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
+      while (cursor < words.length) {
+        const argument = words[cursor] ?? "";
+        if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(argument)) {
+          cursor += 1;
+          continue;
+        }
+        if (argument === "--") {
+          cursor += 1;
+          break;
+        }
+        if (!argument.startsWith("-")) break;
+        cursor += 1;
+        if (["-C", "-S", "-u", "--chdir", "--split-string", "--unset"].includes(
+          argument,
+        )) cursor += 1;
+      }
+      continue;
+    }
+    if (allowSudo && command === "sudo") {
+      cursor += 1;
+      while (words[cursor]?.startsWith("-")) {
+        const option = words[cursor];
+        cursor += 1;
+        if (["-c", "-g", "-h", "-p", "-r", "-t", "-u"].includes(
+          option.toLowerCase(),
+        )) cursor += 1;
+      }
       continue;
     }
     break;
   }
-  return words.slice(cursor).join(" ");
+  return cursor;
 }
 
 function shellStageHasProgramHereInput(stage) {
@@ -3995,10 +4074,29 @@ function shellStageHasProgramHereInput(stage) {
 function shellStageExecutesStdinAsProgram(stage) {
   const words = shellCommandWords(stage);
   const commandName = path.posix.basename(words[0] ?? "").toLowerCase();
-  if ([
-    "bash", "dash", "fish", "ksh", "powershell", "powershell.exe", "pwsh",
-    "pwsh.exe", "sh", "zsh",
-  ].includes(commandName)) return true;
+  if (["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(
+    commandName,
+  )) return true;
+  if (["bash", "dash", "fish", "ksh", "sh", "zsh"].includes(commandName)) {
+    let cursor = 1;
+    while (cursor < words.length) {
+      const argument = words[cursor];
+      cursor += 1;
+      if (argument === "-") return true;
+      if (["--help", "--version"].includes(argument)) return false;
+      if (interpreterOptionIsExecutionMode(commandName, argument)
+        || /^-[^-]*c/u.test(argument)) return false;
+      if (argument === "-s" || /^-[^-]*s/u.test(argument)) return true;
+      if (interpreterOptionConsumesValue(commandName, argument)) {
+        cursor += 1;
+        continue;
+      }
+      if (argument === "--") return words[cursor] === undefined;
+      if (argument.startsWith("-")) continue;
+      return false;
+    }
+    return true;
+  }
   if (!["node", "perl", "php", "ruby"].includes(commandName)
     && !/^python\d*(?:\.\d+)*$/u.test(commandName)) return false;
   let cursor = 1;
@@ -4209,26 +4307,7 @@ function gitGlobalOptionConsumesNext(option) {
 
 function shellGitArguments(stage) {
   const words = shellCommandWords(stripShellCommandGrouping(stage));
-  let cursor = 0;
-  while (cursor < words.length) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor])) {
-      cursor += 1;
-      continue;
-    }
-    const command = path.posix.basename(words[cursor]).toLowerCase();
-    if (["builtin", "command", "exec", "nohup", "time"].includes(command)) {
-      cursor += 1;
-      while (words[cursor]?.startsWith("-")) cursor += 1;
-      continue;
-    }
-    if (command === "env") {
-      cursor += 1;
-      while (words[cursor]?.startsWith("-")
-        || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
-      continue;
-    }
-    break;
-  }
+  const cursor = shellCommandWrapperCursor(words);
   if (path.posix.basename(words[cursor] ?? "").toLowerCase() !== "git") {
     return undefined;
   }
@@ -4680,37 +4759,7 @@ function shellArtifactExecutionSources(segment, environmentValues = new Map()) {
     else commandEnvironmentValues.set(binding.name, value);
   }
   const words = shellCommandWords(segment);
-  let cursor = 0;
-  while (cursor < words.length) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor])) {
-      cursor += 1;
-      continue;
-    }
-    const command = path.posix.basename(words[cursor]).toLowerCase();
-    if (["builtin", "command", "exec", "nohup", "time"].includes(command)) {
-      cursor += 1;
-      while (words[cursor]?.startsWith("-")) cursor += 1;
-      continue;
-    }
-    if (command === "sudo") {
-      cursor += 1;
-      while (words[cursor]?.startsWith("-")) {
-        const option = words[cursor];
-        cursor += 1;
-        if (["-c", "-g", "-h", "-p", "-r", "-t", "-u"].includes(option.toLowerCase())) {
-          cursor += 1;
-        }
-      }
-      continue;
-    }
-    if (command === "env") {
-      cursor += 1;
-      while (words[cursor]?.startsWith("-")
-        || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
-      continue;
-    }
-    break;
-  }
+  let cursor = shellCommandWrapperCursor(words, { allowSudo: true });
   const command = words[cursor];
   if (!command) return [];
   cursor += 1;
@@ -5013,6 +5062,38 @@ function shellCommandSegments(runSource) {
   }
   if (current.trim().length > 0) segments.push(current.trim());
   return segments;
+}
+
+function shellCommandSegmentsPreservingGroupRedirections(runSource) {
+  const segments = shellCommandSegments(runSource);
+  const preserved = [];
+  let pending;
+  let closing;
+  for (const segment of segments) {
+    if (!pending) {
+      const opening = /^\s*(\{|\()/u.exec(segment)?.[1];
+      if (!opening || (opening === "{" && !/^\s*\{(?:\s|$)/u.test(segment))) {
+        preserved.push(segment);
+        continue;
+      }
+      pending = [segment];
+      closing = opening === "{" ? "}" : ")";
+    } else {
+      pending.push(segment);
+    }
+    const closingPattern = closing === "}"
+      ? /(?:^|\s)\}(?=\s|$|[<>])/u
+      : /\)(?=\s|$|[<>])/u;
+    const closingMatch = closingPattern.exec(segment);
+    if (!closingMatch) continue;
+    const afterClosing = segment.slice(closingMatch.index + closingMatch[0].length);
+    if (/^\s*\d*>>?/u.test(afterClosing)) preserved.push(pending.join("; "));
+    else preserved.push(...pending);
+    pending = undefined;
+    closing = undefined;
+  }
+  if (pending) preserved.push(...pending);
+  return preserved;
 }
 
 function joinShellHeredocBodies(source) {
