@@ -1513,6 +1513,24 @@ test("untrusted refs persisted through GITHUB_ENV reach later steps", () => {
     "          ref: " + envExpression,
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/github-env-alias-ref.yml", [
+    "name: GITHUB_ENV alias ref",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          SOURCE_REF: " + headExpression,
+    "        run: |",
+    "          DESTINATION=\"$GITHUB_ENV\"",
+    "          echo \"PR_REF=$SOURCE_REF\" >> \"$DESTINATION\"",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + envExpression,
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add persisted environment checkout workflow");
 
   const audit = runAudit(repoRoot);
@@ -1527,6 +1545,11 @@ test("untrusted refs persisted through GITHUB_ENV reach later steps", () => {
     audit.result,
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/github-env-heredoc-ref.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/github-env-alias-ref.yml",
   );
 });
 
@@ -2321,6 +2344,7 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     ["node-require", "node --require payload/hook.js trusted.js"],
     ["node-import", "node --import=payload/hook.mjs trusted.js"],
     ["node-loader", "node --loader payload/loader.mjs trusted.js"],
+    ["make-file", "make -f payload/Makefile"],
   ]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${name}.yml`, [
       `name: workflow run artifact ${name}`,
@@ -2341,6 +2365,26 @@ test("artifact execution recognizes common command wrappers and paths", () => {
       "",
     ].join("\n"));
   }
+  write(repoRoot, ".github/workflows/workflow-run-artifact-node-options.yml", [
+    "name: workflow run artifact Node options",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - env:",
+    "          NODE_OPTIONS: --require ./payload/hook.js",
+    "        run: node trusted.js",
+    "",
+  ].join("\n"));
   for (const scope of ["workflow", "job", "step", "shell"]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${scope}-alias.yml`, [
       `name: workflow run artifact ${scope} alias`,
@@ -2386,6 +2430,8 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "node-require",
     "node-import",
     "node-loader",
+    "make-file",
+    "node-options",
     "workflow-alias",
     "job-alias",
     "step-alias",
@@ -2824,6 +2870,7 @@ test("tainted shell values cannot hide in parameter operators or command substit
     ["unquoted-command-substitution", "echo $(eval \"$CODE\")"],
     ["nested-command-substitution", "echo \"$(printf '%s' \"$(eval \"$CODE\")\")\""],
     ["backtick-substitution", "echo \"`eval \\\"$CODE\\\"`\""],
+    ["nested-backtick-substitution", "echo `echo \\`eval \"$CODE\"\\``"],
     ["process-substitution", "cat <(eval \"$CODE\")"],
   ]) {
     write(repoRoot, `.github/workflows/comment-${form}-eval.yml`, [
@@ -2854,6 +2901,7 @@ test("tainted shell values cannot hide in parameter operators or command substit
     "unquoted-command-substitution",
     "nested-command-substitution",
     "backtick-substitution",
+    "nested-backtick-substitution",
     "process-substitution",
   ]) {
     assertFinding(
@@ -2894,6 +2942,32 @@ test("tainted Git SSH command templates are implicit shell evaluators", () => {
     "        run: GIT_SSH_COMMAND=\"$COMMAND\" git fetch origin",
     "",
   ].join("\n"));
+  write(unsafeRepo, ".github/workflows/comment-git-core-ssh-command.yml", [
+    "name: comment Git core SSH command",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: git -c core.sshCommand=\"$COMMAND\" ls-remote ssh://example.invalid/repository",
+    "",
+  ].join("\n"));
+  write(unsafeRepo, ".github/workflows/comment-git-config-env-ssh-command.yml", [
+    "name: comment Git config env SSH command",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          SSH_COMMAND: " + bodyExpression,
+    "        run: git --config-env=core.sshCommand=SSH_COMMAND ls-remote ssh://example.invalid/repository",
+    "",
+  ].join("\n"));
   write(safeRepo, ".github/workflows/comment-git-message.yml", [
     "name: comment Git message",
     "on: issue_comment",
@@ -2914,7 +2988,12 @@ test("tainted Git SSH command templates are implicit shell evaluators", () => {
   const safeAudit = runAudit(safeRepo);
 
   assert.equal(unsafeAudit.status, 1);
-  for (const form of ["comment-git-ssh-command", "comment-inline-git-ssh-command"]) {
+  for (const form of [
+    "comment-git-ssh-command",
+    "comment-inline-git-ssh-command",
+    "comment-git-core-ssh-command",
+    "comment-git-config-env-ssh-command",
+  ]) {
     assertFinding(
       unsafeAudit.result,
       "workflow-privileged-untrusted-script-interpolation",
@@ -2953,6 +3032,21 @@ test("tainted script text cannot be piped into shell interpreters", () => {
     "        run: printf '%s' \"$COMMAND\" |& bash",
     "",
   ].join("\n"));
+  for (const runtime of ["node", "perl", "php", "python3", "ruby"]) {
+    write(repoRoot, `.github/workflows/comment-pipe-${runtime}.yml`, [
+      `name: comment pipe ${runtime}`,
+      "on: issue_comment",
+      "permissions: read-all",
+      "jobs:",
+      "  inspect:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - env:",
+      "          COMMAND: " + bodyExpression,
+      `        run: printf '%s' "$COMMAND" | ${runtime}`,
+      "",
+    ].join("\n"));
+  }
   commitAll(repoRoot, "add tainted shell pipeline");
 
   const audit = runAudit(repoRoot);
@@ -2968,6 +3062,13 @@ test("tainted script text cannot be piped into shell interpreters", () => {
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-combined-pipe-shell.yml",
   );
+  for (const runtime of ["node", "perl", "php", "python3", "ruby"]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-script-interpolation",
+      `.github/workflows/comment-pipe-${runtime}.yml`,
+    );
+  }
 });
 
 test("tainted here-strings cannot feed shell interpreters", () => {
@@ -3255,6 +3356,22 @@ test("tainted fetch state propagates through FETCH_HEAD checkouts", () => {
     "          git checkout review-head",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/fetched-head-archive.yml", [
+    "name: fetched head archive",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          PR_SHA: " + refExpression,
+    "        run: |",
+    "          git fetch origin \"$PR_SHA\"",
+    "          git archive FETCH_HEAD | tar -x",
+    "          ./verify.sh",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add fetched head checkout");
 
   const audit = runAudit(repoRoot);
@@ -3265,7 +3382,7 @@ test("tainted fetch state propagates through FETCH_HEAD checkouts", () => {
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/fetched-head-checkout.yml",
   );
-  for (const form of ["update-ref", "branch"]) {
+  for (const form of ["update-ref", "branch", "archive"]) {
     assertFinding(
       audit.result,
       "workflow-privileged-untrusted-checkout",
@@ -4461,6 +4578,55 @@ test("privileged workflows reject attacker-controlled job and step conditions", 
   )), false);
 });
 
+test("GITHUB_OUTPUT destination aliases preserve composite output taint", () => {
+  const repoRoot = makeRepository();
+  const headExpression = ["$", "{{ github.head_ref }}"].join("");
+  const outputExpression = ["$", "{{ steps.source.outputs.ref }}"].join("");
+  const actionOutputExpression = ["$", "{{ steps.export.outputs.ref }}"].join("");
+  write(repoRoot, ".github/workflows/aliased-composite-output.yml", [
+    "name: aliased composite output",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    env:",
+    "      PR_REF: " + headExpression,
+    "    steps:",
+    "      - id: source",
+    "        uses: ./.github/actions/aliased-output-ref",
+    "      - uses: actions/checkout@" + "a".repeat(40),
+    "        with:",
+    "          ref: " + outputExpression,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/aliased-output-ref/action.yml", [
+    "name: aliased output ref",
+    "outputs:",
+    "  ref:",
+    "    value: " + actionOutputExpression,
+    "runs:",
+    "  using: composite",
+    "  steps:",
+    "    - id: export",
+    "      shell: bash",
+    "      run: |",
+    "        DESTINATION=\"$GITHUB_OUTPUT\"",
+    "        echo \"ref=$PR_REF\" >> \"$DESTINATION\"",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add aliased composite output checkout");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-checkout",
+    ".github/workflows/aliased-composite-output.yml",
+  );
+});
+
 test("composite outputs only inherit taint from their actual output writes", () => {
   const repoRoot = makeRepository();
   const headExpression = ["$", "{{ github.head_ref }}"].join("");
@@ -4518,6 +4684,9 @@ test("tainted text cannot reach language runtime evaluators", () => {
     ["node", "node -e \"$COMMAND\""],
     ["perl", "perl -e \"$COMMAND\""],
     ["ruby", "ruby -e \"$COMMAND\""],
+    ["nohup-shell", "nohup bash -c \"$COMMAND\""],
+    ["awk", "awk \"$COMMAND\" /dev/null"],
+    ["awk-e", "awk -e \"$COMMAND\" /dev/null"],
   ]) {
     write(repoRoot, `.github/workflows/comment-${runtime}-eval.yml`, [
       `name: comment ${runtime} eval`,
@@ -4538,7 +4707,10 @@ test("tainted text cannot reach language runtime evaluators", () => {
   const audit = runAudit(repoRoot);
 
   assert.equal(audit.status, 1);
-  for (const runtime of ["python", "python-attached", "node", "perl", "ruby"]) {
+  for (const runtime of [
+    "python", "python-attached", "node", "perl", "ruby", "nohup-shell",
+    "awk", "awk-e",
+  ]) {
     assertFinding(
       audit.result,
       "workflow-privileged-untrusted-script-interpolation",
