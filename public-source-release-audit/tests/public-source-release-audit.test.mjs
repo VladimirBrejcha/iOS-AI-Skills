@@ -2227,6 +2227,51 @@ test("workflow_run artifacts remain untrusted when later executed", () => {
   }
 });
 
+test("workflow_run artifact provenance survives current-run reuploads", () => {
+  const repoRoot = makeRepository();
+  const runIdExpression = ["$", "{{ github.event.workflow_run.id }}"].join("");
+  write(repoRoot, ".github/workflows/workflow-run-reuploaded-artifact.yml", [
+    "name: workflow run reuploaded artifact",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  relay:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: inbound",
+    "      - uses: actions/upload-artifact@" + "b".repeat(40),
+    "        with:",
+    "          name: forwarded-payload",
+    "          path: inbound",
+    "  execute:",
+    "    needs: relay",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          name: forwarded-payload",
+    "          path: payload",
+    "      - run: bash payload/run.sh",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add reuploaded workflow artifact execution");
+
+  const audit = runAudit(repoRoot);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-artifact-execution",
+    ".github/workflows/workflow-run-reuploaded-artifact.yml",
+  );
+});
+
 test("artifact execution resolves step working directories", () => {
   const repoRoot = makeRepository();
   const runIdExpression = ["$", "{{ github.event.workflow_run.id }}"].join("");
@@ -2345,6 +2390,8 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     ["node-import", "node --import=payload/hook.mjs trusted.js"],
     ["node-loader", "node --loader payload/loader.mjs trusted.js"],
     ["make-file", "make -f payload/Makefile"],
+    ["make-nested-directory", "make -C payload -C nested"],
+    ["awk-file", "awk -f payload/run.awk /dev/null"],
   ]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${name}.yml`, [
       `name: workflow run artifact ${name}`,
@@ -2383,6 +2430,24 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "      - env:",
     "          NODE_OPTIONS: --require ./payload/hook.js",
     "        run: node trusted.js",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/workflow-run-artifact-env-node-options.yml", [
+    "name: workflow run artifact env Node options",
+    "on:",
+    "  workflow_run:",
+    "    workflows: [verify]",
+    "    types: [completed]",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/download-artifact@" + "a".repeat(40),
+    "        with:",
+    "          run-id: " + runIdExpression,
+    "          path: payload",
+    "      - run: env NODE_OPTIONS='--require payload/hook.js' node trusted.js",
     "",
   ].join("\n"));
   for (const scope of ["workflow", "job", "step", "shell"]) {
@@ -2431,7 +2496,10 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "node-import",
     "node-loader",
     "make-file",
+    "make-nested-directory",
+    "awk-file",
     "node-options",
+    "env-node-options",
     "workflow-alias",
     "job-alias",
     "step-alias",
@@ -2835,6 +2903,52 @@ test("tainted environment values cannot reach shell evaluators", () => {
     "          eval \"$REF\"",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-positional-eval.yml", [
+    "name: comment positional eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + bodyExpression,
+    "        run: |",
+    "          set -- \"$CODE\"",
+    "          eval \"$1\"",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-command-alias-eval.yml", [
+    "name: comment command alias eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + bodyExpression,
+    "        run: |",
+    "          RUNNER=eval",
+    "          \"$RUNNER\" \"$CODE\"",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-overwritten-eval.yml", [
+    "name: comment overwritten eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + bodyExpression,
+    "        run: |",
+    "          VALUE=\"$CODE\"",
+    "          VALUE='echo fixed'",
+    "          eval \"$VALUE\"",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add tainted shell evaluator");
 
   const audit = runAudit(repoRoot);
@@ -2850,13 +2964,17 @@ test("tainted environment values cannot reach shell evaluators", () => {
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-background-eval.yml",
   );
-  for (const form of ["indirect", "nameref"]) {
+  for (const form of ["indirect", "nameref", "positional", "command-alias"]) {
     assertFinding(
       audit.result,
       "workflow-privileged-untrusted-script-interpolation",
       `.github/workflows/comment-${form}-eval.yml`,
     );
   }
+  assert.equal(audit.result.findings.some((finding) => (
+    finding.ruleId === "workflow-privileged-untrusted-script-interpolation"
+    && finding.path === ".github/workflows/comment-overwritten-eval.yml"
+  )), false);
 });
 
 test("tainted shell values cannot hide in parameter operators or command substitutions", () => {
@@ -2942,6 +3060,19 @@ test("tainted Git SSH command templates are implicit shell evaluators", () => {
     "        run: GIT_SSH_COMMAND=\"$COMMAND\" git fetch origin",
     "",
   ].join("\n"));
+  write(unsafeRepo, ".github/workflows/comment-env-git-ssh-command.yml", [
+    "name: comment env Git SSH command",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: env GIT_SSH_COMMAND=\"$COMMAND\" git ls-remote ssh://example.invalid/repository",
+    "",
+  ].join("\n"));
   write(unsafeRepo, ".github/workflows/comment-git-core-ssh-command.yml", [
     "name: comment Git core SSH command",
     "on: issue_comment",
@@ -2991,6 +3122,7 @@ test("tainted Git SSH command templates are implicit shell evaluators", () => {
   for (const form of [
     "comment-git-ssh-command",
     "comment-inline-git-ssh-command",
+    "comment-env-git-ssh-command",
     "comment-git-core-ssh-command",
     "comment-git-config-env-ssh-command",
   ]) {
@@ -3047,6 +3179,19 @@ test("tainted script text cannot be piped into shell interpreters", () => {
       "",
     ].join("\n"));
   }
+  write(repoRoot, ".github/workflows/comment-pipe-php-options.yml", [
+    "name: comment pipe PHP options",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: printf '%s' \"$COMMAND\" | php -d display_errors=1",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add tainted shell pipeline");
 
   const audit = runAudit(repoRoot);
@@ -3069,6 +3214,11 @@ test("tainted script text cannot be piped into shell interpreters", () => {
       `.github/workflows/comment-pipe-${runtime}.yml`,
     );
   }
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-pipe-php-options.yml",
+  );
 });
 
 test("tainted here-strings cannot feed shell interpreters", () => {
@@ -3087,6 +3237,22 @@ test("tainted here-strings cannot feed shell interpreters", () => {
     "        run: bash <<< \"$COMMAND\"",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-heredoc-shell.yml", [
+    "name: comment heredoc shell",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: |",
+    "          bash <<EOF",
+    "          $COMMAND",
+    "          EOF",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add tainted shell here-string");
 
   const audit = runAudit(repoRoot);
@@ -3096,6 +3262,11 @@ test("tainted here-strings cannot feed shell interpreters", () => {
     audit.result,
     "workflow-privileged-untrusted-script-interpolation",
     ".github/workflows/comment-here-shell.yml",
+  );
+  assertFinding(
+    audit.result,
+    "workflow-privileged-untrusted-script-interpolation",
+    ".github/workflows/comment-heredoc-shell.yml",
   );
 });
 
@@ -3372,6 +3543,22 @@ test("tainted fetch state propagates through FETCH_HEAD checkouts", () => {
     "          ./verify.sh",
     "",
   ].join("\n"));
+  write(repoRoot, ".github/workflows/fetched-head-archive-get.yml", [
+    "name: fetched head archive get",
+    "on: pull_request_target",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          PR_SHA: " + refExpression,
+    "        run: |",
+    "          git fetch origin \"$PR_SHA\"",
+    "          git archive FETCH_HEAD | tar --get",
+    "          ./verify.sh",
+    "",
+  ].join("\n"));
   commitAll(repoRoot, "add fetched head checkout");
 
   const audit = runAudit(repoRoot);
@@ -3382,7 +3569,7 @@ test("tainted fetch state propagates through FETCH_HEAD checkouts", () => {
     "workflow-privileged-untrusted-checkout",
     ".github/workflows/fetched-head-checkout.yml",
   );
-  for (const form of ["update-ref", "branch", "archive"]) {
+  for (const form of ["update-ref", "branch", "archive", "archive-get"]) {
     assertFinding(
       audit.result,
       "workflow-privileged-untrusted-checkout",
@@ -4247,6 +4434,67 @@ test("Dockerfile-backed actions require immutable external COPY images", () => {
   }
 });
 
+test("Dockerfile-backed actions require immutable external RUN mount images", () => {
+  const repoRoot = makeRepository();
+  write(repoRoot, ".github/workflows/dockerfile-run-mount-actions.yml", [
+    "name: Dockerfile RUN mount actions",
+    "on: push",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: ./.github/actions/mutable-run-mount",
+    "      - uses: ./.github/actions/pinned-run-mount",
+    "      - uses: ./.github/actions/staged-run-mount",
+    "",
+  ].join("\n"));
+  for (const actionName of [
+    "mutable-run-mount",
+    "pinned-run-mount",
+    "staged-run-mount",
+  ]) {
+    write(repoRoot, `.github/actions/${actionName}/action.yml`, [
+      "name: " + actionName,
+      "runs:",
+      "  using: docker",
+      "  image: Dockerfile",
+      "",
+    ].join("\n"));
+  }
+  write(repoRoot, ".github/actions/mutable-run-mount/Dockerfile", [
+    "FROM scratch",
+    "RUN --mount=from=busybox:latest,source=/bin,target=/mnt /mnt/cp /mnt/sh /bin/other",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/pinned-run-mount/Dockerfile", [
+    "FROM scratch",
+    `RUN --mount=from=busybox@sha256:${"c".repeat(64)},source=/bin,target=/mnt /mnt/cp /mnt/sh /bin/other`,
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/actions/staged-run-mount/Dockerfile", [
+    `FROM busybox@sha256:${"d".repeat(64)} AS tools`,
+    "FROM scratch",
+    "RUN --mount=from=tools,source=/bin,target=/mnt /mnt/cp /mnt/sh /bin/other",
+    "",
+  ].join("\n"));
+  commitAll(repoRoot, "add Dockerfile RUN mount fixtures");
+
+  const audit = runAudit(repoRoot, ["--fail-on-warning"]);
+
+  assert.equal(audit.status, 1);
+  assertFinding(
+    audit.result,
+    "workflow-mutable-action-ref",
+    ".github/actions/mutable-run-mount/Dockerfile",
+  );
+  for (const actionName of ["pinned-run-mount", "staged-run-mount"]) {
+    assert.equal(audit.result.findings.some((finding) => (
+      finding.path === `.github/actions/${actionName}/Dockerfile`
+    )), false);
+  }
+});
+
 test("runner-group selectors require proof of hosted isolation", () => {
   const repoRoot = makeRepository();
   write(repoRoot, ".github/workflows/flow-runner-group.yml", [
@@ -4685,8 +4933,11 @@ test("tainted text cannot reach language runtime evaluators", () => {
     ["perl", "perl -e \"$COMMAND\""],
     ["ruby", "ruby -e \"$COMMAND\""],
     ["nohup-shell", "nohup bash -c \"$COMMAND\""],
+    ["timeout-shell", "timeout 10 bash -c \"$COMMAND\""],
     ["awk", "awk \"$COMMAND\" /dev/null"],
     ["awk-e", "awk -e \"$COMMAND\" /dev/null"],
+    ["sed", "printf x | sed \"$COMMAND\""],
+    ["sed-e", "printf x | sed -e \"$COMMAND\""],
   ]) {
     write(repoRoot, `.github/workflows/comment-${runtime}-eval.yml`, [
       `name: comment ${runtime} eval`,
@@ -4709,7 +4960,7 @@ test("tainted text cannot reach language runtime evaluators", () => {
   assert.equal(audit.status, 1);
   for (const runtime of [
     "python", "python-attached", "node", "perl", "ruby", "nohup-shell",
-    "awk", "awk-e",
+    "timeout-shell", "awk", "awk-e", "sed", "sed-e",
   ]) {
     assertFinding(
       audit.result,
