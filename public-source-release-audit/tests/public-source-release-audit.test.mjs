@@ -2521,6 +2521,9 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     ["env-split", "env -S 'bash payload/run.sh'"],
     ["shell-function", "execute_payload() { bash payload/run.sh; }; execute_payload"],
     ["command-string-function", "bash -c 'execute_payload() { bash payload/run.sh; }; execute_payload'"],
+    ["copy", "cp -R payload relocated && bash relocated/run.sh"],
+    ["path-lookup", "chmod +x payload/run-tool && PATH=payload run-tool"],
+    ["loader-preload", "LD_PRELOAD=payload/hook.so /bin/true"],
   ]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${name}.yml`, [
       `name: workflow run artifact ${name}`,
@@ -2618,6 +2621,36 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "        run: echo fixed",
     "",
   ].join("\n"));
+  for (const scope of ["workflow", "job"]) {
+    write(repoRoot, `.github/workflows/workflow-run-artifact-${scope}-default-shell.yml`, [
+      `name: workflow run artifact ${scope} default shell`,
+      "on:",
+      "  workflow_run:",
+      "    workflows: [verify]",
+      "    types: [completed]",
+      "permissions: read-all",
+      ...(scope === "workflow" ? [
+        "defaults:",
+        "  run:",
+        "    shell: bash payload/wrapper.sh {0}",
+      ] : []),
+      "jobs:",
+      "  inspect:",
+      "    runs-on: ubuntu-latest",
+      ...(scope === "job" ? [
+        "    defaults:",
+        "      run:",
+        "        shell: bash payload/wrapper.sh {0}",
+      ] : []),
+      "    steps:",
+      "      - uses: actions/download-artifact@" + "a".repeat(40),
+      "        with:",
+      "          run-id: " + runIdExpression,
+      "          path: payload",
+      "      - run: echo fixed",
+      "",
+    ].join("\n"));
+  }
   for (const scope of ["workflow", "job", "step", "shell"]) {
     write(repoRoot, `.github/workflows/workflow-run-artifact-${scope}-alias.yml`, [
       `name: workflow run artifact ${scope} alias`,
@@ -2674,10 +2707,15 @@ test("artifact execution recognizes common command wrappers and paths", () => {
     "env-split",
     "shell-function",
     "command-string-function",
+    "copy",
+    "path-lookup",
+    "loader-preload",
     "node-options",
     "env-node-options",
     "bash-env",
     "custom-shell-template",
+    "workflow-default-shell",
+    "job-default-shell",
     "workflow-alias",
     "job-alias",
     "step-alias",
@@ -5521,6 +5559,66 @@ test("tainted text cannot reach language runtime evaluators", () => {
       "",
     ].join("\n"));
   }
+  write(repoRoot, ".github/workflows/comment-function-and-or-eval.yml", [
+    "name: comment function and-or eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: |",
+    "          true && danger() { eval \"$COMMAND\"; }",
+    "          danger",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-function-case-arm-eval.yml", [
+    "name: comment function case arm eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: |",
+    "          danger() { eval \"$COMMAND\"; }",
+    "          case yes in yes) danger ;; esac",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-generated-script-eval.yml", [
+    "name: comment generated script eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: |",
+    "          printf '%s' \"$COMMAND\" > generated.sh",
+    "          bash generated.sh",
+    "",
+  ].join("\n"));
+  write(repoRoot, ".github/workflows/comment-function-shift-eval.yml", [
+    "name: comment function shift eval",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: |",
+    "          danger() { shift; eval \"$1\"; }",
+    "          danger fixed \"$COMMAND\"",
+    "",
+  ].join("\n"));
   write(safeRepo, ".github/workflows/comment-function-case.yml", [
     "name: comment function case",
     "on: issue_comment",
@@ -5534,6 +5632,35 @@ test("tainted text cannot reach language runtime evaluators", () => {
     "        run: |",
     "          DangerFunction() { eval \"$COMMAND\"; }",
     "          dangerfunction || true",
+    "",
+  ].join("\n"));
+  write(safeRepo, ".github/workflows/comment-variable-case.yml", [
+    "name: comment variable case",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          CODE: " + bodyExpression,
+    "        run: eval \"$code\"",
+    "",
+  ].join("\n"));
+  write(safeRepo, ".github/workflows/comment-generated-script-overwrite.yml", [
+    "name: comment generated script overwrite",
+    "on: issue_comment",
+    "permissions: read-all",
+    "jobs:",
+    "  inspect:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - env:",
+    "          COMMAND: " + bodyExpression,
+    "        run: |",
+    "          printf '%s' \"$COMMAND\" > generated.sh",
+    "          printf '%s' 'echo fixed' > generated.sh",
+    "          bash generated.sh",
     "",
   ].join("\n"));
   commitAll(repoRoot, "add tainted language runtime evaluators");
@@ -5570,6 +5697,15 @@ test("tainted text cannot reach language runtime evaluators", () => {
       audit.result,
       "workflow-privileged-untrusted-script-interpolation",
       `.github/workflows/comment-function-${control}-eval.yml`,
+    );
+  }
+  for (const name of [
+    "function-and-or", "function-case-arm", "generated-script", "function-shift",
+  ]) {
+    assertFinding(
+      audit.result,
+      "workflow-privileged-untrusted-script-interpolation",
+      `.github/workflows/comment-${name}-eval.yml`,
     );
   }
   assert.equal(safeAudit.status, 0);

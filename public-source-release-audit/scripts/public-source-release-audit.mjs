@@ -1368,9 +1368,11 @@ function workflowMappingBindings(group, propertyName, namespace, scalarAnchors) 
     if (property.entry.key.toLowerCase() !== propertyName) continue;
     const mappingEntries = workflowPropertyMappingEntries(group, property, scalarAnchors);
     for (const { entry } of mappingEntries) {
+      const originalName = resolveYamlScalarValue(entry.key, scalarAnchors);
       bindings.push({
-        name: resolveYamlScalarValue(entry.key, scalarAnchors).toLowerCase(),
+        name: originalName.toLowerCase(),
         namespace,
+        originalName,
         value: resolveYamlScalarValue(entry.value, scalarAnchors),
       });
     }
@@ -1669,13 +1671,18 @@ function workflowStepTaintAnalysis(
         runSource,
         stepTaintedBindings,
       )) {
-        const environmentBinding = `env.${binding}`;
+        const environmentBinding = `env.${binding.toLowerCase()}`;
+        const shellEnvironmentBinding = `shell.env.${binding}`;
         if (isTainted) {
           derivedTaintedBindings.add(environmentBinding);
+          derivedTaintedBindings.add(shellEnvironmentBinding);
           clearedTaintedBindings.delete(environmentBinding);
+          clearedTaintedBindings.delete(shellEnvironmentBinding);
         } else {
           derivedTaintedBindings.delete(environmentBinding);
+          derivedTaintedBindings.delete(shellEnvironmentBinding);
           clearedTaintedBindings.add(environmentBinding);
+          clearedTaintedBindings.add(shellEnvironmentBinding);
         }
       }
       const fetchHeadTaintUpdate = shellRunFetchHeadTaintUpdate(
@@ -1780,7 +1787,7 @@ function githubEnvironmentFileWriteUpdates(
     }
     const writtenNames = [...segment.matchAll(
       /(?:^|[\s"'`])([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|<<)/gu,
-    )].map((match) => match[1].toLowerCase());
+    )].map((match) => match[1]);
     if (writtenNames.length === 0 && segmentReferencesTaint) {
       updates.set("*", true);
     }
@@ -1805,6 +1812,7 @@ function shellAssignmentBinding(source) {
   return {
     name: assignment[1].toLowerCase(),
     operator: assignment[2],
+    shellName: assignment[1],
     value: assignment[3],
   };
 }
@@ -1866,7 +1874,9 @@ function localActionCallsFromStepGroup(stepGroup, scalarAnchors, stepTaintedBind
     `${binding.namespace}.${binding.name}`
   )));
   const taintedBindings = new Set([...stepTaintedBindings].filter((binding) => (
-    binding.startsWith("env.") || binding.startsWith("git.")
+    binding.startsWith("env.")
+    || binding.startsWith("git.")
+    || binding.startsWith("shell.env.")
   )));
   for (const binding of inputBindings) {
     if (isUntrustedReusableValue(binding.value, stepTaintedBindings)) {
@@ -3277,6 +3287,7 @@ function hasUntrustedWorkflowArtifactExecution(
     text,
     scalarAnchors,
   );
+  const workflowShell = workflowRunDefaultShell(text, scalarAnchors);
   const jobTaintAnalyses = workflowJobTaintAnalyses(
     jobGroups,
     workflowRootMappingBindings(text, "env", "env", scalarAnchors),
@@ -3300,6 +3311,7 @@ function hasUntrustedWorkflowArtifactExecution(
       jobTaintAnalyses.get(jobGroup)?.stepContexts ?? [],
       scalarAnchors,
       {
+        defaultShell: jobRunDefaultShell(jobGroup, scalarAnchors) ?? workflowShell,
         defaultWorkingDirectory: jobRunDefaultWorkingDirectory(
           jobGroup,
           scalarAnchors,
@@ -3701,11 +3713,27 @@ function stepGroupHasUntrustedExecutableActionInput(
 }
 
 function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
-  const taintedVariables = new Set([...taintedBindings].flatMap((binding) => (
-    binding.startsWith("env.") && binding !== "env.*"
-      ? [binding.slice("env.".length).toLowerCase()]
+  const shellEnvironmentVariables = [...taintedBindings].flatMap((binding) => (
+    binding.startsWith("shell.env.")
+      ? [binding.slice("shell.env.".length)]
       : []
+  ));
+  const variableNames = shellEnvironmentVariables.length > 0
+    ? shellEnvironmentVariables
+    : [...taintedBindings].flatMap((binding) => (
+      binding.startsWith("env.") && binding !== "env.*"
+        ? [binding.slice("env.".length).toLowerCase()]
+        : []
+    ));
+  const usesCaseInsensitiveVariables = /\$env:[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]*%|\b(?:powershell|pwsh)(?:\.exe)?\b/iu.test(
+    runSource,
+  );
+  const variablesAreCaseSensitive = shellEnvironmentVariables.length > 0
+    && !usesCaseInsensitiveVariables;
+  const taintedVariables = new Set(variableNames.map((name) => (
+    variablesAreCaseSensitive ? name : name.toLowerCase()
   )));
+  taintedVariables.caseSensitive = variablesAreCaseSensitive;
   const anyEnvironmentVariableTainted = taintedBindings.has("env.*");
   const evaluatorCommand = /^\s*(?:(?:builtin|command|exec)\s+)?(?:(?:\/usr\/bin\/)?env\s+(?:(?:-[^\s]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]+)\s+)*)?(?:eval\b|(?:(?:\/[^/\s]+)*\/)?(?:bash|dash|fish|ksh|sh|zsh)\b[^;&|]*\s-c(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?node\b[^;&|]*\s(?:-e|--eval|-p|--print)(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?(?:perl|python(?:\d+(?:\.\d+)*)?|ruby)\b[^;&|]*\s-(?:c|e)(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?php\b[^;&|]*\s-r(?:\s+|(?=[^-\s])|$)|(?:(?:\/[^/\s]+)*\/)?deno\b[^;&|]*\beval(?:\s|$)|(?:iex|invoke-expression)\b|(?:(?:\/[^/\s]+)*\/)?(?:powershell|pwsh)(?:\.exe)?\b[^;&|]*\s-(?:command|c)(?:\s+|(?=[^-\s])|$))/iu;
   const sourceEvaluatesTaint = (
@@ -3714,10 +3742,13 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
     inheritedStaticValues,
     depth,
     inheritedFunctions,
+    inheritedTaintedScriptPaths,
   ) => {
     const localTaintedVariables = new Set(inheritedTaintedVariables);
+    localTaintedVariables.caseSensitive = inheritedTaintedVariables.caseSensitive;
     const localStaticValues = new Map(inheritedStaticValues);
     const localFunctions = new Map(inheritedFunctions);
+    const localTaintedScriptPaths = inheritedTaintedScriptPaths;
     for (const unit of shellEvaluationUnits(source)) {
       if (unit.definition) {
         localFunctions.set(unit.definition.name, unit.definition.body);
@@ -3739,6 +3770,7 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
         localTaintedVariables,
         anyEnvironmentVariableTainted,
       );
+      updateShellShiftTaint(executableSegment, localTaintedVariables);
       applyStaticShellAssignment(executableSegment, localStaticValues);
       for (const substitution of shellCommandSubstitutions(segment)) {
         if (depth >= 32) {
@@ -3756,6 +3788,7 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
           localStaticValues,
           depth + 1,
           localFunctions,
+          localTaintedScriptPaths,
         )) return true;
       }
       let pipelineInputTainted = false;
@@ -3792,6 +3825,24 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
           localTaintedVariables,
           anyEnvironmentVariableTainted,
         );
+        const executedFileSources = shellArtifactExecutionSources(
+          sinkStage,
+          localStaticValues,
+        ).map((sourcePath) => (
+          resolveStaticEnvironmentReferences(sourcePath, localStaticValues)
+          ?? sourcePath
+        ));
+        if (executedFileSources.some((sourcePath) => (
+          [...localTaintedScriptPaths].some((taintedPath) => (
+            artifactSourceMatchesPath(sourcePath, taintedPath)
+          ))
+        ))) return true;
+        updateShellTaintedFileWrites(
+          stage,
+          localTaintedScriptPaths,
+          stageReferencesTaint || pipelineInputTainted || redirectedInputTainted,
+          localStaticValues,
+        );
         for (const childCommand of [
           ...shellFindExecutedCommands(stage),
           ...shellEnvSplitCommands(stage),
@@ -3815,6 +3866,7 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
             localStaticValues,
             depth + 1,
             localFunctions,
+            localTaintedScriptPaths,
           )) return true;
         }
         const functionInvocation = shellFunctionInvocation(stage, localFunctions);
@@ -3838,6 +3890,7 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
             localStaticValues,
             depth + 1,
             localFunctions,
+            localTaintedScriptPaths,
           )) return true;
           pipelineInputTainted ||= stageReferencesTaint;
           continue;
@@ -3860,7 +3913,11 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
         )) return true;
         if (shellStageMayInvokeGitSsh(stage)
           && (anyEnvironmentVariableTainted
-            || localTaintedVariables.has("git_ssh_command")
+            || localTaintedVariables.has(
+              localTaintedVariables.caseSensitive
+                ? "GIT_SSH_COMMAND"
+                : "git_ssh_command",
+            )
             || shellStageHasTaintedEnvironmentBinding(
               stage,
               "git_ssh_command",
@@ -3889,7 +3946,40 @@ function shellRunEvaluatesTaintedVariable(runSource, taintedBindings) {
     }
     return false;
   };
-  return sourceEvaluatesTaint(runSource, taintedVariables, new Map(), 0, new Map());
+  return sourceEvaluatesTaint(
+    runSource,
+    taintedVariables,
+    new Map(),
+    0,
+    new Map(),
+    new Set(),
+  );
+}
+
+function updateShellTaintedFileWrites(
+  stage,
+  taintedPaths,
+  outputIsTainted,
+  environmentValues,
+) {
+  const redirections = [...stage.matchAll(
+    /(?:^|\s)(\d*)(>>?|>\|)\s*("[^"]*"|'[^']*'|[^\s;&|]+)/gu,
+  )];
+  for (const redirection of redirections) {
+    if (redirection[1] && redirection[1] !== "1") continue;
+    const destination = resolveStaticEnvironmentReferences(
+      redirection[3],
+      environmentValues,
+    );
+    if (!destination || /^\/dev\//u.test(destination)) continue;
+    const normalizedDestination = normalizedArtifactPath(
+      destination,
+      ".",
+      environmentValues,
+    );
+    if (outputIsTainted) taintedPaths.add(normalizedDestination);
+    else if (redirection[2] !== ">>") taintedPaths.delete(normalizedDestination);
+  }
 }
 
 function shellEvaluationUnits(source) {
@@ -3911,7 +4001,7 @@ function shellEvaluationUnits(source) {
 
 function shellFunctionDefinitions(source) {
   const definitions = [];
-  const pattern = /(^|[;\n])\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{/gu;
+  const pattern = /(^|[;\n]|&&|\|\|)\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{/gu;
   let match;
   while ((match = pattern.exec(source)) !== null) {
     const openingBrace = match.index + match[0].lastIndexOf("{");
@@ -3956,6 +4046,15 @@ function shellFunctionInvocation(stage, functions) {
   const words = shellCommandWords(stripShellCommandGrouping(stage));
   let cursor = 0;
   while (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[cursor] ?? "")) cursor += 1;
+  if (words[cursor] === "case") {
+    const inIndex = words.indexOf("in", cursor + 1);
+    const patternIndex = words.findIndex((word, index) => (
+      index > inIndex && (word === ")" || word.endsWith(")"))
+    ));
+    if (inIndex >= 0 && patternIndex > inIndex) cursor = patternIndex + 1;
+  } else if (words[cursor] === ")" || words[cursor]?.endsWith(")")) {
+    cursor += 1;
+  }
   const controlWords = new Set([
     "!", "coproc", "do", "elif", "else", "if", "then", "time", "until",
     "while",
@@ -3984,6 +4083,7 @@ function shellFunctionInvocationTaintedVariables(
   const taintedVariables = new Set([...inheritedTaintedVariables].filter((name) => (
     !/^\d+$/u.test(name) && !["*", "@"].includes(name)
   )));
+  taintedVariables.caseSensitive = inheritedTaintedVariables.caseSensitive;
   const argumentTaint = arguments_.map((argument) => (
     isUntrustedReusableValue(argument, taintedBindings)
     || shellSourceReferencesTaintedVariable(
@@ -4051,7 +4151,7 @@ function updateShellReadTaint(stage, taintedVariables, inputTainted) {
     if (/^(?:\d*)</u.test(argument)) break;
     if (argument === "-a") {
       if (/^[A-Za-z_][A-Za-z0-9_]*$/u.test(words[cursor] ?? "")) {
-        targets.push(words[cursor].toLowerCase());
+        targets.push(words[cursor]);
       }
       cursor += 1;
       continue;
@@ -4062,11 +4162,11 @@ function updateShellReadTaint(stage, taintedVariables, inputTainted) {
     }
     if (argument.startsWith("-")) continue;
     if (/^[A-Za-z_][A-Za-z0-9_]*$/u.test(argument)) {
-      targets.push(argument.toLowerCase());
+      targets.push(argument);
     }
   }
   for (const target of targets.length > 0 ? targets : ["reply"]) {
-    taintedVariables.add(target);
+    taintedVariables.add(taintedVariables.caseSensitive ? target : target.toLowerCase());
   }
 }
 
@@ -4084,13 +4184,13 @@ function updateShellPrintfTaint(
   while (cursor < words.length) {
     const argument = words[cursor];
     if (argument === "-v") {
-      target = words[cursor + 1]?.toLowerCase();
+      target = words[cursor + 1];
       cursor += 2;
       continue;
     }
     const attachedTarget = /^-v([A-Za-z_][A-Za-z0-9_]*)$/u.exec(argument)?.[1];
     if (attachedTarget) {
-      target = attachedTarget.toLowerCase();
+      target = attachedTarget;
       cursor += 1;
       continue;
     }
@@ -4106,8 +4206,9 @@ function updateShellPrintfTaint(
       taintedVariables,
       anyEnvironmentVariableTainted,
     );
-  if (valueIsTainted) taintedVariables.add(target);
-  else taintedVariables.delete(target);
+  const taintName = taintedVariables.caseSensitive ? target : target.toLowerCase();
+  if (valueIsTainted) taintedVariables.add(taintName);
+  else taintedVariables.delete(taintName);
 }
 
 function shellFindExecutedCommands(stage) {
@@ -4367,9 +4468,12 @@ function updateShellVariableTaint(
 ) {
   const assignment = shellAssignmentBinding(source);
   if (!assignment) return;
-  const namerefTarget = /^\s*(?:declare|local|typeset)(?=[^\n]*\s-n(?:\s|$))[^\n]*\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*([A-Za-z_][A-Za-z0-9_]*)/iu.exec(
+  const rawNamerefTarget = /^\s*(?:declare|local|typeset)(?=[^\n]*\s-n(?:\s|$))[^\n]*\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*([A-Za-z_][A-Za-z0-9_]*)/iu.exec(
     source,
-  )?.[1].toLowerCase();
+  )?.[1];
+  const namerefTarget = taintedVariables.caseSensitive
+    ? rawNamerefTarget
+    : rawNamerefTarget?.toLowerCase();
   const valueIsTainted = (namerefTarget
     && (anyEnvironmentVariableTainted || taintedVariables.has(namerefTarget)))
     || isUntrustedReusableValue(assignment.value, taintedBindings)
@@ -4384,8 +4488,13 @@ function updateShellVariableTaint(
       taintedVariables,
       anyEnvironmentVariableTainted,
     );
-  if (valueIsTainted) taintedVariables.add(assignment.name);
-  else if (assignment.operator !== "+=") taintedVariables.delete(assignment.name);
+  const taintName = taintedVariables.caseSensitive
+    ? assignment.shellName
+    : assignment.name;
+  if (valueIsTainted) taintedVariables.add(taintName);
+  else if (assignment.operator !== "+=") {
+    taintedVariables.delete(taintName);
+  }
 }
 
 function updateShellPositionalTaint(
@@ -4414,6 +4523,36 @@ function updateShellPositionalTaint(
     if (isTainted) taintedVariables.add(String(index + 1));
   });
   if (argumentTaint.some(Boolean)) {
+    taintedVariables.add("*");
+    taintedVariables.add("@");
+  }
+}
+
+function updateShellShiftTaint(source, taintedVariables) {
+  const words = shellCommandWords(stripShellCommandGrouping(source));
+  let cursor = shellCommandWrapperCursor(words);
+  if (path.posix.basename(words[cursor] ?? "").toLowerCase() !== "shift") return;
+  cursor += 1;
+  const requestedCount = words[cursor] ?? "1";
+  const count = /^\d+$/u.test(requestedCount)
+    ? Number.parseInt(requestedCount, 10)
+    : undefined;
+  const positionalTaint = [...taintedVariables]
+    .filter((name) => /^\d+$/u.test(name))
+    .map((name) => Number.parseInt(name, 10));
+  for (const name of [...taintedVariables]) {
+    if (/^\d+$/u.test(name) || ["*", "@"].includes(name)) {
+      taintedVariables.delete(name);
+    }
+  }
+  if (count === undefined) {
+    if (positionalTaint.length > 0) taintedVariables.add("1");
+  } else {
+    for (const position of positionalTaint) {
+      if (position > count) taintedVariables.add(String(position - count));
+    }
+  }
+  if ([...taintedVariables].some((name) => /^\d+$/u.test(name))) {
     taintedVariables.add("*");
     taintedVariables.add("@");
   }
@@ -4778,7 +4917,11 @@ function shellStageHasTaintedGitSshOverride(
     const environmentMatch = /^core\.sshcommand=([A-Za-z_][A-Za-z0-9_]*)$/iu.exec(
       configEnvironmentValue ?? "",
     );
-    const environmentName = environmentMatch?.[1].toLowerCase();
+    const environmentName = environmentMatch
+      ? (taintedVariables.caseSensitive
+        ? environmentMatch[1]
+        : environmentMatch[1].toLowerCase())
+      : undefined;
     if (environmentName
       && (anyEnvironmentVariableTainted || taintedVariables.has(environmentName))) {
       return true;
@@ -4840,6 +4983,7 @@ function stepContextsHaveUntrustedArtifactExecution(
   scalarAnchors,
   {
     artifactPaths = [],
+    defaultShell,
     defaultWorkingDirectory = ".",
     environmentValues = new Map(),
     localActionExecution,
@@ -4873,6 +5017,7 @@ function stepContextsHaveUntrustedArtifactExecution(
       artifactPaths,
       workingDirectory,
       stepEnvironmentValues,
+      defaultShell,
     );
     if (artifactAnalysis.executes) return true;
     for (const artifactPath of artifactAnalysis.derivedArtifactPaths) {
@@ -5131,10 +5276,28 @@ function workflowRunDefaultWorkingDirectory(text, scalarAnchors) {
     .find(Boolean) ?? ".";
 }
 
+function workflowRunDefaultShell(text, scalarAnchors) {
+  return workflowRootContainerGroups(text, "defaults", scalarAnchors)
+    .flatMap((group) => workflowNestedMappingValues(
+      group,
+      ["run", "shell"],
+      scalarAnchors,
+    ))
+    .find(Boolean);
+}
+
 function jobRunDefaultWorkingDirectory(jobGroup, scalarAnchors) {
   return workflowNestedMappingValues(
     jobGroup,
     ["defaults", "run", "working-directory"],
+    scalarAnchors,
+  ).find(Boolean);
+}
+
+function jobRunDefaultShell(jobGroup, scalarAnchors) {
+  return workflowNestedMappingValues(
+    jobGroup,
+    ["defaults", "run", "shell"],
     scalarAnchors,
   ).find(Boolean);
 }
@@ -5182,6 +5345,7 @@ function stepArtifactExecutionAnalysis(
   artifactPaths,
   workingDirectory = ".",
   environmentValues = new Map(),
+  defaultShell,
 ) {
   const localActionReference = stepGroup.properties
     .filter(({ entry }) => entry.key.toLowerCase() === "uses")
@@ -5192,9 +5356,16 @@ function stepArtifactExecutionAnalysis(
   ))) {
     return { derivedArtifactPaths: [], executes: true };
   }
-  const shellExecutionSources = stepGroup.properties
+  const runSources = stepGroup.properties
+    .filter(({ entry }) => entry.key.toLowerCase() === "run")
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors));
+  const requestedShells = stepGroup.properties
     .filter(({ entry }) => entry.key.toLowerCase() === "shell")
-    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))
+    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors));
+  if (requestedShells.length === 0 && runSources.length > 0 && defaultShell) {
+    requestedShells.push(defaultShell);
+  }
+  const shellExecutionSources = requestedShells
     .flatMap((shellTemplate) => shellArtifactExecutionSources(
       shellTemplate,
       environmentValues,
@@ -5212,9 +5383,7 @@ function stepArtifactExecutionAnalysis(
   ))) return { derivedArtifactPaths: [], executes: true };
   const knownArtifactPaths = [...artifactPaths];
   const derivedArtifactPaths = [];
-  for (const runSource of stepGroup.properties
-    .filter(({ entry }) => entry.key.toLowerCase() === "run")
-    .map(({ entry }) => resolveYamlScalarValue(entry.value, scalarAnchors))) {
+  for (const runSource of runSources) {
     const analysis = shellRunArtifactExecutionAnalysis(
       runSource,
       knownArtifactPaths,
@@ -5311,10 +5480,16 @@ function shellRunArtifactExecutionAnalysis(
       );
       continue;
     }
-    const executionSources = shellArtifactExecutionSources(
-      executableSegment,
-      localEnvironmentValues,
-    )
+    const executionSources = [
+      ...shellArtifactExecutionSources(
+        executableSegment,
+        localEnvironmentValues,
+      ),
+      ...shellDynamicLoaderExecutionSources(
+        executableSegment,
+        localEnvironmentValues,
+      ),
+    ]
       .map((source) => (
         resolveStaticEnvironmentReferences(source, localEnvironmentValues) ?? source
       ));
@@ -5327,6 +5502,24 @@ function shellRunArtifactExecutionAnalysis(
       functions: localFunctions,
       workingDirectory: effectiveWorkingDirectory,
     };
+    const transfer = shellFileTransfer(executableSegment);
+    if (transfer && transfer.sources.some((source) => (
+      knownArtifactPaths.some((artifactPath) => artifactSourceMatchesPath(
+        source,
+        artifactPath,
+        effectiveWorkingDirectory,
+      ))
+    ))) {
+      const destination = normalizedArtifactPath(
+        transfer.destination,
+        effectiveWorkingDirectory,
+        localEnvironmentValues,
+      );
+      if (!knownArtifactPaths.includes(destination)) knownArtifactPaths.push(destination);
+      if (!derivedArtifactPaths.includes(destination)) {
+        derivedArtifactPaths.push(destination);
+      }
+    }
     const extraction = shellArchiveExtraction(executableSegment);
     if (!extraction || !knownArtifactPaths.some((artifactPath) => (
       artifactSourceMatchesPath(
@@ -5352,6 +5545,77 @@ function shellRunArtifactExecutionAnalysis(
     functions: localFunctions,
     workingDirectory: effectiveWorkingDirectory,
   };
+}
+
+function shellFileTransfer(segment) {
+  const words = shellCommandWords(stripShellCommandGrouping(segment));
+  let cursor = shellCommandWrapperCursor(words, { allowSudo: true });
+  const command = path.posix.basename(words[cursor] ?? "").toLowerCase();
+  if (!["cp", "gcp", "install", "mv", "rsync"].includes(command)) {
+    return undefined;
+  }
+  cursor += 1;
+  const positionals = [];
+  let destination;
+  let optionsEnded = false;
+  const optionsWithValues = new Set([
+    "--block-size", "--chmod", "--chown", "--compare-dest", "--copy-dest",
+    "--exclude", "--exclude-from", "--files-from",
+    "--filter", "--group", "--include", "--include-from", "--link-dest",
+    "--mode", "--owner", "--rsync-path", "--suffix", "--temp-dir",
+    "--usermap", "-B", "-e", "-f", "-g", "-m", "-o", "-S",
+  ]);
+  while (cursor < words.length) {
+    const argument = words[cursor];
+    cursor += 1;
+    if (!optionsEnded && argument === "--") {
+      optionsEnded = true;
+      continue;
+    }
+    if (!optionsEnded && ["-t", "--target-directory"].includes(argument)) {
+      destination = words[cursor];
+      cursor += 1;
+      continue;
+    }
+    if (!optionsEnded) {
+      const inlineDestination = /^--target-directory=(.*)$/iu.exec(argument)?.[1]
+        ?? /^-t(.+)$/u.exec(argument)?.[1];
+      if (inlineDestination !== undefined) {
+        destination = inlineDestination;
+        continue;
+      }
+      if (optionsWithValues.has(argument)) {
+        cursor += 1;
+        continue;
+      }
+      if (argument.startsWith("-")) continue;
+    }
+    positionals.push(argument);
+  }
+  if (destination) {
+    return positionals.length > 0 ? { destination, sources: positionals } : undefined;
+  }
+  if (positionals.length < 2) return undefined;
+  return {
+    destination: positionals.at(-1),
+    sources: positionals.slice(0, -1),
+  };
+}
+
+function shellDynamicLoaderExecutionSources(segment, environmentValues) {
+  const commandEnvironmentValues = new Map(environmentValues);
+  for (const binding of shellCommandEnvironmentBindings(segment)) {
+    const value = resolveStaticEnvironmentReferences(
+      binding.value,
+      commandEnvironmentValues,
+    );
+    if (value === undefined) commandEnvironmentValues.delete(binding.name);
+    else commandEnvironmentValues.set(binding.name, value);
+  }
+  return ["dyld_insert_libraries", "ld_audit", "ld_preload"]
+    .flatMap((name) => (commandEnvironmentValues.get(name) ?? "")
+      .split(/[\s:]+/u)
+      .filter(Boolean));
 }
 
 function shellArchiveExtraction(segment) {
@@ -5595,7 +5859,22 @@ function shellArtifactExecutionSources(
     }
     return executionSources;
   }
-  return command.includes("/") ? [command] : [];
+  if (command.includes("/")) return [command];
+  const configuredPath = commandEnvironmentValues.get("path");
+  const shellBuiltins = new Set([
+    ".", ":", "alias", "bg", "break", "cd", "command", "continue", "echo",
+    "eval", "exec", "exit", "export", "false", "fg", "getopts", "hash",
+    "jobs", "kill", "printf", "pwd", "read", "readonly", "return", "set",
+    "shift", "test", "times", "trap", "true", "type", "typeset", "ulimit",
+    "umask", "unalias", "unset", "wait",
+  ]);
+  if (!configuredPath || shellBuiltins.has(commandName)) return [];
+  return configuredPath.split(":").flatMap((directory) => {
+    const normalizedDirectory = directory || ".";
+    return path.posix.isAbsolute(normalizedDirectory)
+      ? []
+      : [path.posix.join(normalizedDirectory, command)];
+  });
 }
 
 function shellCommandStringArtifactExecutionSources(
@@ -6261,7 +6540,10 @@ function shellSourceContainsToken(source, token) {
 
 function shellSourceReferencesTaintedVariable(source, taintedVariables, anyTainted) {
   const nameref = /^\s*(?:declare|local|typeset)(?=[^\n]*\s-n(?:\s|$))[^\n]*\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*([A-Za-z_][A-Za-z0-9_]*)/iu.exec(source);
-  if (nameref && (anyTainted || taintedVariables.has(nameref[1].toLowerCase()))) {
+  if (nameref && (anyTainted
+    || taintedVariables.has(nameref[1])
+    || (!taintedVariables.caseSensitive
+      && taintedVariables.has(nameref[1].toLowerCase())))) {
     return true;
   }
   if (/\$\{![A-Za-z_][A-Za-z0-9_]*(?:[*@])?\}/u.test(source)
@@ -6274,14 +6556,19 @@ function shellSourceReferencesTaintedVariable(source, taintedVariables, anyTaint
     ...source.matchAll(/\$(?:env:([A-Za-z_][A-Za-z0-9_]*)|\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*))/giu),
     ...source.matchAll(/\$(?:\{([0-9]+)|([0-9]+))/gu),
     ...source.matchAll(/%([A-Za-z_][A-Za-z0-9_]*)%/gu),
-  ].map((match) => (match[1] ?? match[2] ?? match[3]).toLowerCase());
-  return references.some((name) => anyTainted || taintedVariables.has(name));
+  ].map((match) => match[1] ?? match[2] ?? match[3]);
+  return references.some((name) => anyTainted
+    || taintedVariables.has(name)
+    || (!taintedVariables.caseSensitive && taintedVariables.has(name.toLowerCase())));
 }
 
 function contextTaintedBindings(bindings, inheritedTaintedBindings) {
   const taintedBindings = new Set(inheritedTaintedBindings);
   for (const binding of bindings) {
     taintedBindings.delete(binding.namespace + "." + binding.name);
+    if (binding.namespace === "env") {
+      taintedBindings.delete(`shell.env.${binding.originalName ?? binding.name}`);
+    }
   }
   let changed;
   do {
@@ -6291,6 +6578,9 @@ function contextTaintedBindings(bindings, inheritedTaintedBindings) {
       if (!taintedBindings.has(name)
         && isUntrustedReusableValue(binding.value, taintedBindings)) {
         taintedBindings.add(name);
+        if (binding.namespace === "env") {
+          taintedBindings.add(`shell.env.${binding.originalName ?? binding.name}`);
+        }
         changed = true;
       }
     }
