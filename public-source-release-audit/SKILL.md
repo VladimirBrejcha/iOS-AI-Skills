@@ -31,8 +31,10 @@ The supported lexical forms are deliberately small:
   access-key values;
 - OpenAI `sk-` and `sk-proj-` key prefixes;
 - explicit `Authorization: Bearer` header or map values; and
-- literal or commonly source-escaped absolute macOS, Linux, and Windows
-  user-home paths, including bounded environment and command-option values.
+- literal or commonly source-escaped rooted POSIX families `Users/<name>`,
+  `var/root`, `private/var/root`, `home/<name>`, and `root`, plus drive-letter
+  `Users\\<name>` paths, including bounded environment and command-option
+  values.
 
 The home-path rule covers literal paths and common source escaping for POSIX
 slashes and Windows backslashes. It does not decode URL-encoded content.

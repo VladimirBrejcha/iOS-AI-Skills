@@ -16,6 +16,8 @@ RULES = [
           (?:Users|home)(?:/|\\/)[A-Za-z0-9._-]+(?:(?:/|\\/)|\b)
           |
           root(?:(?:/|\\/)|(?![A-Za-z0-9._-]))
+          |
+          (?:private(?:/|\\/))?var(?:/|\\/)root(?:(?:/|\\/)|(?![A-Za-z0-9._-]))
         )
         |
         [A-Za-z]:[\\/]{1,2}(?i:Users)[\\/]{1,2}[A-Za-z0-9._-]+(?:[\\/]{1,2}|(?=["'\s,;:)\]\}]|\z))
@@ -285,6 +287,9 @@ worktree_paths.each do |relative_path|
       File.binread(absolute_path)
     end
     if content
+      if LFS_POINTER.match?(content.b)
+        errors.add([relative_path, "Git LFS object requires separate review"])
+      end
       if utf16_bom?(content)
         errors.add([relative_path, "BOM-marked UTF-16 source requires separate review"])
       end

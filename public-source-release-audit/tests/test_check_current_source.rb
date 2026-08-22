@@ -34,6 +34,14 @@ class CheckCurrentSourceTest < Minitest::Test
     "gh" + "p_" + ("A" * 24)
   end
 
+  def lfs_pointer
+    [
+      "version https://git-lfs.github.com/spec/v1",
+      "oid sha256:#{'a' * 64}",
+      "size 123"
+    ].join("\n") + "\n"
+  end
+
   def test_safe_candidate_passes
     with_repo do |repo|
       stage(repo, "README.md", "Public documentation without credentials.\n")
@@ -154,6 +162,8 @@ class CheckCurrentSourceTest < Minitest::Test
           "private.txt"
         ].join,
         "root-home.txt" => "/" + "root/.ssh/id_ed25519",
+        "macos-root-home.txt" => "/" + "var/root/.ssh/id_ed25519",
+        "macos-private-root-home.txt" => "/" + "private/var/root/.ssh/id_ed25519",
         "windows-home.txt" => "C:" + "\\Users\\example\\private.txt",
         "lowercase-windows-home.txt" => "c:" + "\\users\\example\\private.txt",
         "escaped-windows-home.txt" => [
@@ -467,12 +477,21 @@ class CheckCurrentSourceTest < Minitest::Test
 
   def test_git_lfs_pointer_requires_separate_review
     with_repo do |repo|
-      pointer = [
-        "version https://git-lfs.github.com/spec/v1",
-        "oid sha256:#{'a' * 64}",
-        "size 123"
-      ].join("\n") + "\n"
-      stage(repo, "large.dat", pointer)
+      stage(repo, "large.dat", lfs_pointer)
+
+      _stdout, stderr, status = run_checker(repo)
+
+      refute status.success?
+      assert_includes stderr, "large.dat"
+      assert_includes stderr, "Git LFS object requires separate review"
+      refute_includes stderr, "sha256:"
+    end
+  end
+
+  def test_unstaged_git_lfs_pointer_requires_separate_review
+    with_repo do |repo|
+      stage(repo, "large.dat", "safe candidate\n")
+      write(repo, "large.dat", lfs_pointer)
 
       _stdout, stderr, status = run_checker(repo)
 
